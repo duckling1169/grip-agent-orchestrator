@@ -51,7 +51,8 @@ export async function createClawSupervisor(options: ClawSetupOptions = {}) {
     packages,
     runner,
     store: new FileClawStateStore(paths.clawState),
-    gate: expectedVersion => healthGate({ client, expectedVersion, engines: options.engines ?? ['claude', 'codex-app', 'agy'], cwd: gateCwd }),
+    gate: expectedVersion =>
+      healthGate({ client, expectedVersion, engines: options.engines ?? ['claude', 'codex-app', 'agy'], cwd: gateCwd }),
     // Until Grip's run store exists: idle means Claw holds no sessions.
     isIdle: options.isIdle ?? (async () => (await client.listSessions().catch(() => [])).length === 0),
   })

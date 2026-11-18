@@ -115,7 +115,9 @@ export class ClawSupervisor extends EventEmitter<SupervisorEvents> {
     this.timer = setTimeout(() => {
       this.timer = null
       this.checkForUpdate()
-        .then(outcome => this.schedule(outcome.kind === 'deferred' ? (this.options.retryBusyMs ?? HOUR_MS) : (this.options.checkEveryMs ?? DAY_MS)))
+        .then(outcome =>
+          this.schedule(outcome.kind === 'deferred' ? (this.options.retryBusyMs ?? HOUR_MS) : (this.options.checkEveryMs ?? DAY_MS)),
+        )
         .catch(error => {
           this.emit('error', error as Error)
           this.schedule(this.options.checkEveryMs ?? DAY_MS)
@@ -179,7 +181,8 @@ export class ClawSupervisor extends EventEmitter<SupervisorEvents> {
 
     const current = this._version ?? (await this.options.packages.installed())
     const target = pickTarget(available, this.range)
-    const fresh = target && isNewer(target, current) && !(state.rejected && semver.valid(state.rejected) && !semver.gt(target, state.rejected))
+    const fresh =
+      target && isNewer(target, current) && !(state.rejected && semver.valid(state.rejected) && !semver.gt(target, state.rejected))
     if (!target || !fresh) {
       await this.options.store.save(state)
       return { kind: 'up-to-date', version: current ?? 'none' }

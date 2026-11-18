@@ -11,6 +11,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "test": "vitest run",
     "smoke:supervisor": "tsx scripts/supervisor-smoke.ts"
   },
@@ -20,6 +22,7 @@
   "devDependencies": {
     "@types/node": "^22.10.0",
     "@types/semver": "^7.5.8",
+    "prettier": "^3.10.1",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0",
     "vitest": "^3.1.0"

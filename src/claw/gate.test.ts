@@ -53,7 +53,12 @@ describe('healthGate', () => {
   it('passes a healthy Claw and leaves no sessions behind', async () => {
     const claw = await fakeClaw()
     close = claw.close
-    const result = await healthGate({ client: claw.client, expectedVersion: '7.23.4', engines: ['claude', 'codex-app', 'agy'], cwd: '/tmp' })
+    const result = await healthGate({
+      client: claw.client,
+      expectedVersion: '7.23.4',
+      engines: ['claude', 'codex-app', 'agy'],
+      cwd: '/tmp',
+    })
     expect(result.ok).toBe(true)
     expect(gateSummary(result)).toBe('all checks passed')
     expect(result.checks.map(c => c.name)).toContain('agy session stop')
@@ -87,7 +92,12 @@ describe('healthGate', () => {
   })
 
   it('fails fast when nothing answers', async () => {
-    const result = await healthGate({ client: new ClawClient('http://127.0.0.1:9', TOKEN), expectedVersion: '7.23.4', engines: ['claude'], cwd: '/tmp' })
+    const result = await healthGate({
+      client: new ClawClient('http://127.0.0.1:9', TOKEN),
+      expectedVersion: '7.23.4',
+      engines: ['claude'],
+      cwd: '/tmp',
+    })
     expect(result).toEqual({ ok: false, checks: [{ name: 'health', ok: false, detail: 'no answer on /health' }] })
   })
 })

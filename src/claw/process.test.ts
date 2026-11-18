@@ -30,7 +30,15 @@ async function setup() {
   const port = await freePort()
   const dir = await mkdtemp(join(tmpdir(), 'grip-proc-'))
   const client = new ClawClient(`http://127.0.0.1:${port}`, 'x'.repeat(64))
-  proc = new ClawProcess({ client, cliPath: async () => FAKE, port, token: 'x'.repeat(64), logFile: join(dir, 'claw.log'), backoffMs: [100], healthTimeoutMs: 5000 })
+  proc = new ClawProcess({
+    client,
+    cliPath: async () => FAKE,
+    port,
+    token: 'x'.repeat(64),
+    logFile: join(dir, 'claw.log'),
+    backoffMs: [100],
+    healthTimeoutMs: 5000,
+  })
   return { port, client, logFile: join(dir, 'claw.log'), proc }
 }
 
