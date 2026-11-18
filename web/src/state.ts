@@ -198,7 +198,12 @@ export function useDetail<T>(key: string, read: (key: string, signal: AbortSigna
       },
       error => {
         if (!controller.signal.aborted)
-          setResponse(previous => ({ key, data: previous?.key === key ? previous.data : null, error: errorText(error) }))
+          setResponse(previous => ({
+            key,
+            data: previous?.key === key ? previous.data : null,
+            at: previous?.key === key ? previous.at : undefined,
+            error: errorText(error),
+          }))
       },
     )
     return () => controller.abort()
