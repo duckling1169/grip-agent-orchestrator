@@ -74,6 +74,28 @@ export class ClawSupervisor extends EventEmitter<SupervisorEvents> {
     return this._version
   }
 
+  /**
+   * Resolves once Claw can take work: ready, or up but degraded. A turn that arrives during a
+   * start or an update waits here instead of failing; it gives up after `timeoutMs`.
+   */
+  whenReady(timeoutMs = 5 * 60 * 1000): Promise<void> {
+    const usable = (s: SupervisorStatus) => s === 'ready' || s === 'degraded'
+    if (usable(this._status)) return Promise.resolve()
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.off('status', onStatus)
+        reject(new Error(`Claw is not ready (${this._status})`))
+      }, timeoutMs)
+      const onStatus = (s: SupervisorStatus) => {
+        if (!usable(s)) return
+        clearTimeout(timer)
+        this.off('status', onStatus)
+        resolve()
+      }
+      this.on('status', onStatus)
+    })
+  }
+
   private setStatus(status: SupervisorStatus): void {
     if (status === this._status) return
     this._status = status

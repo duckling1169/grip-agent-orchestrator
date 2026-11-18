@@ -170,3 +170,22 @@ describe('checkForUpdate', () => {
     await t.supervisor.stop()
   })
 })
+
+describe('whenReady', () => {
+  it('waits through an update and resolves once Claw is back', async () => {
+    const t = setup({ current: '7.23.4', published: ['7.25.0'] })
+    let ready = false
+    const waiting = t.supervisor.whenReady(1000).then(() => (ready = true))
+    await new Promise(r => setTimeout(r, 10))
+    expect(ready).toBe(false)
+    await t.supervisor.start()
+    await waiting
+    expect(ready).toBe(true)
+    await t.supervisor.stop()
+  })
+
+  it('gives up when Claw never comes up', async () => {
+    const t = setup({ current: '7.23.4', published: [] })
+    await expect(t.supervisor.whenReady(20)).rejects.toThrow('Claw is not ready (stopped)')
+  })
+})

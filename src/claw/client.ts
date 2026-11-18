@@ -20,6 +20,24 @@ export type ClawSession = {
   costUsd?: number
 }
 
+export type StartSessionOptions = {
+  name: string
+  cwd: string
+  engine: ClawEngine
+  model?: string
+  effort?: string
+  /** The engine's conversation to continue instead of starting a new one. */
+  resumeSessionId?: string
+}
+
+/** What a finished turn reports. Denied tool calls can leave a "successful" turn that did nothing. */
+export type ClawSendResult = {
+  output: string
+  sessionId?: string
+  error?: string
+  permissionDenials?: { toolName: string }[]
+}
+
 export class ClawError extends Error {
   constructor(
     message: string,
@@ -83,8 +101,18 @@ export class ClawClient {
     return body.sessions as ClawSession[]
   }
 
-  async startSession(options: { name: string; cwd: string; engine: ClawEngine; model?: string }): Promise<ClawSession> {
+  async startSession(options: StartSessionOptions): Promise<ClawSession> {
     return this.post<ClawSession>('/session/start', options, 120_000)
+  }
+
+  /**
+   * One turn: Claw answers only when the engine has finished it, so this waits as long as the
+   * turn may take. `timeoutMs` is the turn's own limit; the HTTP wait allows a minute more.
+   */
+  async sendMessage(name: string, message: string, options: { timeoutMs: number; effort?: string }): Promise<ClawSendResult> {
+    const body: Record<string, unknown> = { name, message, timeout: options.timeoutMs }
+    if (options.effort) body.effort = options.effort
+    return this.post<ClawSendResult>('/session/send', body, options.timeoutMs + 60_000)
   }
 
   async stopSession(name: string): Promise<void> {

@@ -23,7 +23,7 @@ Status: design, agreed in a grilling session on 2026-11-17. Nothing is built yet
 - **Being an agent runtime.** Claw owns engine adapters, sessions, resume and the run ledger.
 - **Gists, snapshot files or any export and sync of state.** Devices read live state from the principal machine over the tailnet. If the principal is unreachable, the app says so.
 - **Review or merge workflows inside Grip.** The orchestrator reviews and merges with git or `gh`, as it does today. Grip has no accept/reject states and no merge button.
-- **Mandatory acceptance contracts or "decision points".** Claw contracts are optional and passed straight through.
+- **Acceptance contracts or "decision points".** Claw's contracts apply to its workflows, not to the plain sessions Grip drives, so Grip doesn't use them.
 - **Remote elevation.** Admin steps stay manual, at the machine (see §9.2).
 - **Watching agents Grip didn't start.** Interactive Claude Code or Codex app sessions, and anything started outside Grip, are not shown.
 - **Running agents on several machines at once.** There is one principal at a time, though the API stays host-aware so this remains possible later.
@@ -133,19 +133,21 @@ Orchestrators add Grip as an MCP server (`http://127.0.0.1:<port>/mcp`) **instea
 
 | Tool | Input | Returns |
 |---|---|---|
-| `delegate` | `folder`, `engine` (`claude` / `codex` / `agy`), `model?`, `effort?`, `brief` (repo-relative path or inline text), `contract?`, `retryOf?` | Immediately: `runId`, worktree path, branch, and a quota note when that provider is low or out (information only, never a block) |
+| `delegate` | `folder`, `engine` (`claude` / `codex` / `agy`), `model?`, `effort?`, `brief` (path or inline text), `retryOf?` | Immediately: `runId`, worktree path, branch, and a quota note when that provider is low or out (information only, never a block) |
 | `message` | `runId`, `text` | Ack. The next turn starts in the background |
 | `stop` | `runId` | Ack after the worker's process tree is gone |
 | `list` | `status?` (`running` / `done` / `failed`), `folder?` | Runs with title, engine, model, folder, branch, status, elapsed time, git facts, unviewed flag |
-| `result` | `runId` | Brief, final result text, diff stats plus the unified diff, git facts, contract evidence if any. Marks the run viewed |
+| `result` | `runId` | Brief, final result text, diff stats plus the unified diff, git facts, overlap warnings. Marks the run viewed |
 | `wait_any` | `timeoutSec`, `runIds?` | The next run to finish or fail that hasn't been viewed yet, as `result`, or `null` on timeout |
-| `quota` | — | Current windows per provider plus the `verdict()` line |
+| `quota` | — | Current windows per provider plus the `verdict()` line (added with the quota module, §8) |
 
 Notes:
 
 - **Delegation is asynchronous.** Claw's `/session/send` blocks, so Grip runs it in the background and tracks the run. An orchestrator's loop is: `delegate` several tasks, then repeat `wait_any`, review, and `message` or merge.
 - **Briefs are written by the orchestrator** (or a subagent), not by you. Grip doesn't impose a format. If `brief` is a path, Grip checks it exists, sends the worker `Do <path>` and uses the file's first heading as the run's title. If it's inline text, the title is its first line.
-- **Contracts are optional** and passed straight through to Claw. Grip has no default contracts.
+- **One Claw session per turn.** Grip opens the run's Claw session for a turn and closes it when the turn ends, keeping the engine's own conversation id. A `message` reopens the session with `resumeSessionId`, so it continues the same conversation. Idle runs hold no Claw session slot and never hit Claw's idle expiry.
+- **Turn length:** each turn may run up to 2 hours (Claw's own defaults are 5 to 10 minutes).
+- **MCP endpoint:** `http://127.0.0.1:18797/mcp`, stateless Streamable HTTP. `grip mcp-config` prints the command that adds it to Claude Code, and the JSON for any other MCP host.
 - **The tool set is deliberately small,** not Claw's 79 tools. Councils and fan-out can become Grip tools later.
 
 ## 6. Runs
@@ -185,7 +187,6 @@ If the principal sleeps, reboots or Claw crashes, Grip marks the affected runs `
 - **Runtime:** started, elapsed, turn count, tokens, from Claw session status and the ledger.
 - **Git facts** from the worktree: files changed, last edit and which file, commits ahead of the base branch, last commit message.
 - **Output:** the brief, each turn's result text, the session history (via `/session/grep`), and the diff, per-file and collapsible.
-- **Contract evidence,** when a contract was given.
 - **Overlap warning** (§6.2).
 
 ### 7.2 Global

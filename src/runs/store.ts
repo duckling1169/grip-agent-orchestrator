@@ -27,6 +27,8 @@ export type Run = {
   brief: Brief
   /** The Claw session this run drives. */
   session: string
+  /** The engine's own conversation id, so a later message resumes the same conversation. */
+  engineSessionId: string | null
   retryOf: string | null
   status: RunStatus
   error: string | null
@@ -46,7 +48,7 @@ export type NewRun = Pick<Run, 'title' | 'engine' | 'folder' | 'cwd' | 'repo' | 
 type RunEvent =
   | { t: 'created'; at: string; run: Run }
   | { t: 'turn-started'; at: string; id: string; turn: number }
-  | { t: 'turn-ended'; at: string; id: string; turn: number; error: string | null }
+  | { t: 'turn-ended'; at: string; id: string; turn: number; error: string | null; sessionId?: string }
   | { t: 'stopped'; at: string; id: string }
   | { t: 'interrupted'; at: string; id: string; reason: string }
   | { t: 'viewed'; at: string; id: string }
@@ -133,6 +135,7 @@ export class RunStore extends EventEmitter<RunStoreEvents> {
         run.error = e.error
         run.finishedAt = e.at
         run.viewed = false
+        if (e.sessionId) run.engineSessionId = e.sessionId
         break
       case 'stopped':
         run.status = 'stopped'
@@ -186,6 +189,7 @@ export class RunStore extends EventEmitter<RunStoreEvents> {
       repo: input.repo,
       brief: input.brief,
       session: `grip-${id}`,
+      engineSessionId: null,
       retryOf: input.retryOf ?? null,
       status: 'running',
       error: null,
@@ -208,9 +212,22 @@ export class RunStore extends EventEmitter<RunStoreEvents> {
   }
 
   /** The worker's turn is over: its output, and an error when it failed. */
-  async endTurn(id: string, turn: number, result: { output: string; error?: string | null }): Promise<Run> {
-    await writeFile(join(this.runDir(id), `turn-${turn}.out.md`), result.output)
-    return this.record({ t: 'turn-ended', at: this.stamp(), id, turn, error: result.error ?? null })
+  async endTurn(id: string, turn: number, result: { output: string; error?: string | null; sessionId?: string | null }): Promise<Run> {
+    await this.saveOutput(id, turn, result.output)
+    return this.record({
+      t: 'turn-ended',
+      at: this.stamp(),
+      id,
+      turn,
+      error: result.error ?? null,
+      ...(result.sessionId ? { sessionId: result.sessionId } : {}),
+    })
+  }
+
+  /** Keep a turn's output without changing the run, for a turn that ends after the run was stopped. */
+  async saveOutput(id: string, turn: number, output: string): Promise<void> {
+    this.must(id)
+    await writeFile(join(this.runDir(id), `turn-${turn}.out.md`), output)
   }
 
   async markStopped(id: string): Promise<Run> {
