@@ -9,7 +9,7 @@ import { gripPaths } from './paths.js'
 
 const USAGE = `grip <command>
 
-  serve [--engines claude,codex-app,agy]   Run Grip: Claw supervisor and the orchestrator MCP
+  serve [--engines claude,codex-app,agy]   Run Grip: Claw supervisor, the orchestrator MCP and the web API
   mcp-config                               Print how to add Grip's MCP server to an orchestrator
 `
 

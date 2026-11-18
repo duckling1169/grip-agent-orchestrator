@@ -241,7 +241,7 @@ Workers may do **anything your user account can do**, with three hard limits:
 
 1. **Never elevated.** Grip and Claw run as your normal user. Admin actions (network adapters, firewall, services) are **manual**. A worker that needs one writes the exact script. Grip sends "Admin action requested" to your phone with the full script, and the step runs only at the machine through the normal UAC prompt. This is the same model as Claude Code and the Codex app. There is no elevated runner.
 2. **Protected paths.** Workers can't write to Tailscale's config, `~/.grip`, Claw's install and state, `~/.ssh`, or credential stores (`~/.claude` and `~/.codex` auth files, `~/.gemini`, Windows Credential Manager). This is enforced through each engine's own permission and sandbox settings, passed by Claw, plus Grip refusing these as `delegate` folders. It prevents an agent from cutting your remote access, taking over its own supervisor, or leaking logins.
-3. **Stop all works.** The app's **Stop all** kills every worker's process tree directly, even if Claw is unresponsive.
+3. **Stop all works.** The app's **Stop all** marks every run stopped, then gives Claw 5 seconds to stop each session. If Claw doesn't, Grip restarts Claw with its whole process tree, which kills every worker. Grip never looks for worker processes itself.
 
 **Per-engine permission defaults** for unattended workers:
 - Claude: `acceptEdits` plus auto mode
@@ -306,7 +306,7 @@ The visual design gets a **separate design pass**, using reference terminals and
 - **Live updates:** Grip serves its own SSE stream of run and quota changes to the app. The app never polls Claw.
 - **Light and dark themes** following the system.
 
-**Web API** (loopback, behind `tailscale serve`, identity-checked):
+**Web API** (`127.0.0.1:18798`, behind `tailscale serve`, identity-checked). Writes must be JSON, and any `Origin` must be Grip's own, because `tailscale serve` adds your identity to requests from every page in your browser:
 - `GET /api/state`
 - `GET /api/runs/:id`
 - `POST /api/runs` (delegate)
@@ -336,7 +336,7 @@ The visual design gets a **separate design pass**, using reference terminals and
 
 While at least one run is active, Grip keeps the principal from sleeping. It releases the hold when the last run ends, so normal sleep settings apply when idle, and the display can still sleep.
 
-- **Windows:** `SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)`.
+- **Windows:** `SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)`. Node can't call Win32 itself, so a small PowerShell helper makes the call and then waits on stdin. The hold ends when the helper exits, including when Grip dies.
 - **macOS:** an `IOPMAssertion` that prevents idle system sleep (the same thing `caffeinate -i` uses).
 
 Wake-on-LAN is not planned. A sleeping principal shows as offline.

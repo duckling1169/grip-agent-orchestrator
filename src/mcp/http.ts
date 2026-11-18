@@ -5,12 +5,12 @@ import type { AddressInfo } from 'node:net'
 
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 
+import { readJsonBody, sendJson as send } from '../http-util.js'
 import type { Quota } from '../quota/quota.js'
 import type { RunManager } from '../runs/manager.js'
 import { createGripMcpServer } from './tools.js'
 
 export const DEFAULT_MCP_PORT = 18797
-const MAX_BODY_BYTES = 1024 * 1024
 
 export type McpHttpOptions = { manager: RunManager; quota: Quota; token: string; port?: number; version?: string }
 
@@ -38,7 +38,7 @@ export async function startMcpHttp(options: McpHttpOptions): Promise<{ server: S
     // Stateless: no MCP sessions to keep, so GET (server-to-client streams) has nothing to offer.
     if (req.method !== 'POST') return send(res, 405, { error: 'POST only' })
 
-    const body = await readJson(req)
+    const body = await readJsonBody(req)
     const mcp = createGripMcpServer(options.manager, options.quota, options.version)
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true })
     res.on('close', () => {
@@ -67,33 +67,4 @@ function loopbackHost(host: string | undefined): boolean {
   if (!host) return false
   const name = host.replace(/:\d+$/, '').toLowerCase()
   return name === '127.0.0.1' || name === 'localhost' || name === '[::1]'
-}
-
-function send(res: ServerResponse, status: number, body: unknown) {
-  res.writeHead(status, { 'Content-Type': 'application/json' })
-  res.end(JSON.stringify(body))
-}
-
-function readJson(req: IncomingMessage): Promise<unknown> {
-  return new Promise((resolve, reject) => {
-    let size = 0
-    const chunks: Buffer[] = []
-    req.on('data', (chunk: Buffer) => {
-      size += chunk.length
-      if (size > MAX_BODY_BYTES) {
-        reject(new Error('request body too large'))
-        req.destroy()
-        return
-      }
-      chunks.push(chunk)
-    })
-    req.on('end', () => {
-      try {
-        resolve(chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : undefined)
-      } catch {
-        reject(new Error('request body is not JSON'))
-      }
-    })
-    req.on('error', reject)
-  })
 }

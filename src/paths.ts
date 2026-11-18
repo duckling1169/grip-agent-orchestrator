@@ -8,6 +8,7 @@ export function gripHome(env: NodeJS.ProcessEnv = process.env): string {
 
 export const gripPaths = (home = gripHome()) => ({
   home,
+  config: join(home, 'config.json'),
   clawState: join(home, 'claw.json'),
   clawToken: join(home, 'claw-token'),
   quota: join(home, 'quota.json'),

@@ -6,6 +6,8 @@ export class FakeClaw implements ClawApi {
   sessions = new Map<string, StartSessionOptions>()
   starts: StartSessionOptions[] = []
   sends: { name: string; message: string }[] = []
+  /** When set, stopSession never answers, like a Claw that has hung. */
+  hangStops = false
   private pending = new Map<string, { resolve: (r: ClawSendResult) => void; reject: (e: Error) => void }>()
 
   async startSession(o: StartSessionOptions): Promise<ClawSession> {
@@ -18,6 +20,7 @@ export class FakeClaw implements ClawApi {
     return new Promise((resolve, reject) => this.pending.set(name, { resolve, reject }))
   }
   async stopSession(name: string) {
+    if (this.hangStops) return new Promise<void>(() => undefined)
     this.sessions.delete(name)
     this.pending.get(name)?.reject(new Error(`Session '${name}' was stopped`))
     this.pending.delete(name)

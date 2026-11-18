@@ -69,6 +69,19 @@ function setup(opts: { current: string | null; published: string[]; gate?: (v: s
   return { supervisor, packages, runner, store, gated }
 }
 
+describe('restart', () => {
+  it('stops and starts Claw again on the same version, with no new gate', async () => {
+    const t = setup({ current: '7.23.4', published: ['7.23.4'] })
+    await t.supervisor.start()
+    const statuses: string[] = []
+    t.supervisor.on('status', s => statuses.push(s))
+    await t.supervisor.restart()
+    expect([t.runner.stops, t.runner.starts, t.gated.length]).toEqual([1, 2, 1])
+    expect(statuses).toEqual(['starting', 'ready'])
+    expect(t.supervisor.version).toBe('7.23.4')
+  })
+})
+
 describe('boot', () => {
   it('installs the newest in-range release when Claw is missing', async () => {
     const t = setup({ current: null, published: ['7.23.4', '7.24.0', '8.0.0'] })

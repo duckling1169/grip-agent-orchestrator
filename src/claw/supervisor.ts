@@ -132,6 +132,20 @@ export class ClawSupervisor extends EventEmitter<SupervisorEvents> {
     })
   }
 
+  /**
+   * Stop Claw with every engine process it started, then start the same version again. Stop all
+   * uses this when Claw does not stop its sessions in time. The version already passed its gate.
+   */
+  async restart(): Promise<void> {
+    await this.exclusive(async () => {
+      const before = this._status
+      this.setStatus('starting')
+      await this.options.runner.stop()
+      await this.options.runner.start()
+      this.setStatus(before === 'degraded' ? 'degraded' : 'ready')
+    })
+  }
+
   private schedule(ms: number): void {
     if (this.timer) clearTimeout(this.timer)
     this.timer = setTimeout(() => {

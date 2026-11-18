@@ -14,6 +14,8 @@ Grip lets any orchestrator model delegate to coding agents (Claude Code, Codex, 
 - `src/git/`: worktrees (sibling `<repo>-worktrees/` folders on `grip/` branches), git facts, diffs. The parsers are copied from `agent-usage`.
 - `src/quota/`: quota windows (DESIGN §8). Parsers ported from `alethe-orchestrate`, wording copied from `agent-usage`. Codex through its own short-lived app-server client, agy through `agy -p /usage`, Claude only through an on-demand probe.
 - `src/mcp/`: the orchestrator MCP, stateless Streamable HTTP on `127.0.0.1:18797/mcp` behind a bearer token.
+- `src/web/`: the device web API and SSE on `127.0.0.1:18798`, behind Tailscale identity (`Tailscale-User-Login` checked against `allowedLogins` in `~/.grip/config.json`). Writes must be JSON from Grip's own origin.
+- `src/power/`: keep-awake while runs work (a PowerShell helper holds `SetThreadExecutionState` on Windows, `caffeinate` on macOS) and the never-elevated check.
 - `src/daemon.ts`, `src/cli.ts`: `grip serve` and `grip mcp-config`.
 - `src/testing/`: fakes for tests.
 - `scripts/`: manual smoke and end-to-end scripts against real Claw.

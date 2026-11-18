@@ -47,11 +47,18 @@ export type RunManagerOptions = {
   onActivityChange?: (running: number) => void
   /** Called after each turn ends, however it ended, so quota can be read again. */
   onTurnEnded?: (engine: Engine) => void
+  /**
+   * Kills every worker at once, for Stop all when Claw does not stop a session in time. The
+   * daemon restarts Claw, which takes every engine process it started with it.
+   */
+  killWorkers?: () => Promise<void>
   /** Waits until Claw can take a turn, for turns that arrive while it starts or updates. */
   clawReady?: () => Promise<void>
 }
 
 const DEFAULT_TURN_TIMEOUT_MS = 2 * 60 * 60 * 1000
+/** How long Stop all gives Claw to stop each session before it kills every worker. */
+const STOP_ALL_GRACE_MS = 5000
 const MAX_PATCH_CHARS = 200_000
 
 /**
@@ -133,11 +140,32 @@ export class RunManager {
     return stopped
   }
 
-  /** Stop every running run. */
-  async stopAll(): Promise<Run[]> {
-    const out: Run[] = []
-    for (const r of this.store.running()) out.push(await this.stop(r.id))
-    return out
+  /**
+   * Stop every running run. Each is recorded as stopped first, so the record is right even when
+   * Claw hangs. Claw then gets a few seconds to stop each session; if any is left, every worker
+   * is killed through `killWorkers`.
+   */
+  async stopAll(options: { graceMs?: number; kill?: boolean } = {}): Promise<{ stopped: Run[]; killed: boolean }> {
+    const running = this.store.running()
+    if (running.length === 0) return { stopped: [], killed: false }
+    const stopped: Run[] = []
+    for (const run of running) {
+      this.stopping.add(run.id)
+      stopped.push(await this.store.markStopped(run.id))
+    }
+    this.activityChanged()
+    const grace = options.graceMs ?? STOP_ALL_GRACE_MS
+    const results = await Promise.all(
+      running.map(run =>
+        withTimeout(this.options.claw.stopSession(run.session), grace).then(
+          () => true,
+          () => false,
+        ),
+      ),
+    )
+    const killed = results.includes(false) && options.kill !== false && !!this.options.killWorkers
+    if (killed) await this.options.killWorkers!()
+    return { stopped, killed }
   }
 
   list(filter: { status?: RunStatus; folder?: string } = {}): Run[] {
@@ -248,4 +276,20 @@ export class RunManager {
     }
     await this.store.endTurn(run.id, turn, result)
   }
+}
+
+function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`no answer within ${ms} ms`)), ms)
+    work.then(
+      value => {
+        clearTimeout(timer)
+        resolve(value)
+      },
+      error => {
+        clearTimeout(timer)
+        reject(error as Error)
+      },
+    )
+  })
 }

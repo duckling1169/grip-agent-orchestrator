@@ -35,8 +35,19 @@ async function setup() {
   const store = await RunStore.open(join(base, 'grip-home'))
   const claw = new FakeClaw()
   const activity: number[] = []
-  const manager = new RunManager({ store, worktrees: new Worktrees(), claw, onActivityChange: n => activity.push(n) })
-  return { base, repo, plain, store, claw, manager, activity }
+  const killed = { count: 0 }
+  const manager = new RunManager({
+    store,
+    worktrees: new Worktrees(),
+    claw,
+    onActivityChange: n => activity.push(n),
+    killWorkers: async () => {
+      killed.count++
+      claw.hangStops = false
+      for (const s of [...claw.sessions.keys()]) await claw.stopSession(s)
+    },
+  })
+  return { base, repo, plain, store, claw, manager, activity, killed }
 }
 
 describe('delegate', () => {
@@ -125,6 +136,31 @@ describe('message, stop and wait', () => {
     const run = await t.manager.delegate({ folder: t.plain, engine: 'codex', brief: { text: 'long job' } })
     await t.claw.waitForSend(run.session)
     expect((await t.manager.stop(run.id)).status).toBe('stopped')
+    await t.manager.settled(run.id)
+    expect(t.store.get(run.id)?.status).toBe('stopped')
+  })
+
+  it('stops all runs through Claw when it answers', async () => {
+    const t = await setup()
+    const a = await t.manager.delegate({ folder: t.plain, engine: 'codex', brief: { text: 'A' } })
+    const b = await t.manager.delegate({ folder: t.plain, engine: 'agy', brief: { text: 'B' } })
+    await t.claw.waitForSend(a.session)
+    await t.claw.waitForSend(b.session)
+    const result = await t.manager.stopAll()
+    expect(result.killed).toBe(false)
+    expect(result.stopped.map(r => r.status)).toEqual(['stopped', 'stopped'])
+    expect(t.activity.at(-1)).toBe(0)
+    expect((await t.manager.stopAll()).stopped).toEqual([])
+  })
+
+  it('kills every worker when Claw does not stop a session in time', async () => {
+    const t = await setup()
+    const run = await t.manager.delegate({ folder: t.plain, engine: 'claude', brief: { text: 'stuck' } })
+    await t.claw.waitForSend(run.session)
+    t.claw.hangStops = true
+    const result = await t.manager.stopAll({ graceMs: 50 })
+    expect(result).toMatchObject({ killed: true, stopped: [{ id: run.id, status: 'stopped' }] })
+    expect(t.killed.count).toBe(1)
     await t.manager.settled(run.id)
     expect(t.store.get(run.id)?.status).toBe('stopped')
   })
