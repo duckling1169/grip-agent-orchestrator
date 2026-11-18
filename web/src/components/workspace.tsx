@@ -1,12 +1,27 @@
-import type { ComponentChildren } from 'preact'
-import { useEffect, useId, useLayoutEffect, useRef, useState } from 'preact/hooks'
+import { ArrowLeft, ArrowUpRight } from 'lucide-react'
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader } from '@/components/ui/card'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { Textarea } from '@/components/ui/textarea'
 
 import { agoText, durationText, minutesBetween } from '../../../src/quota/usage.js'
 import { api } from '../api.js'
 import { chatHref, runHref, useDetail } from '../state.js'
-import type { AppState, ChatSummary, RunDetail, RunSummary, TimelineEntry } from '../types.js'
+import type { AppState, ChatSummary, Engine, RunDetail, RunSummary, TimelineEntry } from '../types.js'
 import { EngineMark, ErrorBanner, folderName, isEngine, Markdown, runActivity, StatusDot, Time, useAction } from './common.js'
 import { ChatStatus, hostName } from './navigation.js'
+
+const contentWidth = 'mx-auto w-full max-w-4xl px-4 sm:px-6 lg:px-8'
+const composerFrame = 'shrink-0 border-t bg-background pt-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)]'
+// Keep Radix's intrinsic-width wrapper from expanding the viewport for code blocks and diffs.
+const scrollFrame = 'min-h-0 min-w-0 flex-1 [&_[data-slot=scroll-area-viewport]>div]:block!'
+const viewportSelector = '[data-slot="scroll-area-viewport"]'
+const pathText = 'font-mono text-xs wrap-anywhere'
+const textLink = 'font-medium underline-offset-4 hover:underline focus-visible:underline'
+const touchButton = 'min-h-11 md:min-h-8'
 
 export function Composer({
   name,
@@ -29,46 +44,49 @@ export function Composer({
   useEffect(() => {
     if (focus !== undefined) ref.current?.focus()
   }, [focus])
+
   return (
     <form
-      class="composer"
+      className={composerFrame}
       onSubmit={event => {
         event.preventDefault()
-        if (!text.trim() || blocked) return
+        const message = text.trim()
+        if (!message || blocked) return
         setNotice('')
         void action.perform(async () => {
-          await send(text.trim())
+          await send(message)
           setText('')
           if (queued) setNotice('Message accepted for the next turn.')
           ref.current?.focus()
         })
       }}
     >
-      <div class="composer-inner">
-        <label class="visually-hidden" for={id}>
+      <div className={`${contentWidth} grid gap-2`}>
+        <label className="sr-only" htmlFor={id}>
           {name}
         </label>
-        <textarea
-          class="composer-field"
+        <Textarea
+          className="max-h-40 resize-y overflow-y-auto"
           id={id}
           ref={ref}
           rows={2}
           value={text}
-          disabled={blocked || action.busy}
-          onInput={event => {
+          disabled={blocked}
+          readOnly={action.busy}
+          onChange={event => {
             setText(event.currentTarget.value)
             setNotice('')
           }}
           placeholder={name}
         />
         <ErrorBanner text={action.error} />
-        <div class="composer-footer">
-          <span class="muted" role={notice ? 'status' : undefined}>
+        <div className="flex items-center gap-3">
+          <span className="min-w-0 flex-1 text-xs text-muted-foreground" role="status">
             {notice || (queued ? 'Messages queue while Claude is working.' : '')}
           </span>
-          <button class="button button-primary" type="submit" disabled={!text.trim() || blocked || action.busy}>
+          <Button className={`shrink-0 ${touchButton}`} size="sm" type="submit" disabled={!text.trim() || blocked || action.busy}>
             {action.busy ? 'Sending…' : 'Send message'}
-          </button>
+          </Button>
         </div>
       </div>
     </form>
@@ -78,16 +96,93 @@ export function Composer({
 function LoadNotice({ loading, error, retry }: { loading: boolean; error?: string; retry: () => void }) {
   if (!error && !loading) return null
   return (
-    <div class="workspace-status">
+    <div className="grid justify-items-start gap-2 text-sm text-muted-foreground">
       <ErrorBanner text={error} />
       {error ? (
-        <button class="button button-secondary" type="button" onClick={retry}>
+        <Button className={touchButton} variant="outline" size="sm" type="button" onClick={retry}>
           Try again
-        </button>
+        </Button>
       ) : (
         <p role="status">Loading…</p>
       )}
     </div>
+  )
+}
+
+function WorkspaceHeader({
+  backHref = '#/',
+  backLabel = 'Chats',
+  title,
+  engine,
+  details,
+  actions,
+}: {
+  backHref?: string
+  backLabel?: string
+  title: string
+  engine?: Engine
+  details?: ReactNode
+  actions?: ReactNode
+}) {
+  return (
+    <header className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 border-b px-4 py-3 sm:px-6 lg:px-8">
+      <div className="w-full md:hidden">
+        <Button variant="ghost" size="sm" className={`-ml-2 ${touchButton}`} asChild>
+          <a href={backHref}>
+            <ArrowLeft aria-hidden="true" />
+            {backLabel}
+          </a>
+        </Button>
+      </div>
+      <div className="min-w-0 flex-[1_1_12rem]">
+        <h1 className="flex items-baseline gap-2 text-lg font-semibold tracking-tight sm:text-xl">
+          {engine && <EngineMark engine={engine} />}
+          <span className="min-w-0 wrap-anywhere">{title}</span>
+        </h1>
+        {details && <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">{details}</div>}
+      </div>
+      {actions && <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">{actions}</div>}
+    </header>
+  )
+}
+
+function WorkerCard({
+  href,
+  engine,
+  title,
+  status,
+  meta,
+  children,
+}: {
+  href: string
+  engine?: Engine
+  title: string
+  status?: ReactNode
+  meta: ReactNode
+  children: ReactNode
+}) {
+  return (
+    <li className="min-w-0">
+      <Card className="gap-3 overflow-hidden py-0 pb-4 shadow-none">
+        <CardHeader className="gap-2 px-0 pt-0">
+          <a
+            href={href}
+            className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5 px-4 pt-4 pb-2 transition-colors hover:bg-muted focus-visible:bg-muted focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
+          >
+            {engine && <EngineMark engine={engine} />}
+            <strong className="min-w-0 flex-1 text-sm font-medium wrap-anywhere">{title}</strong>
+            {status && (
+              <Badge variant="secondary" className="gap-1.5 font-normal">
+                {status}
+              </Badge>
+            )}
+            <ArrowUpRight className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+          </a>
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 px-4 text-xs text-muted-foreground">{meta}</div>
+        </CardHeader>
+        {children && <CardContent className="grid min-w-0 gap-2 px-4 text-sm">{children}</CardContent>}
+      </Card>
+    </li>
   )
 }
 
@@ -96,9 +191,11 @@ function TimelineItem({ entry, runs, now }: { entry: TimelineEntry; runs: RunSum
     const from = entry.kind === 'reply' ? 'Claude' : entry.from === 'grip' ? 'Grip' : 'You'
     const user = entry.kind === 'message' && entry.from === 'user'
     return (
-      <li class={`timeline-entry message ${user ? 'user-message' : 'assistant-message'}`}>
-        <div class="message-meta">
-          <strong>{from}</strong>
+      <li
+        className={`grid min-w-0 gap-2 wrap-anywhere ${user ? 'ml-auto max-w-[92%] rounded-xl rounded-br-sm border bg-muted/50 px-4 py-3' : ''}`}
+      >
+        <div className="flex flex-wrap items-baseline gap-x-2 text-xs text-muted-foreground">
+          <strong className="font-medium text-foreground">{from}</strong>
           <Time at={entry.at} />
         </div>
         {entry.text && <Markdown text={entry.text} />}
@@ -111,60 +208,67 @@ function TimelineItem({ entry, runs, now }: { entry: TimelineEntry; runs: RunSum
   const target = runHref(entry.runId)
   if (entry.kind === 'handoff') {
     return (
-      <li class={`timeline-entry worker-card${isEngine(entry.engine) ? ` engine-${entry.engine}` : ''}`}>
-        <a href={target} class="worker-card-header">
-          {isEngine(entry.engine) && <EngineMark engine={entry.engine} />}
-          <strong>{entry.title}</strong>
-          <span class="worker-card-state">
-            {run && (
-              <>
-                <StatusDot status={run.status} engine={run.engine} />
-                {runActivity(run, now, true)}
-              </>
+      <WorkerCard
+        href={target}
+        engine={isEngine(entry.engine) ? entry.engine : undefined}
+        title={entry.title}
+        status={
+          run && (
+            <>
+              <StatusDot status={run.status} engine={run.engine} />
+              {runActivity(run, now, true)}
+            </>
+          )
+        }
+        meta={
+          <>
+            <span>Delegated</span>
+            <Time at={entry.at} />
+            {run?.branch && (
+              <code className="min-w-0 wrap-anywhere" title={run.branch}>
+                {run.branch}
+              </code>
             )}
-          </span>
-          <span class="card-arrow" aria-hidden="true">
-            ↗
-          </span>
-        </a>
-        <div class="worker-card-meta">
-          <span>Delegated</span>
-          <Time at={entry.at} />
-          {run?.branch && <code title={run.branch}>{run.branch}</code>}
-        </div>
-        <p class="worker-card-brief">{entry.brief}</p>
-      </li>
+          </>
+        }
+      >
+        <p className="wrap-anywhere whitespace-pre-wrap text-muted-foreground">{entry.brief}</p>
+      </WorkerCard>
     )
   }
   if (entry.kind === 'worker-result') {
     return (
-      <li class={`timeline-entry worker-card worker-card-result${run ? ` engine-${run.engine}` : ''}`}>
-        <a class="worker-card-header" href={target}>
-          {run && <EngineMark engine={run.engine} />}
-          <strong>{run?.title ?? 'Worker'}</strong>
-          <span class="worker-card-state">
+      <WorkerCard
+        href={target}
+        engine={run?.engine}
+        title={run?.title ?? 'Worker'}
+        status={
+          <>
             <StatusDot status={entry.status} engine={run?.engine} />
             {entry.status === 'done' ? 'Done' : 'Failed'}
-          </span>
-          <span class="card-arrow" aria-hidden="true">
-            ↗
-          </span>
-        </a>
-        <div class="worker-card-meta">
-          <span>Worker result</span>
-          <Time at={entry.at} />
-        </div>
+          </>
+        }
+        meta={
+          <>
+            <span>Worker result</span>
+            <Time at={entry.at} />
+          </>
+        }
+      >
         {entry.preview && <Markdown text={entry.preview} />}
         <ErrorBanner text={entry.error} />
-      </li>
+      </WorkerCard>
     )
   }
   if (entry.kind === 'to-worker') {
     return (
-      <li class="timeline-entry message worker-message">
-        <div class="message-meta">
-          <strong>
-            {entry.from === 'user' ? 'You' : 'Chat'} → <a href={target}>{run?.title ?? 'Worker'}</a>
+      <li className="grid min-w-0 gap-2 wrap-anywhere">
+        <div className="flex flex-wrap items-baseline gap-x-2 text-xs text-muted-foreground">
+          <strong className="font-medium text-foreground">
+            {entry.from === 'user' ? 'You' : 'Chat'} →{' '}
+            <a className={textLink} href={target}>
+              {run?.title ?? 'Worker'}
+            </a>
           </strong>
           <Time at={entry.at} />
         </div>
@@ -174,8 +278,10 @@ function TimelineItem({ entry, runs, now }: { entry: TimelineEntry; runs: RunSum
   }
   const label = entry.kind === 'read' ? 'Result reviewed' : entry.kind === 'stopped' ? 'Worker stopped' : `Interrupted · ${entry.reason}`
   return (
-    <li class="timeline-entry timeline-note">
-      <a href={target}>{run?.title ?? 'Worker'}</a>
+    <li className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1 wrap-anywhere text-xs text-muted-foreground">
+      <a className={textLink} href={target}>
+        {run?.title ?? 'Worker'}
+      </a>
       <span>{label}</span>
       <Time at={entry.at} />
     </li>
@@ -195,7 +301,7 @@ export function ChatWorkspace({
   now: number
   offline: boolean
   stop: (chat: ChatSummary) => void
-  attention?: ComponentChildren
+  attention?: ReactNode
 }) {
   const detail = useDetail(id, api.chat, live)
   const chat = live ?? (detail.data && { ...detail.data.chat, runs: detail.data.runs })
@@ -203,91 +309,90 @@ export function ChatWorkspace({
   const thread = useRef<HTMLDivElement>(null)
   const stickToLatest = useRef(true)
   useLayoutEffect(() => {
-    const panel = thread.current
-    if (panel && stickToLatest.current) panel.scrollTop = panel.scrollHeight
-  }, [entries?.length, chat?.status, chat?.waiting])
+    const viewport = thread.current?.querySelector<HTMLDivElement>(viewportSelector)
+    if (viewport && stickToLatest.current) viewport.scrollTop = viewport.scrollHeight
+  }, [entries, chat?.status, chat?.waiting, chat?.error])
 
   if (!chat)
     return (
       <>
-        <header class="view-header">
-          <a class="back-link mobile-back" href="#/">
-            ← Chats
-          </a>
-          <h1>Chat</h1>
-        </header>
-        <LoadNotice loading={!detail.error} error={detail.error} retry={detail.refresh} />
+        <WorkspaceHeader title="Chat" />
+        <div className={`${contentWidth} py-4`}>
+          <LoadNotice loading={!detail.error} error={detail.error} retry={detail.refresh} />
+        </div>
       </>
     )
+
   const external = chat.kind === 'external'
   const canStop = !external && chat.status !== 'stopped'
   return (
     <>
-      <header class="view-header">
-        <a class="back-link mobile-back" href="#/">
-          ← Chats
-        </a>
-        <div class="view-heading">
-          <div class="view-title">
-            {(chat.engine || chat.host === 'claude-code') && <EngineMark engine={chat.engine ?? 'claude'} />}
-            <h1>{chat.title}</h1>
-          </div>
-          <div class="view-meta">
+      <WorkspaceHeader
+        title={chat.title}
+        engine={chat.engine ?? (chat.host === 'claude-code' ? 'claude' : undefined)}
+        details={
+          <>
             <ChatStatus chat={chat} />
             {chat.folder && (
-              <span class="view-folder" title={chat.folder}>
+              <span className="min-w-0 wrap-anywhere" title={chat.folder}>
                 {folderName(chat.folder)}
               </span>
             )}
-            {chat.model && <span>{chat.model}</span>}
-          </div>
-        </div>
-        <div class="view-actions">
-          <span class="muted worker-count">
-            {chat.runs.length} {chat.runs.length === 1 ? 'worker' : 'workers'}
-          </span>
-          {canStop && (
-            <button class="button button-secondary" type="button" disabled={offline} onClick={() => stop(chat)}>
-              Stop chat
-            </button>
-          )}
-        </div>
-      </header>
-      <div class="mobile-attention chat-attention">{attention}</div>
-      <div
-        class="thread"
+            {chat.model && <span className="min-w-0 wrap-anywhere">{chat.model}</span>}
+          </>
+        }
+        actions={
+          <>
+            <span className="text-xs text-muted-foreground">
+              {chat.runs.length} {chat.runs.length === 1 ? 'worker' : 'workers'}
+            </span>
+            {canStop && (
+              <Button className={touchButton} variant="outline" size="sm" type="button" disabled={offline} onClick={() => stop(chat)}>
+                Stop chat
+              </Button>
+            )}
+          </>
+        }
+      />
+      {attention && (
+        <div className={`${contentWidth} max-h-[min(11rem,30dvh)] shrink-0 overflow-y-auto py-3 empty:hidden md:hidden`}>{attention}</div>
+      )}
+      <ScrollArea
+        className={scrollFrame}
         ref={thread}
-        onScroll={event => {
-          const panel = event.currentTarget
-          stickToLatest.current = panel.scrollHeight - panel.scrollTop - panel.clientHeight < 72
+        onScrollCapture={event => {
+          const viewport = event.target
+          if (viewport instanceof HTMLElement && viewport.matches(viewportSelector)) {
+            stickToLatest.current = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 72
+          }
         }}
       >
-        <div class="thread-inner">
+        <div className={`${contentWidth} grid min-w-0 gap-4 py-4 sm:gap-6 sm:py-6`}>
           <LoadNotice loading={!entries && !detail.error} error={detail.error} retry={detail.refresh} />
           {entries &&
             (entries.length ? (
-              <ol class="timeline" aria-label="Conversation">
+              <ol className="grid min-w-0 gap-5 sm:gap-6" aria-label="Conversation">
                 {entries.map((entry, index) => (
                   <TimelineItem key={`${entry.at}-${entry.kind}-${index}`} entry={entry} runs={chat.runs} now={now} />
                 ))}
               </ol>
             ) : (
-              <div class="empty-thread">
-                <p class="muted">No messages yet.</p>
-              </div>
+              <p className="py-4 text-sm wrap-anywhere text-muted-foreground">
+                {external ? 'No messages yet.' : `Claude is ready in ${chat.folder ?? 'this folder'}. Send a message to start.`}
+              </p>
             ))}
           {chat.status === 'working' && (
-            <p class="workspace-status working-note" role="status">
+            <p className="flex items-center gap-2 text-sm text-muted-foreground" role="status">
               <StatusDot status={chat.waiting ? 'waiting' : 'working'} engine={chat.engine} />
               {chat.waiting ? 'Claude is waiting for its workers.' : 'Claude is working on its reply.'}
             </p>
           )}
           <ErrorBanner text={chat.error} />
         </div>
-      </div>
+      </ScrollArea>
       {external ? (
-        <footer class="composer external-note">
-          <div class="composer-inner">Reply to this chat in {hostName(chat.host)}.</div>
+        <footer className={composerFrame}>
+          <p className={`${contentWidth} text-sm text-muted-foreground`}>Reply to this chat in {hostName(chat.host)}.</p>
         </footer>
       ) : (
         <Composer
@@ -304,27 +409,50 @@ export function ChatWorkspace({
   )
 }
 
+function WorkerSection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="grid min-w-0 gap-3 border-b pb-5 wrap-anywhere last:border-b-0 last:pb-0">
+      <h2 className="font-medium">{title}</h2>
+      {children}
+    </section>
+  )
+}
+
+function Facts({ children }: { children: ReactNode }) {
+  return <dl className="grid min-w-0 grid-cols-2 gap-x-4 gap-y-3 text-sm wrap-anywhere sm:gap-x-6">{children}</dl>
+}
+
+function Fact({ name, children }: { name: string; children: ReactNode }) {
+  return (
+    <div className="min-w-0">
+      <dt className="mb-0.5 text-xs text-muted-foreground">{name}</dt>
+      <dd>{children}</dd>
+    </div>
+  )
+}
+
 function Diff({ diff }: { diff: NonNullable<RunDetail['diff']> }) {
   const sections = diff.patch.split(/(?=^diff --git )/m).filter(Boolean)
   return (
-    <section class="run-section">
-      <h2>Diff</h2>
-      {diff.stat && <pre class="code-block">{diff.stat}</pre>}
+    <WorkerSection title="Diff">
+      {diff.stat && <pre className="min-w-0 overflow-x-auto rounded-md border bg-muted/50 p-3 text-xs">{diff.stat}</pre>}
       {sections.map((section, index) => {
         const file = section.match(/^\+\+\+ b\/(.+)$/m)?.[1] ?? section.match(/^--- a\/(.+)$/m)?.[1] ?? section.split('\n')[0] ?? 'Patch'
         return (
-          <details class="diff-file" key={`${file}-${index}`}>
-            <summary>{file}</summary>
-            <pre class="code-block diff-lines">
+          <details className="min-w-0 overflow-hidden rounded-md border" key={`${file}-${index}`}>
+            <summary className="cursor-pointer px-3 py-2 font-mono text-xs wrap-anywhere hover:bg-muted focus-visible:bg-muted">
+              {file}
+            </summary>
+            <pre className="overflow-x-auto border-t bg-muted/30 py-2 text-xs leading-relaxed">
               {section.split('\n').map((line, row) => {
                 const tone =
                   line.startsWith('+') && !line.startsWith('+++')
-                    ? 'diff-add'
+                    ? 'bg-muted font-medium'
                     : line.startsWith('-') && !line.startsWith('---')
-                      ? 'diff-remove'
+                      ? 'bg-destructive/10 text-destructive'
                       : ''
                 return (
-                  <span key={row} class={tone}>
+                  <span key={row} className={tone}>
                     {line}
                     {'\n'}
                   </span>
@@ -334,100 +462,83 @@ function Diff({ diff }: { diff: NonNullable<RunDetail['diff']> }) {
           </details>
         )
       })}
-      {diff.untrackedFiles.length > 0 && <p class="muted">Untracked: {diff.untrackedFiles.join(', ')}</p>}
-      {diff.truncated && <p class="muted">Grip shortened this patch.</p>}
-      {!sections.length && !diff.untrackedFiles.length && <p class="muted">No changes.</p>}
-    </section>
+      {diff.untrackedFiles.length > 0 && <p className="text-sm text-muted-foreground">Untracked: {diff.untrackedFiles.join(', ')}</p>}
+      {diff.truncated && <p className="text-sm text-muted-foreground">Grip shortened this patch.</p>}
+      {!sections.length && !diff.untrackedFiles.length && <p className="text-sm text-muted-foreground">No changes.</p>}
+    </WorkerSection>
   )
 }
 
 function RunOutput({ run, now }: { run: RunDetail; now: number }) {
   return (
     <>
-      <section class="run-section">
-        <h2>Brief</h2>
-        {'path' in run.brief ? <code class="path-label">{run.brief.path}</code> : <Markdown text={run.brief.text} />}
-      </section>
-      <section class="run-section">
-        <h2>Turns</h2>
+      <WorkerSection title="Brief">
+        {'path' in run.brief ? <code className={pathText}>{run.brief.path}</code> : <Markdown text={run.brief.text} />}
+      </WorkerSection>
+      <WorkerSection title="Turns">
         {run.turns.length ? (
-          <ol class="turn-list">
+          <ol className="grid min-w-0 divide-y">
             {run.turns.map(turn => (
-              <li key={turn.turn} class="turn">
-                <h3>
+              <li key={turn.turn} className="grid min-w-0 gap-3 py-4 first:pt-0 last:pb-0">
+                <h3 className="text-sm font-medium">
                   Turn {turn.turn}{' '}
-                  <span class="muted">· {turn.from === 'user' ? 'You' : turn.turn === 1 ? 'Original brief' : 'Orchestrator'}</span>
+                  <span className="font-normal text-muted-foreground">
+                    · {turn.from === 'user' ? 'You' : turn.turn === 1 ? 'Original brief' : 'Orchestrator'}
+                  </span>
                 </h3>
                 {turn.message && (
-                  <div class="turn-message">
+                  <div className="min-w-0 rounded-md bg-muted/50 p-3">
                     <Markdown text={turn.message} />
                   </div>
                 )}
-                {turn.output ? (
-                  <div class="turn-output">
-                    <Markdown text={turn.output} />
-                  </div>
-                ) : (
-                  <p class="muted">No output recorded.</p>
-                )}
+                {turn.output ? <Markdown text={turn.output} /> : <p className="text-sm text-muted-foreground">No output recorded.</p>}
               </li>
             ))}
           </ol>
         ) : (
-          <p class="muted">No turns recorded yet.</p>
+          <p className="text-sm text-muted-foreground">No turns recorded yet.</p>
         )}
-      </section>
+      </WorkerSection>
       {run.overlaps.length > 0 && (
-        <section class="run-section overlap-warning">
-          <h2>Overlapping changes</h2>
-          <ul>
+        <WorkerSection title="Overlapping changes">
+          <ul className="grid gap-2 text-sm text-muted-foreground">
             {run.overlaps.map(overlap => (
               <li key={overlap.runId}>
-                <a href={runHref(overlap.runId)}>{overlap.title}</a> · {overlap.files.join(', ')}
+                <a className={textLink} href={runHref(overlap.runId)}>
+                  {overlap.title}
+                </a>{' '}
+                · {overlap.files.join(', ')}
               </li>
             ))}
           </ul>
-        </section>
+        </WorkerSection>
       )}
       {run.git && (
-        <section class="run-section">
-          <h2>Git</h2>
-          <dl class="detail-facts">
-            <div>
-              <dt>Commits ahead</dt>
-              <dd>{run.git.ahead}</dd>
-            </div>
-            <div>
-              <dt>Files changed</dt>
-              <dd>{run.git.changedFiles.length}</dd>
-            </div>
+        <WorkerSection title="Git">
+          <Facts>
+            <Fact name="Commits ahead">{run.git.ahead}</Fact>
+            <Fact name="Files changed">{run.git.changedFiles.length}</Fact>
             {run.git.lastCommit && (
-              <div>
-                <dt>Last commit</dt>
-                <dd>
-                  {run.git.lastCommit.subject} · {agoText(run.git.lastCommit.at, now)}
-                </dd>
-              </div>
+              <Fact name="Last commit">
+                {run.git.lastCommit.subject} · {agoText(run.git.lastCommit.at, now)}
+              </Fact>
             )}
             {run.git.newestEdit && (
-              <div>
-                <dt>Last edit</dt>
-                <dd>
-                  {run.git.newestEdit.file} · {agoText(run.git.newestEdit.at, now)}
-                </dd>
-              </div>
+              <Fact name="Last edit">
+                {run.git.newestEdit.file} · {agoText(run.git.newestEdit.at, now)}
+              </Fact>
             )}
-          </dl>
+          </Facts>
           {run.git.changedFiles.length > 0 && (
-            <ul class="changed-files">
+            <ul className="grid gap-1">
               {run.git.changedFiles.map(file => (
                 <li key={file}>
-                  <code>{file}</code>
+                  <code className={pathText}>{file}</code>
                 </li>
               ))}
             </ul>
           )}
-        </section>
+        </WorkerSection>
       )}
       {run.diff && <Diff diff={run.diff} />}
     </>
@@ -460,15 +571,13 @@ export function RunWorkspace({
   if (!run)
     return (
       <>
-        <header class="view-header">
-          <a class="back-link mobile-back" href="#/">
-            ← Chats
-          </a>
-          <h1>Worker</h1>
-        </header>
-        <LoadNotice loading={!detail.error} error={detail.error} retry={detail.refresh} />
+        <WorkspaceHeader title="Worker" />
+        <div className={`${contentWidth} py-4`}>
+          <LoadNotice loading={!detail.error} error={detail.error} retry={detail.refresh} />
+        </div>
       </>
     )
+
   const owner = state?.chats.find(chat => chat.id === run.chatId)
   const back = run.chatId ? chatHref(run.chatId) : '#/'
   const active = run.status === 'running'
@@ -476,116 +585,95 @@ export function RunWorkspace({
   const elapsed = durationText(minutesBetween(run.createdAt, ended) ?? 0)
   return (
     <>
-      <header class="view-header">
-        <a class="back-link mobile-back" href={back}>
-          ← {owner ? 'Chat' : 'Chats'}
-        </a>
-        <div class="view-heading">
-          <div class="view-title">
-            <EngineMark engine={run.engine} />
-            <h1>{run.title}</h1>
-          </div>
-          <div class="view-meta">
-            <span>
+      <WorkspaceHeader
+        backHref={back}
+        backLabel={run.chatId ? 'Chat' : 'Chats'}
+        title={run.title}
+        engine={run.engine}
+        details={
+          <>
+            <span className="inline-flex items-center gap-1.5">
               <StatusDot status={run.status} engine={run.engine} />
               {runActivity(run, now)}
             </span>
-            <span class="view-folder" title={run.worktree ?? run.folder}>
+            <span className="min-w-0 wrap-anywhere" title={run.worktree ?? run.folder}>
               {folderName(run.worktree ?? run.folder)}
             </span>
-          </div>
-        </div>
-        <div class="view-actions">
-          <button
-            class="button button-secondary"
-            type="button"
-            disabled={copy.busy}
-            onClick={() =>
-              void copy.perform(async () => {
-                await navigator.clipboard.writeText(run.worktree ?? run.folder)
-                setCopied(true)
-              })
-            }
-          >
-            {copied ? 'Path copied' : 'Copy folder path'}
-          </button>
-          {active ? (
-            <button class="button button-secondary" type="button" disabled={offline} onClick={() => stop(run)}>
-              Stop worker
-            </button>
-          ) : (
-            <button class="button button-secondary" type="button" disabled={offline} onClick={() => retry(run)}>
-              Retry with another agent
-            </button>
-          )}
-        </div>
-      </header>
-      <div class="thread worker-detail">
-        <div class="thread-inner">
+          </>
+        }
+        actions={
+          <>
+            <Button
+              className={touchButton}
+              variant="outline"
+              size="sm"
+              type="button"
+              disabled={copy.busy}
+              onClick={() =>
+                void copy.perform(async () => {
+                  await navigator.clipboard.writeText(run.worktree ?? run.folder)
+                  setCopied(true)
+                })
+              }
+            >
+              {copied ? 'Path copied' : 'Copy folder path'}
+            </Button>
+            {active ? (
+              <Button className={touchButton} variant="outline" size="sm" type="button" disabled={offline} onClick={() => stop(run)}>
+                Stop worker
+              </Button>
+            ) : (
+              <Button className={touchButton} variant="outline" size="sm" type="button" disabled={offline} onClick={() => retry(run)}>
+                Retry with another agent
+              </Button>
+            )}
+          </>
+        }
+      />
+      <ScrollArea className={scrollFrame}>
+        <div className={`${contentWidth} grid min-w-0 gap-5 pt-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] sm:pt-6`}>
           <ErrorBanner text={run.error} />
           <ErrorBanner text={copy.error} />
-          <section class="run-section">
-            <h2>Worker details</h2>
-            <dl class="detail-facts">
-              <div>
-                <dt>Agent</dt>
-                <dd>
-                  <EngineMark engine={run.engine} labelled />
-                  {run.model && ` · ${run.model}`}
-                </dd>
-              </div>
-              {detail.data?.effort && (
-                <div>
-                  <dt>Effort</dt>
-                  <dd>{detail.data.effort}</dd>
-                </div>
-              )}
-              <div>
-                <dt>Chat</dt>
-                <dd>{run.chatId ? <a href={back}>{owner?.title ?? 'Chat'}</a> : 'Independent worker'}</dd>
-              </div>
-              <div>
-                <dt>Started</dt>
-                <dd>
-                  <time dateTime={run.createdAt}>{new Date(run.createdAt).toLocaleString()}</time>
-                </dd>
-              </div>
-              <div>
-                <dt>Elapsed</dt>
-                <dd>{elapsed}</dd>
-              </div>
-              <div>
-                <dt>Turns started</dt>
-                <dd>{run.turns}</dd>
-              </div>
-              <div>
-                <dt>Folder</dt>
-                <dd>
-                  <code class="path-label">{run.folder}</code>
-                </dd>
-              </div>
+          <WorkerSection title="Worker details">
+            <Facts>
+              <Fact name="Agent">
+                <EngineMark engine={run.engine} labelled />
+                {run.model && ` · ${run.model}`}
+              </Fact>
+              {detail.data?.effort && <Fact name="Effort">{detail.data.effort}</Fact>}
+              <Fact name="Chat">
+                {run.chatId ? (
+                  <a className={textLink} href={back}>
+                    {owner?.title ?? 'Chat'}
+                  </a>
+                ) : (
+                  'Independent worker'
+                )}
+              </Fact>
+              <Fact name="Started">
+                <time dateTime={run.createdAt}>{new Date(run.createdAt).toLocaleString()}</time>
+              </Fact>
+              <Fact name="Elapsed">{elapsed}</Fact>
+              <Fact name="Turns started">{run.turns}</Fact>
+              <Fact name="Folder">
+                <code className={pathText}>{run.folder}</code>
+              </Fact>
               {run.worktree && (
-                <div>
-                  <dt>Worktree</dt>
-                  <dd>
-                    <code class="path-label">{run.worktree}</code>
-                  </dd>
-                </div>
+                <Fact name="Worktree">
+                  <code className={pathText}>{run.worktree}</code>
+                </Fact>
               )}
               {run.branch && (
-                <div>
-                  <dt>Branch</dt>
-                  <dd>
-                    <code class="path-label">{run.branch}</code>
-                  </dd>
-                </div>
+                <Fact name="Branch">
+                  <code className={pathText}>{run.branch}</code>
+                </Fact>
               )}
-            </dl>
-          </section>
+            </Facts>
+          </WorkerSection>
           <LoadNotice loading={!detail.data && !detail.error} error={detail.error} retry={detail.refresh} />
           {detail.data && <RunOutput run={detail.data} now={now} />}
         </div>
-      </div>
+      </ScrollArea>
       {!active && (
         <Composer
           name="Message worker"

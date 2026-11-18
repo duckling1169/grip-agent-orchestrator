@@ -1,27 +1,117 @@
-import { useEffect, useRef, useState } from 'preact/hooks'
+import { useEffect, useRef, useState } from 'react'
+import { Check, ChevronDown, FolderGit2, RefreshCw, Settings, Square, Wrench } from 'lucide-react'
+import { toast } from 'sonner'
 
-import { api } from './api.js'
+import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { Toaster } from '@/components/ui/sonner'
+import { api, errorText } from './api.js'
 import { ErrorBanner, StatusDot } from './components/common.js'
 import { ConfirmDialog, SettingsDialog, StartDialog, WorktreesDialog } from './components/dialogs.js'
 import { Navigation, NeedsAttention, QuotaStrip } from './components/navigation.js'
 import { ChatWorkspace, RunWorkspace } from './components/workspace.js'
 import { chatHref, runHref, useLiveState, useRoute } from './state.js'
-import type { ChatSummary, Route, RunSummary } from './types.js'
+import type { ChatSummary, Machine, Route, RunSummary } from './types.js'
 
 type Overlay =
   | { kind: 'chat' | 'worker' }
-  | { kind: 'worktrees' | 'settings' | 'stop-all' }
+  | { kind: 'worktrees' | 'settings' | 'updates' | 'stop-all' }
   | { kind: 'retry'; run: RunSummary }
   | { kind: 'stop-run'; run: RunSummary }
   | { kind: 'stop-chat'; chat: ChatSummary }
 
+function MachineSwitcher({ host, status }: { host?: string; status: string }) {
+  const [machines, setMachines] = useState<Machine[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const controller = useRef<AbortController | null>(null)
+  useEffect(() => () => controller.current?.abort(), [])
+  return (
+    <DropdownMenu
+      onOpenChange={open => {
+        controller.current?.abort()
+        if (!open) return
+        const request = new AbortController()
+        controller.current = request
+        setLoading(true)
+        setError('')
+        api
+          .machines(request.signal)
+          .then(
+            result => {
+              if (!request.signal.aborted) setMachines(result.machines)
+            },
+            failure => {
+              if (!request.signal.aborted) setError(errorText(failure))
+            },
+          )
+          .finally(() => {
+            if (!request.signal.aborted) setLoading(false)
+          })
+      }}
+    >
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" className="h-11 min-w-0 max-w-full gap-2 px-2" aria-label="Switch machine">
+          <StatusDot status={status} />
+          <span className="truncate">{machines.find(machine => machine.self)?.name ?? host ?? 'Connecting…'}</span>
+          <ChevronDown className="size-3.5 shrink-0" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-72 max-w-[calc(100vw-24px)]">
+        <DropdownMenuLabel>Machines</DropdownMenuLabel>
+        {loading ? (
+          <p role="status" className="px-2 py-3 text-sm text-muted-foreground">
+            Loading…
+          </p>
+        ) : error ? (
+          <div className="p-2">
+            <ErrorBanner text={error} />
+          </div>
+        ) : (
+          machines.map(machine => {
+            const content = (
+              <>
+                <StatusDot status={machine.online ? 'online' : 'offline'} />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate">{machine.name}</span>
+                  <span className="block truncate text-xs text-muted-foreground">
+                    {machine.ips[0] ?? '—'}
+                    {machine.grip !== 'yes' ? ' · Grip not running' : ''}
+                  </span>
+                </span>
+                {machine.self && <Check className="size-4" />}
+              </>
+            )
+            return machine.grip === 'yes' && machine.url && !machine.self ? (
+              <DropdownMenuItem key={machine.dnsName} asChild className="min-h-12">
+                <a href={machine.url}>{content}</a>
+              </DropdownMenuItem>
+            ) : (
+              <DropdownMenuItem key={machine.dnsName} disabled={!machine.self} className="min-h-12">
+                {content}
+              </DropdownMenuItem>
+            )
+          })
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
 export function App() {
-  const { data, connection, error } = useLiveState()
+  const { data, connection, error, showOfflineBanner } = useLiveState()
   const route = useRoute()
   const [overlay, setOverlay] = useState<Overlay | null>(null)
-  const [notice, setNotice] = useState('')
   const [now, setNow] = useState(Date.now)
-  const [wide, setWide] = useState(() => matchMedia('(min-width: 761px)').matches)
+  const [wide, setWide] = useState(() => matchMedia('(min-width: 768px)').matches)
   const [continueRun, setContinueRun] = useState<{ id: string; count: number }>()
   const workspace = useRef<HTMLElement>(null)
   const sidebar = useRef<HTMLElement>(null)
@@ -31,9 +121,8 @@ export function App() {
   const active: Route = route.kind === 'home' && wide && defaultChat ? { kind: 'chat', id: defaultChat.id } : route
   const activeId = active.kind === 'home' ? null : active.id
   const autoFocusRun = route.kind === 'run' && route.id === continueRun?.id ? continueRun.count : undefined
-
   useEffect(() => {
-    const query = matchMedia('(min-width: 761px)')
+    const query = matchMedia('(min-width: 768px)')
     const resize = (event: MediaQueryListEvent) => setWide(event.matches)
     query.addEventListener('change', resize)
     return () => query.removeEventListener('change', resize)
@@ -43,119 +132,124 @@ export function App() {
     return () => window.clearInterval(timer)
   }, [])
   useEffect(() => {
-    if (!notice) return
-    const timer = window.setTimeout(() => setNotice(''), 7000)
-    return () => window.clearTimeout(timer)
-  }, [notice])
-  useEffect(() => {
     if (route.kind !== 'home' && autoFocusRun === undefined) workspace.current?.focus()
-  }, [route.kind, activeId])
-
-  function close() {
-    setOverlay(null)
-  }
-  function startChat() {
-    setOverlay({ kind: 'chat' })
-  }
-  function startWorker() {
-    setOverlay({ kind: 'worker' })
-  }
-  function retry(run: RunSummary) {
-    setOverlay({ kind: 'retry', run })
-  }
+  }, [route.kind, activeId, autoFocusRun])
+  const close = () => setOverlay(null)
+  const startChat = () => setOverlay({ kind: 'chat' })
+  const startWorker = () => setOverlay({ kind: 'worker' })
+  const retry = (run: RunSummary) => setOverlay({ kind: 'retry', run })
   function proceed(run: RunSummary) {
     setContinueRun(previous => ({ id: run.id, count: (previous?.count ?? 0) + 1 }))
     location.hash = runHref(run.id)
   }
   function started(kind: 'chat' | 'run', id: string, note?: string) {
     close()
-    if (note) setNotice(note)
+    if (note) toast(note)
     location.hash = kind === 'chat' ? chatHref(id) : runHref(id)
   }
-
   const attention = (chatId?: string, compact = false) =>
     data && <NeedsAttention state={data} now={now} proceed={proceed} retry={retry} offline={offline} chatId={chatId} compact={compact} />
   const lastClawEvent = data?.claw.history?.at(-1)
-  const hostState = offline ? 'offline' : connection
   return (
-    <div class="app-shell" data-view={route.kind}>
+    <div className="flex h-dvh min-h-0 flex-col overflow-hidden bg-background font-sans text-foreground antialiased">
       <a
         href="#workspace"
-        class="skip-link"
+        className="sr-only z-50 rounded-md bg-background p-3 focus:not-sr-only focus:absolute focus:top-3 focus:left-3"
         onClick={event => {
           event.preventDefault()
-          const target = workspace.current?.getClientRects().length ? workspace.current : sidebar.current
-          target?.focus()
+          ;(workspace.current?.getClientRects().length ? workspace.current : sidebar.current)?.focus()
         }}
       >
         Skip to content
       </a>
-      <header class="topbar">
-        <div class="topbar-left">
-          <a class="brand" href="#/">
-            <img src="/icon.svg" alt="" width="31" height="31" />
-            <span>Grip</span>
-          </a>
-          <span class="host-status" title={hostState} aria-label={`${data?.principal.host ?? 'Principal'} ${hostState}`}>
-            <StatusDot status={hostState} />
-            <span>{data?.principal.host ?? (offline ? 'Offline' : 'Connecting')}</span>
-          </span>
+      <header className="flex shrink-0 items-center gap-3 border-b px-3 pt-[calc(env(safe-area-inset-top)+12px)] pb-3 md:px-5">
+        <a
+          href="#/"
+          aria-label="Grip home"
+          className="flex size-11 shrink-0 items-center justify-center rounded-md hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring"
+        >
+          <img src="/icon.svg" alt="Grip" width="30" height="30" />
+        </a>
+        <div className="min-w-0 flex-1">
+          <MachineSwitcher host={data?.principal.host} status={offline ? 'offline' : connection} />
         </div>
-        <div class="topbar-actions">
-          <button class="button button-secondary" type="button" onClick={() => setOverlay({ kind: 'worktrees' })}>
-            Worktrees
-          </button>
-          <button class="button button-danger" type="button" disabled={disabled} onClick={() => setOverlay({ kind: 'stop-all' })}>
-            Stop all
-          </button>
-          <button class="icon-button" type="button" aria-label="Settings" title="Settings" onClick={() => setOverlay({ kind: 'settings' })}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-              <circle cx="12" cy="12" r="3" />
-              <path d="M10 3h4l.7 2.7 2 .9 2.5-1.4 2 3.4-2 1.9v2.9l2 1.9-2 3.4-2.5-1.4-2 .9L14 21h-4l-.7-2.7-2-.9-2.5 1.4-2-3.4 2-1.9v-2.9l-2-1.9 2-3.4 2.5 1.4 2-.9L10 3Z" />
-            </svg>
-          </button>
-        </div>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" className="size-11 shrink-0" aria-label="Settings">
+              <Settings className="size-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuItem className="min-h-11" onSelect={() => setOverlay({ kind: 'worktrees' })}>
+              <FolderGit2 />
+              Worktrees
+            </DropdownMenuItem>
+            <DropdownMenuItem className="min-h-11" onSelect={() => setOverlay({ kind: 'updates' })}>
+              <RefreshCw />
+              Claw updates
+            </DropdownMenuItem>
+            <DropdownMenuItem className="min-h-11" onSelect={() => setOverlay({ kind: 'settings' })}>
+              <Wrench />
+              Settings
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              variant="destructive"
+              className="min-h-11"
+              disabled={disabled}
+              onSelect={() => setOverlay({ kind: 'stop-all' })}
+            >
+              <Square />
+              Stop all
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </header>
-      {offline && (
-        <div class="connection-banner" role="status">
-          <span>Grip is disconnected. Reconnecting…</span>
-          {data && <span>Showing the last update</span>}
-        </div>
+      {showOfflineBanner && (
+        <p className="shrink-0 border-b px-4 py-2 text-sm text-muted-foreground" role="status">
+          Grip is disconnected. Reconnecting…
+        </p>
       )}
       <ErrorBanner text={error} />
       {lastClawEvent?.kind === 'rolled-back' && (
-        <p class="connection-banner claw-rollback">
-          Claw rolled back{lastClawEvent.to ? ` to ${lastClawEvent.to}` : ''}.
-          <button class="quiet-button" type="button" onClick={() => setOverlay({ kind: 'settings' })}>
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b px-4 py-2 text-sm">
+          <span>Claw rolled back{lastClawEvent.to ? ` to ${lastClawEvent.to}` : ''}.</span>
+          <Button variant="link" onClick={() => setOverlay({ kind: 'updates' })}>
             Update history
-          </button>
-        </p>
+          </Button>
+        </div>
       )}
-      <div class="app-body">
-        <aside class="sidebar" aria-label="Chat list" tabIndex={-1} ref={sidebar}>
+      <div className="flex min-h-0 flex-1">
+        <aside
+          aria-label="Chat list"
+          tabIndex={-1}
+          ref={sidebar}
+          className={`${route.kind === 'home' ? 'flex' : 'hidden'} min-h-0 min-w-0 flex-1 flex-col md:flex md:w-88 md:max-w-88 md:flex-none md:border-r`}
+        >
           {data ? (
             <>
-              <div class="sidebar-scroll">
-                <div class="mobile-attention">{attention()}</div>
-                <Navigation state={data} active={active} now={now} offline={offline} newChat={startChat} newWorker={startWorker} />
-              </div>
-              <footer class="nav-footer">
+              <ScrollArea className="min-h-0 flex-1 [&_[data-slot=scroll-area-viewport]>div]:block!">
+                <div className="min-w-0 space-y-3 px-3 py-3">
+                  {attention()}
+                  <Navigation state={data} active={active} now={now} offline={offline} newChat={startChat} newWorker={startWorker} />
+                </div>
+              </ScrollArea>
+              <footer className="shrink-0 border-t px-3 pt-1 pb-[max(env(safe-area-inset-bottom),12px)]">
                 <QuotaStrip snapshot={data.quota} now={now} offline={offline} />
               </footer>
             </>
           ) : (
-            <div class="sidebar-header">
-              <h2>Chats</h2>
-              {!error && (
-                <span class="muted" role="status">
-                  Loading…
-                </span>
-              )}
+            <div className="p-4 text-sm text-muted-foreground" role="status">
+              {error ? 'Chat list unavailable.' : 'Loading…'}
             </div>
           )}
         </aside>
-        <main class="workspace" id="workspace" ref={workspace} tabIndex={-1}>
-          <div class="workspace-attention">{attention(route.kind === 'chat' ? route.id : undefined, active.kind === 'run')}</div>
+        <main
+          id="workspace"
+          ref={workspace}
+          tabIndex={-1}
+          className={`${route.kind === 'home' ? 'hidden' : 'flex'} min-h-0 min-w-0 flex-1 flex-col md:flex`}
+        >
           {active.kind === 'chat' ? (
             <ChatWorkspace
               key={active.id}
@@ -178,90 +272,68 @@ export function App() {
               retry={retry}
               stop={run => setOverlay({ kind: 'stop-run', run })}
             />
-          ) : !data ? (
-            <div class="loading-workspace" role="status" aria-label={error ? 'Workspace unavailable' : 'Loading workspace'}>
-              <div class="loading-header">
-                <span />
-                <span />
-              </div>
-              <div class="loading-thread">
-                <span />
-                <span />
-                <span />
-              </div>
-              {error && <p class="workspace-status">Grip could not load this workspace.</p>}
-            </div>
           ) : (
-            <div class="empty-state">
-              <h1>Chats and workers</h1>
-              <p>
-                {data
-                  ? 'Start a conversation with Claude or send a task to one worker.'
-                  : error
-                    ? 'Grip could not load this workspace.'
-                    : 'Connecting to the principal…'}
-              </p>
+            <div className="flex flex-1 flex-col items-center justify-center gap-4 p-6">
+              <h1 className="text-lg font-semibold">{data ? 'Chats and workers' : 'Connecting…'}</h1>
               {data && (
-                <div class="button-row">
-                  <button class="button button-primary" type="button" disabled={offline} onClick={startChat}>
+                <div className="flex flex-wrap gap-2">
+                  <Button disabled={offline} onClick={startChat}>
                     Start a chat
-                  </button>
-                  <button class="button button-secondary" type="button" disabled={offline} onClick={startWorker}>
+                  </Button>
+                  <Button variant="outline" disabled={offline} onClick={startWorker}>
                     Start one worker
-                  </button>
+                  </Button>
                 </div>
               )}
             </div>
           )}
         </main>
       </div>
-      {notice && (
-        <div class="toast" role="status">
-          {notice}
-        </div>
-      )}
+      <Toaster />
       {(overlay?.kind === 'chat' || overlay?.kind === 'worker' || overlay?.kind === 'retry') && (
         <StartDialog mode={overlay} state={data} offline={disabled} close={close} started={started} />
       )}
       {overlay?.kind === 'worktrees' && <WorktreesDialog offline={offline} close={close} />}
-      {overlay?.kind === 'settings' && <SettingsDialog state={data} close={close} />}
+      {(overlay?.kind === 'settings' || overlay?.kind === 'updates') && (
+        <SettingsDialog state={data} section={overlay.kind === 'updates' ? 'updates' : 'settings'} close={close} />
+      )}
       {overlay?.kind === 'stop-all' && (
         <ConfirmDialog
           title="Stop all work?"
-          description={`This stops every active chat and worker on ${data?.principal.host ?? 'the principal'}. Worktrees and messages stay.`}
-          label="Stop all work"
+          description={`This stops every active chat and worker on ${data?.principal.host ?? 'this machine'}.`}
+          label="Stop all"
           offline={disabled}
           close={close}
           confirm={async () => {
             const result = await api.stopAll()
             const count = result.stopped.length + result.stoppedChats.length
-            setNotice(count ? `Stopped ${count} ${count === 1 ? 'chat or worker' : 'chats and workers'}.` : 'No work was running.')
+            toast(count ? `Stopped ${count} ${count === 1 ? 'chat or worker' : 'chats and workers'}.` : 'No work was running.')
           }}
         />
       )}
       {overlay?.kind === 'stop-chat' && (
         <ConfirmDialog
           title="Stop this chat?"
-          description={`This stops ${overlay.chat.title} and its active workers. Worktrees and messages stay.`}
+          description={`This stops ${overlay.chat.title} and its active workers.`}
           label="Stop chat"
           offline={offline}
           close={close}
           confirm={async () => {
             await api.stopChat(overlay.chat.id)
-            setNotice('Chat stopped.')
+            toast('Chat stopped.')
           }}
         />
       )}
       {overlay?.kind === 'stop-run' && (
         <ConfirmDialog
           title="Stop this worker?"
-          description={`This ends the current turn for ${overlay.run.title}. Its worktree and messages stay.`}
+          description={`This ends the current turn for ${overlay.run.title}.`}
           label="Stop worker"
           offline={offline}
           close={close}
           confirm={async () => {
             await api.stopRun(overlay.run.id)
-            setNotice('Worker stopped.')
+            toast('Worker stopped.')
           }}
         />
       )}

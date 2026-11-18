@@ -1,4 +1,16 @@
-import type { AppState, ChatDetail, ChatRecord, Engine, QuotaSnapshot, RunDetail, RunSummary, Worktree } from './types.js'
+import type {
+  AppState,
+  ChatDetail,
+  ChatRecord,
+  Engine,
+  EngineModels,
+  FolderListing,
+  MachineList,
+  QuotaSnapshot,
+  RunDetail,
+  RunSummary,
+  Worktree,
+} from './types.js'
 
 type WorkerOptions = { engine: Engine; model?: string; effort?: string }
 type RunStarted = RunSummary & { quotaNote?: string }
@@ -21,20 +33,25 @@ function write<T>(path: string, body: unknown = {}, method: 'POST' | 'DELETE' = 
 
 export const api = {
   state: (signal: AbortSignal) => request<AppState>('/api/state', { signal }),
+  machines: (signal?: AbortSignal) => request<MachineList>('/api/machines', { signal }),
   chat: (id: string, signal: AbortSignal) => request<ChatDetail>(chatPath(id), { signal }),
   run: (id: string, signal: AbortSignal) => request<RunDetail>(runPath(id), { signal }),
   worktrees: (signal: AbortSignal) => request<Worktree[]>('/api/worktrees', { signal }),
-  startChat: (input: WorkerOptions & { folder: string; message: string }) => write<ChatRecord>('/api/chats', input),
+  models: (signal: AbortSignal) => request<EngineModels[]>('/api/models', { signal }),
+  folders: (path: string | null, signal: AbortSignal) =>
+    request<FolderListing>(path ? `/api/folders?path=${encodeURIComponent(path)}` : '/api/folders', { signal }),
+  startChat: (input: WorkerOptions & { folder: string; message?: string }) => write<ChatRecord>('/api/chats', input),
   startRun: (input: WorkerOptions & { folder: string; brief: { text: string } | { path: string } }) =>
     write<RunStarted>('/api/runs', input),
   messageChat: (id: string, text: string) => write<ChatRecord>(`${chatPath(id)}/message`, { text }),
   messageRun: (id: string, text: string) => write<RunSummary>(`${runPath(id)}/message`, { text }),
+  deleteChat: (id: string) => write<{ deleted: string }>(chatPath(id), {}, 'DELETE'),
   stopChat: (id: string) => write<ChatRecord>(`${chatPath(id)}/stop`),
   stopRun: (id: string) => write<RunSummary>(`${runPath(id)}/stop`),
   retry: (id: string, input: WorkerOptions) => write<RunStarted>(`${runPath(id)}/retry`, input),
   stopAll: () => write<{ stopped: RunSummary[]; stoppedChats: ChatRecord[]; killedWorkers: boolean }>('/api/stop-all'),
-  refreshQuota: (readClaude = false) =>
-    write<QuotaSnapshot>('/api/quota/refresh', readClaude ? { providers: ['claude'] } : { providers: ['codex', 'agy'] }),
+  /** Every agent, Claude's one-line probe included, as the quota timer reads them. */
+  refreshQuota: () => write<QuotaSnapshot>('/api/quota/refresh', { providers: ['claude', 'codex', 'agy'] }),
   removeWorktree: (path: string) => write<{ branchDeleted: boolean; branch: string }>('/api/worktrees', { path }, 'DELETE'),
 }
 

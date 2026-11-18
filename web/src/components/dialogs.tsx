@@ -1,12 +1,169 @@
-import { useEffect, useId, useRef, useState } from 'preact/hooks'
+import { useId, useRef, useState, type ReactNode } from 'react'
+
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Separator } from '@/components/ui/separator'
+import { Textarea } from '@/components/ui/textarea'
 
 import { durationText } from '../../../src/quota/usage.js'
 import { api } from '../api.js'
 import { useDetail } from '../state.js'
 import type { AppState, Engine, RunSummary, Worktree } from '../types.js'
-import { Dialog, EngineMark, ErrorBanner, engines, folderName, useAction } from './common.js'
+import { EngineMark, ErrorBanner, engines, folderName, isEngine, useAction } from './common.js'
+import { FolderPicker } from './folder-picker.js'
+import { ResponsiveDialog } from './responsive-dialog.js'
 
 type StartMode = { kind: 'chat' | 'worker' } | { kind: 'retry'; run: RunSummary }
+type BriefKind = 'text' | 'path'
+
+function FolderField({
+  value,
+  change,
+  recent,
+  disabled,
+}: {
+  value: string
+  change: (value: string) => void
+  recent: string[]
+  disabled: boolean
+}) {
+  const id = useId()
+  const [picking, setPicking] = useState(false)
+
+  return (
+    <div className="grid min-w-0 gap-2">
+      <Label htmlFor={id}>Folder</Label>
+      <div className="flex gap-2">
+        <Input
+          id={id}
+          className="min-h-11 min-w-0 md:min-h-9"
+          autoComplete="off"
+          placeholder="Choose a folder"
+          required
+          value={value}
+          onChange={event => change(event.currentTarget.value)}
+          disabled={disabled}
+        />
+        <Button
+          variant="outline"
+          type="button"
+          className="min-h-11 md:min-h-9"
+          onClick={() => setPicking(true)}
+          disabled={disabled}
+          aria-haspopup="dialog"
+        >
+          Browse
+        </Button>
+      </div>
+      {picking && (
+        <FolderPicker
+          start={value.trim() || null}
+          recent={recent}
+          close={() => setPicking(false)}
+          choose={path => {
+            change(path)
+            setPicking(false)
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+const readModels = (_: string, signal: AbortSignal) => api.models(signal)
+const defaultChoice = 'default'
+
+function ModelFields({
+  engine,
+  model,
+  effort,
+  disabled,
+  chooseModel,
+  chooseEffort,
+}: {
+  engine: Engine
+  model: string
+  effort: string
+  disabled: boolean
+  chooseModel: (value: string) => void
+  chooseEffort: (value: string) => void
+}) {
+  const id = useId()
+  const catalogs = useDetail('models', readModels)
+  const catalog = catalogs.data?.find(list => list.engine === engine)
+  const chosen = catalog?.models.find(option => option.id === model)
+  const allEfforts = [...new Set(catalog?.models.flatMap(option => option.efforts) ?? [])]
+  const efforts = engine === 'agy' ? [] : (chosen?.efforts ?? allEfforts)
+  const defaultEffort = (chosen ?? catalog?.models.find(option => option.isDefault))?.defaultEffort
+  const error = catalogs.error ?? catalog?.error
+  const loading = !catalogs.data && !catalogs.error
+  const effortPlaceholder = engine === 'agy' ? 'Set by the model' : 'Not used by this model'
+  const pickModel = (value: string) => {
+    chooseModel(value)
+    const next = catalog?.models.find(option => option.id === value)
+    if (effort && !(next?.efforts ?? allEfforts).includes(effort)) chooseEffort('')
+  }
+
+  return (
+    <div className="grid items-start gap-3 min-[360px]:grid-cols-2">
+      <div className="grid min-w-0 gap-2">
+        <Label htmlFor={`${id}-model`}>Model</Label>
+        <Select
+          value={model ? `model:${model}` : defaultChoice}
+          onValueChange={value => pickModel(value === defaultChoice ? '' : value.slice('model:'.length))}
+          disabled={disabled || loading}
+        >
+          <SelectTrigger id={`${id}-model`} className="min-h-11 w-full min-w-0 md:min-h-9">
+            <SelectValue placeholder="Agent default" />
+          </SelectTrigger>
+          <SelectContent position="popper">
+            <SelectItem value={defaultChoice}>{loading ? 'Loading models…' : 'Agent default'}</SelectItem>
+            {catalog?.models.map(option => (
+              <SelectItem key={option.id} value={`model:${option.id}`}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {error && <ErrorBanner text={`Couldn't list models. ${error}`} />}
+      </div>
+      <div className="grid min-w-0 gap-2">
+        <Label htmlFor={`${id}-effort`}>Effort</Label>
+        <Select
+          value={effort ? `effort:${effort}` : defaultChoice}
+          onValueChange={value => chooseEffort(value === defaultChoice ? '' : value.slice('effort:'.length))}
+          disabled={disabled || !efforts.length}
+        >
+          <SelectTrigger id={`${id}-effort`} className="min-h-11 w-full min-w-0 md:min-h-9">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent position="popper">
+            <SelectItem value={defaultChoice}>
+              {efforts.length || (loading && engine !== 'agy') ? `Default${defaultEffort ? ` (${defaultEffort})` : ''}` : effortPlaceholder}
+            </SelectItem>
+            {efforts.map(option => (
+              <SelectItem key={option} value={`effort:${option}`}>
+                {option}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+    </div>
+  )
+}
 
 export function StartDialog({
   mode,
@@ -21,9 +178,12 @@ export function StartDialog({
   close: () => void
   started: (kind: 'chat' | 'run', id: string, note?: string) => void
 }) {
-  const listId = useId()
+  const id = useId()
   const [engine, setEngine] = useState<Engine>(mode.kind === 'retry' && mode.run.engine === 'claude' ? 'codex' : 'claude')
-  const [briefKind, setBriefKind] = useState<'text' | 'path'>('text')
+  const [model, setModel] = useState('')
+  const [effort, setEffort] = useState('')
+  const [briefKind, setBriefKind] = useState<BriefKind>('text')
+  const [brief, setBrief] = useState('')
   const action = useAction()
   const isChat = mode.kind === 'chat'
   const isRetry = mode.kind === 'retry'
@@ -38,138 +198,146 @@ export function StartDialog({
         .flatMap(item => (item.folder ? [item.folder] : [])),
     ),
   ]
+  const [folder, setFolder] = useState(folders[0] ?? '')
   const disabled = offline || action.busy
 
   return (
-    <Dialog title={title} busy={action.busy} close={close}>
+    <ResponsiveDialog
+      title={title}
+      busy={action.busy}
+      close={close}
+      actions={
+        <>
+          <Button variant="outline" type="button" onClick={close} disabled={action.busy}>
+            Cancel
+          </Button>
+          <Button type="submit" form={id} disabled={disabled}>
+            {action.busy ? 'Starting…' : isRetry ? 'Retry worker' : title}
+          </Button>
+        </>
+      }
+    >
       <form
-        class="modal-form"
+        id={id}
+        className="grid gap-4"
         onSubmit={event => {
           event.preventDefault()
           if (disabled) return
-          const fields = new FormData(event.currentTarget)
-          const value = (key: string) => String(fields.get(key) ?? '').trim()
           void action.perform(async () => {
-            const model = value('model') || undefined
-            const effort = value('effort') || undefined
-            if (isRetry) {
-              const run = await api.retry(mode.run.id, { engine, model, effort })
+            const options = { engine, model: model || undefined, effort: effort || undefined }
+            if (mode.kind === 'retry') {
+              const run = await api.retry(mode.run.id, options)
               started('run', run.id, run.quotaNote)
-            } else if (isChat) {
-              const chat = await api.startChat({ engine, model, effort, folder: value('folder'), message: value('message') })
+            } else if (mode.kind === 'chat') {
+              const chat = await api.startChat({ ...options, folder: folder.trim() })
               started('chat', chat.id)
             } else {
-              const brief = briefKind === 'path' ? { path: value('brief') } : { text: value('brief') }
-              const run = await api.startRun({ engine, model, effort, folder: value('folder'), brief })
+              const run = await api.startRun({
+                ...options,
+                folder: folder.trim(),
+                brief: briefKind === 'path' ? { path: brief.trim() } : { text: brief.trim() },
+              })
               started('run', run.id, run.quotaNote)
             }
           })
         }}
       >
-        {isRetry && (
-          <p class="muted">
-            Start a fresh run from the brief for <strong>{mode.run.title}</strong>.
+        {mode.kind === 'retry' && (
+          <p className="text-sm wrap-anywhere text-muted-foreground">
+            Reuse the brief from <strong className="font-medium text-foreground">{mode.run.title}</strong>.
           </p>
         )}
-        {isChat && <p class="muted form-note">Claude can host a chat. Codex and Antigravity can run as workers.</p>}
-        <fieldset class="engine-picker" disabled={disabled}>
-          <legend>Agent</legend>
-          {engines.map(option => {
-            const unavailable = isChat && option !== 'claude'
-            const current = isRetry && option === mode.run.engine
-            const quota = state?.quota.providers.find(provider => provider.provider === option)
-            const windows = quota?.windows.filter(window => !window.stale && (!window.resetsAt || Date.parse(window.resetsAt) > Date.now()))
-            const left = windows?.length ? Math.min(...windows.map(window => Math.max(0, Math.round(100 - window.usedPercent)))) : null
-            return (
-              <label class={`engine-option${engine === option ? ' is-selected' : ''}`} key={option}>
-                <input
-                  checked={engine === option}
-                  disabled={unavailable || current}
-                  name="engine"
-                  type="radio"
-                  value={option}
-                  onChange={() => setEngine(option)}
-                />
-                <EngineMark engine={option} labelled />
-                <small>
-                  {unavailable ? 'Worker only' : current ? 'Original agent' : left === null ? 'Quota unknown' : `${left}% left`}
-                </small>
-              </label>
-            )
-          })}
-        </fieldset>
-        {!isRetry && (
-          <label class="form-field">
-            <span>Folder</span>
-            <input
-              name="folder"
-              list={listId}
-              autoComplete="off"
-              placeholder="Absolute path on the principal"
-              required
-              disabled={disabled}
-            />
-            <datalist id={listId}>
-              {folders.map(folder => (
-                <option value={folder} key={folder} />
-              ))}
-            </datalist>
-          </label>
-        )}
-        <div class="form-columns">
-          <label class="form-field">
-            <span>
-              Model <small>optional</small>
-            </span>
-            <input name="model" placeholder="Agent default" disabled={disabled} />
-          </label>
-          <label class="form-field">
-            <span>
-              Effort <small>optional</small>
-            </span>
-            <input name="effort" placeholder="Agent default" disabled={disabled} />
-          </label>
+        <div className="grid gap-2">
+          <span id={`${id}-agent`} className="text-sm leading-none font-medium">
+            Agent
+          </span>
+          <RadioGroup
+            aria-labelledby={`${id}-agent`}
+            value={engine}
+            disabled={disabled}
+            className="gap-1.5"
+            onValueChange={value => {
+              if (!isEngine(value)) return
+              setEngine(value)
+              setModel('')
+              setEffort('')
+            }}
+          >
+            {engines.map(option => {
+              const unavailable = isChat && option !== 'claude'
+              const current = mode.kind === 'retry' && option === mode.run.engine
+              const quota = state?.quota.providers.find(provider => provider.provider === option)
+              const windows = quota?.windows.filter(
+                window => !window.stale && (!window.resetsAt || Date.parse(window.resetsAt) > Date.now()),
+              )
+              const left = windows?.length ? Math.min(...windows.map(window => Math.max(0, Math.round(100 - window.usedPercent)))) : null
+              return (
+                <Label
+                  key={option}
+                  htmlFor={`${id}-${option}`}
+                  className="min-h-11 cursor-pointer gap-3 rounded-md border px-3 py-2 has-[[data-state=checked]]:bg-muted has-[:disabled]:cursor-default"
+                >
+                  <RadioGroupItem id={`${id}-${option}`} value={option} disabled={unavailable || current} />
+                  <EngineMark engine={option} labelled />
+                  <span className="ml-auto text-right text-xs font-normal text-muted-foreground">
+                    {unavailable ? 'Worker only' : current ? 'Original agent' : left === null ? 'Quota unknown' : `${left}% left`}
+                  </span>
+                </Label>
+              )
+            })}
+          </RadioGroup>
         </div>
-        {isChat && (
-          <label class="form-field">
-            <span>First message</span>
-            <textarea name="message" rows={4} placeholder="What should this chat work on?" required disabled={disabled} />
-          </label>
-        )}
+        {!isRetry && <FolderField value={folder} change={setFolder} recent={folders} disabled={disabled} />}
+        <ModelFields engine={engine} model={model} effort={effort} chooseModel={setModel} chooseEffort={setEffort} disabled={disabled} />
         {mode.kind === 'worker' && (
           <>
-            <label class="form-field">
-              <span>Brief format</span>
-              <select
+            <div className="grid gap-2">
+              <Label htmlFor={`${id}-format`}>Brief format</Label>
+              <Select
                 value={briefKind}
-                onChange={event => setBriefKind(event.currentTarget.value === 'path' ? 'path' : 'text')}
+                onValueChange={value => {
+                  setBriefKind(value === 'path' ? 'path' : 'text')
+                  setBrief('')
+                }}
                 disabled={disabled}
               >
-                <option value="text">Write a brief</option>
-                <option value="path">Use a brief file</option>
-              </select>
-            </label>
-            <label class="form-field">
-              <span>{briefKind === 'path' ? 'Brief file path' : 'Task brief'}</span>
+                <SelectTrigger id={`${id}-format`} className="min-h-11 w-full md:min-h-9">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent position="popper">
+                  <SelectItem value="text">Write a brief</SelectItem>
+                  <SelectItem value="path">Use a brief file</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor={`${id}-brief`}>{briefKind === 'path' ? 'Brief file path' : 'Task brief'}</Label>
               {briefKind === 'path' ? (
-                <input name="brief" required disabled={disabled} placeholder="Path relative to folder or absolute" />
+                <Input
+                  id={`${id}-brief`}
+                  required
+                  disabled={disabled}
+                  placeholder="Path relative to folder or absolute"
+                  value={brief}
+                  onChange={event => setBrief(event.currentTarget.value)}
+                />
               ) : (
-                <textarea name="brief" rows={4} required disabled={disabled} placeholder="What should the worker do?" />
+                <Textarea
+                  id={`${id}-brief`}
+                  rows={4}
+                  required
+                  disabled={disabled}
+                  placeholder="What should the worker do?"
+                  value={brief}
+                  onChange={event => setBrief(event.currentTarget.value)}
+                />
               )}
-            </label>
+            </div>
           </>
         )}
         <ErrorBanner text={action.error} />
-        <div class="dialog-actions">
-          <button class="button button-secondary" type="button" onClick={close} disabled={action.busy}>
-            Cancel
-          </button>
-          <button class="button button-primary" type="submit" disabled={disabled}>
-            {action.busy ? 'Starting…' : isRetry ? 'Retry worker' : title}
-          </button>
-        </div>
       </form>
-    </Dialog>
+    </ResponsiveDialog>
   )
 }
 
@@ -177,41 +345,56 @@ export function ConfirmDialog({
   title,
   description,
   label,
+  busyLabel = 'Stopping…',
   close,
   confirm,
   offline,
 }: {
   title: string
-  description: string
+  description: ReactNode
   label: string
+  busyLabel?: string
   close: () => void
   confirm: () => Promise<void>
   offline: boolean
 }) {
   const action = useAction()
+  const opener = useRef<HTMLElement | null>(null)
   return (
-    <Dialog title={title} busy={action.busy} close={close}>
-      <p>{description}</p>
-      <ErrorBanner text={action.error} />
-      <div class="dialog-actions">
-        <button class="button button-secondary" type="button" onClick={close} disabled={action.busy}>
-          Cancel
-        </button>
-        <button
-          class="button button-danger"
-          type="button"
-          disabled={offline || action.busy}
-          onClick={() =>
-            void action.perform(async () => {
-              await confirm()
-              close()
-            })
-          }
-        >
-          {action.busy ? 'Stopping…' : label}
-        </button>
-      </div>
-    </Dialog>
+    <AlertDialog open onOpenChange={open => !open && !action.busy && close()}>
+      <AlertDialogContent
+        className="max-h-[calc(100dvh-2rem)] overflow-y-auto data-[size=default]:sm:max-w-sm"
+        onOpenAutoFocus={() => {
+          if (!opener.current && document.activeElement instanceof HTMLElement) opener.current = document.activeElement
+        }}
+        onCloseAutoFocus={event => {
+          event.preventDefault()
+          if (opener.current?.isConnected) opener.current.focus({ preventScroll: true })
+        }}
+      >
+        <AlertDialogHeader className="place-items-start text-left">
+          <AlertDialogTitle>{title}</AlertDialogTitle>
+          <AlertDialogDescription className="wrap-anywhere">{description}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <ErrorBanner text={action.error} />
+        <AlertDialogFooter className="flex-row flex-wrap justify-end *:min-h-11 md:*:min-h-9">
+          <AlertDialogCancel disabled={action.busy}>Cancel</AlertDialogCancel>
+          <Button
+            variant="destructive"
+            type="button"
+            disabled={offline || action.busy}
+            onClick={() =>
+              void action.perform(async () => {
+                await confirm()
+                close()
+              })
+            }
+          >
+            {action.busy ? busyLabel : label}
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   )
 }
 
@@ -230,153 +413,174 @@ function sizeLabel(tree: Worktree) {
 
 export function WorktreesDialog({ close, offline }: { close: () => void; offline: boolean }) {
   const listing = useDetail('worktrees', readWorktrees)
-  const action = useAction()
   const [confirm, setConfirm] = useState<Worktree>()
   const [removed, setRemoved] = useState<string[]>([])
   const [notice, setNotice] = useState('')
-  const cancelRemoval = useRef<HTMLButtonElement>(null)
-  useEffect(() => {
-    if (confirm) cancelRemoval.current?.focus()
-  }, [confirm])
   const trees = listing.data?.filter(tree => tree.run && tree.run.status !== 'running' && !removed.includes(tree.path))
+
   return (
-    <Dialog title="Worktrees" busy={action.busy} close={close}>
-      <p class="muted">Review disk use and remove worktrees from finished runs.</p>
-      <ErrorBanner text={listing.error ?? action.error} />
-      {notice && <p role="status">{notice}</p>}
-      {confirm ? (
-        <div class="confirm-panel">
-          <h3>Remove {folderName(confirm.path)}?</h3>
-          <p class="muted">
-            This deletes the worktree folder and discards any uncommitted changes. Grip keeps unmerged commits on their branch.
-          </p>
-          <code class="path-label">{confirm.path}</code>
-          <div class="dialog-actions">
-            <button
-              ref={cancelRemoval}
-              class="button button-secondary"
-              type="button"
-              disabled={action.busy}
-              onClick={() => setConfirm(undefined)}
-            >
-              Cancel
-            </button>
-            <button
-              class="button button-danger"
-              type="button"
-              disabled={offline || action.busy}
-              onClick={() =>
-                void action.perform(async () => {
-                  const result = await api.removeWorktree(confirm.path)
-                  setRemoved(paths => [...paths, confirm.path])
-                  setNotice(result.branchDeleted ? 'Worktree and merged branch removed.' : 'Worktree removed. Branch kept.')
-                  setConfirm(undefined)
-                  listing.refresh()
-                })
-              }
-            >
-              {action.busy ? 'Removing…' : 'Remove worktree'}
-            </button>
-          </div>
-        </div>
-      ) : trees ? (
-        trees.length ? (
-          <ul class="worktree-list">
-            {trees.map(tree => (
-              <li class="worktree-item" key={tree.path}>
-                <div>
-                  <strong>{tree.run?.title ?? folderName(tree.path)}</strong>
-                  <code class="path-label" title={tree.path}>
-                    {tree.path}
-                  </code>
-                  <small class="muted">
-                    {sizeLabel(tree)}
-                    {tree.ageMs === null ? '' : ` · ${durationText(Math.round(tree.ageMs / 60_000))} old`}
-                  </small>
-                </div>
-                <button class="button button-secondary" type="button" disabled={offline} onClick={() => setConfirm(tree)}>
-                  Remove
-                </button>
-              </li>
-            ))}
-          </ul>
+    <ResponsiveDialog
+      title="Worktrees"
+      close={close}
+      actions={
+        <Button variant="outline" type="button" onClick={close}>
+          Close
+        </Button>
+      }
+    >
+      <div className="grid gap-3">
+        <ErrorBanner text={listing.error} />
+        {notice && <p role="status">{notice}</p>}
+        {trees ? (
+          trees.length ? (
+            <ul className="divide-y rounded-md border">
+              {trees.map(tree => (
+                <li className="flex items-start gap-3 p-3" key={tree.path}>
+                  <div className="grid min-w-0 flex-1 gap-1">
+                    <strong className="wrap-anywhere">{tree.run?.title ?? folderName(tree.path)}</strong>
+                    <code className="text-xs break-all text-muted-foreground">{tree.path}</code>
+                    <small className="text-xs text-muted-foreground">
+                      {sizeLabel(tree)}
+                      {tree.ageMs === null ? '' : ` · ${durationText(Math.round(tree.ageMs / 60_000))} old`}
+                    </small>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    type="button"
+                    className="min-h-11 md:min-h-8"
+                    disabled={offline}
+                    onClick={() => setConfirm(tree)}
+                  >
+                    Remove
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-muted-foreground">No finished worktrees.</p>
+          )
+        ) : listing.error ? (
+          <Button className="justify-self-start" variant="outline" type="button" onClick={listing.refresh}>
+            Try again
+          </Button>
         ) : (
-          <p class="muted">No finished worktrees.</p>
-        )
-      ) : listing.error ? (
-        <button class="button button-secondary" type="button" onClick={listing.refresh}>
-          Try again
-        </button>
-      ) : (
-        <p role="status">Loading worktrees…</p>
+          <p className="text-sm text-muted-foreground" role="status">
+            Loading worktrees…
+          </p>
+        )}
+      </div>
+      {confirm && (
+        <ConfirmDialog
+          title={`Remove ${folderName(confirm.path)}?`}
+          description={
+            <>
+              This deletes the worktree folder and discards any uncommitted changes. Grip keeps unmerged commits on their branch.
+              <code className="mt-2 block text-xs break-all">{confirm.path}</code>
+            </>
+          }
+          label="Remove worktree"
+          busyLabel="Removing…"
+          offline={offline}
+          close={() => setConfirm(undefined)}
+          confirm={async () => {
+            const result = await api.removeWorktree(confirm.path)
+            setRemoved(paths => [...paths, confirm.path])
+            setNotice(result.branchDeleted ? 'Worktree and merged branch removed.' : 'Worktree removed. Branch kept.')
+            listing.refresh()
+          }}
+        />
       )}
-    </Dialog>
+    </ResponsiveDialog>
   )
 }
 
-export function SettingsDialog({ state, close }: { state: AppState | null; close: () => void }) {
+export function SettingsDialog({
+  state,
+  close,
+  section = 'all',
+}: {
+  state: AppState | null
+  close: () => void
+  section?: 'all' | 'updates' | 'settings'
+}) {
   const history = state?.claw.history?.slice(-5).reverse() ?? []
   return (
-    <Dialog title="Settings" close={close}>
-      <div class="settings-panel">
-        <section class="settings-section">
-          <h3>Claw updates</h3>
-          {history.length ? (
-            <ol class="update-history">
-              {history.map(event => (
-                <li class="update-history-item" key={`${event.at}-${event.kind}`}>
-                  <strong>
-                    {
-                      { installed: 'Installed', updated: 'Updated', 'rolled-back': 'Rolled back', 'gate-failed': 'Health check failed' }[
-                        event.kind
-                      ]
-                    }
-                  </strong>
-                  {(event.from || event.to) && (
-                    <span> {event.from && event.to ? `${event.from} → ${event.to}` : (event.to ?? event.from)}</span>
-                  )}
-                  <time class="muted" dateTime={event.at}>
-                    {new Date(event.at).toLocaleString()}
-                  </time>
-                  {event.detail && <p>{event.detail}</p>}
-                </li>
-              ))}
-            </ol>
-          ) : (
-            <p class="muted">No recorded updates.</p>
-          )}
-        </section>
-        <section class="settings-section">
-          <h3>Principal</h3>
-          <dl class="detail-facts">
-            <div>
-              <dt>Machine</dt>
-              <dd>{state?.principal.host ?? 'Unknown'}</dd>
-            </div>
-            <div>
-              <dt>Claw</dt>
-              <dd>
-                {state?.claw.status ?? 'Unknown'}
-                {state?.claw.version ? ` · ${state.claw.version}` : ''}
-              </dd>
-            </div>
-            <div>
-              <dt>Keep awake</dt>
-              <dd>{state?.keepAwake.supported ? (state.keepAwake.holding ? 'Holding' : 'Idle') : 'Unavailable'}</dd>
-            </div>
-            {state?.you && (
-              <div>
-                <dt>Signed in</dt>
-                <dd>{state.you}</dd>
-              </div>
+    <ResponsiveDialog
+      title={section === 'updates' ? 'Claw updates' : 'Settings'}
+      close={close}
+      actions={
+        <Button variant="outline" type="button" onClick={close}>
+          Close
+        </Button>
+      }
+    >
+      <div className="grid gap-4 text-sm">
+        {section !== 'settings' && (
+          <section className="grid gap-2">
+            {section === 'all' && <h3 className="font-medium">Claw updates</h3>}
+            {history.length ? (
+              <ol className="divide-y rounded-md border">
+                {history.map(event => (
+                  <li className="grid gap-1 p-3 wrap-anywhere" key={`${event.at}-${event.kind}`}>
+                    <div>
+                      <strong className="font-medium">
+                        {
+                          {
+                            installed: 'Installed',
+                            updated: 'Updated',
+                            'rolled-back': 'Rolled back',
+                            'gate-failed': 'Health check failed',
+                          }[event.kind]
+                        }
+                      </strong>
+                      {(event.from || event.to) && (
+                        <span> {event.from && event.to ? `${event.from} → ${event.to}` : (event.to ?? event.from)}</span>
+                      )}
+                    </div>
+                    <time className="text-xs text-muted-foreground" dateTime={event.at}>
+                      {new Date(event.at).toLocaleString()}
+                    </time>
+                    {event.detail && <p>{event.detail}</p>}
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <p className="text-muted-foreground">No recorded updates.</p>
             )}
-          </dl>
-        </section>
-        <section>
-          <h3>Notifications</h3>
-          <p class="muted">Web Push will be available in a later update.</p>
-        </section>
+          </section>
+        )}
+        {section === 'all' && <Separator />}
+        {section !== 'updates' && (
+          <>
+            <section className="grid gap-2">
+              <h3 className="font-medium">Principal</h3>
+              <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 [&_dd]:wrap-anywhere [&_dt]:text-muted-foreground">
+                <dt>Machine</dt>
+                <dd>{state?.principal.host ?? 'Unknown'}</dd>
+                <dt>Claw</dt>
+                <dd>
+                  {state?.claw.status ?? 'Unknown'}
+                  {state?.claw.version ? ` · ${state.claw.version}` : ''}
+                </dd>
+                <dt>Keep awake</dt>
+                <dd>{state?.keepAwake.supported ? (state.keepAwake.holding ? 'Holding' : 'Idle') : 'Unavailable'}</dd>
+                {state?.you && (
+                  <>
+                    <dt>Signed in</dt>
+                    <dd>{state.you}</dd>
+                  </>
+                )}
+              </dl>
+            </section>
+            <Separator />
+            <section className="grid gap-2">
+              <h3 className="font-medium">Notifications</h3>
+              <p className="text-muted-foreground">Web Push will be available in a later update.</p>
+            </section>
+          </>
+        )}
       </div>
-    </Dialog>
+    </ResponsiveDialog>
   )
 }

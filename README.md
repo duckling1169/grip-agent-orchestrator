@@ -2,11 +2,11 @@
 
 Grip coordinates coding agents and makes their runs visible to devices on your tailnet. See [DESIGN.md](DESIGN.md) for the design and build status.
 
-Requires Node 22.12 or newer. Install dependencies with `npm ci`, then run `npm run build` to compile the daemon and build the Preact web app into `web/dist`.
+Requires Node 22.12 or newer. Install dependencies with `npm ci`, then run `npm run build` to compile the daemon and build the React 19 web app into `web/dist`.
 
 Run Grip with `npm run dev -- serve` in a normal logged-on terminal. Open its Tailscale Serve HTTPS address to use the app; direct loopback access has no Tailscale identity and is refused. The same identity check protects the HTML, assets, API and event stream. See CLAUDE.md for the machine setup and manual-test home directory.
 
-The app shows chats and their workers, live status, quota, conversation history, worker output/diffs, and worktree cleanup. It supports starting, messaging, stopping and retrying workers, plus Claude-hosted chats. Codex and Antigravity can run as workers; hosting their orchestrator chats inside Grip still needs upstream Claw support. Native-app handoff and Web Push are follow-up work.
+The app uses Tailwind CSS v4 and shadcn/ui, follows the system theme, and provides a machine switcher for other Grip hosts on your tailnet. It shows chats and their workers, live status, quota, conversation history, worker output/diffs, and worktree cleanup. It supports starting, messaging, stopping and retrying workers, plus Claude-hosted chats. Codex and Antigravity can run as workers; hosting their orchestrator chats inside Grip still needs upstream Claw support. Native-app handoff and Web Push are follow-up work.
 
 For an isolated interface preview:
 

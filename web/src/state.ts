@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useState } from 'preact/hooks'
+import { useEffect, useLayoutEffect, useState } from 'react'
 
 import { api, errorText } from './api.js'
 import type { AppState, ChatRecord, ClawState, QuotaSnapshot, Route, RunSummary } from './types.js'
@@ -25,6 +25,7 @@ export function useRoute(): Route {
 type Event =
   | { kind: 'state'; value: AppState }
   | { kind: 'chat'; value: ChatRecord }
+  | { kind: 'chat-deleted'; value: { id: string } }
   | { kind: 'run'; value: RunSummary }
   | { kind: 'quota'; value: QuotaSnapshot }
   | { kind: 'claw'; value: ClawState }
@@ -45,6 +46,10 @@ export function reconcile(state: AppState | null, event: Event): AppState | null
       const chat = event.value
       return { ...state, chats: upsert(state.chats, { ...chat, runs: state.runs.filter(run => run.chatId === chat.id) }) }
     }
+    case 'chat-deleted': {
+      const { id } = event.value
+      return { ...state, chats: state.chats.filter(chat => chat.id !== id), runs: state.runs.filter(run => run.chatId !== id) }
+    }
     case 'run': {
       const run = event.value
       return {
@@ -60,28 +65,77 @@ export function useLiveState() {
   const [data, setData] = useState<AppState | null>(null)
   const [connection, setConnection] = useState<'connecting' | 'online' | 'offline'>('connecting')
   const [error, setError] = useState<string | null>(null)
+  const [showOfflineBanner, setShowOfflineBanner] = useState(false)
+  const offline = connection === 'offline' || data?.principal.online === false
 
   useEffect(() => {
     const controller = new AbortController()
-    const stream = new EventSource('/api/events')
+    let stream: EventSource
+    let retry: number | undefined
     let receivedSnapshot = false
-    stream.onopen = () => setConnection('online')
-    stream.onerror = () => setConnection('offline')
-    for (const kind of ['state', 'run', 'chat', 'quota', 'claw'] as const) {
-      stream.addEventListener(kind, event => {
-        if (controller.signal.aborted) return
-        try {
-          const value = JSON.parse((event as MessageEvent<string>).data)
-          if (kind === 'state') {
-            receivedSnapshot = true
-            setError(null)
-          }
-          setData(previous => reconcile(previous, { kind, value }))
-        } catch {
-          setError('Grip sent an unreadable update.')
-        }
-      })
+
+    function clearRetry() {
+      window.clearTimeout(retry)
+      retry = undefined
     }
+
+    function openStream() {
+      const current = new EventSource('/api/events')
+      const isCurrent = () => stream === current && !controller.signal.aborted
+      current.onopen = () => {
+        if (!isCurrent()) return
+        clearRetry()
+        setConnection('online')
+      }
+      current.onerror = () => {
+        if (!isCurrent()) return
+        setConnection('offline')
+        if (document.visibilityState === 'visible' && retry === undefined) {
+          retry = window.setTimeout(() => {
+            retry = undefined
+            if (document.visibilityState === 'visible') reconnect()
+          }, 1_000)
+        }
+      }
+      for (const kind of ['state', 'run', 'chat', 'chat-deleted', 'quota', 'claw'] as const) {
+        current.addEventListener(kind, event => {
+          if (!isCurrent()) return
+          try {
+            const value = JSON.parse((event as MessageEvent<string>).data)
+            if (kind === 'state') {
+              receivedSnapshot = true
+              setError(null)
+            }
+            setData(previous => reconcile(previous, { kind, value }))
+          } catch {
+            setError('Grip sent an unreadable update.')
+          }
+        })
+      }
+      return current
+    }
+
+    function reconnect() {
+      clearRetry()
+      if (stream.readyState === EventSource.OPEN) {
+        if (navigator.onLine) setConnection('online')
+        return
+      }
+      stream.close()
+      stream = openStream()
+    }
+
+    function onVisibilityChange() {
+      if (document.visibilityState === 'visible') reconnect()
+    }
+
+    const onOffline = () => setConnection('offline')
+    stream = openStream()
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    window.addEventListener('online', reconnect)
+    window.addEventListener('offline', onOffline)
+    if (!navigator.onLine) onOffline()
+
     // Give the stream's initial snapshot a moment to arrive before making a fallback GET.
     // Racing both from the outset needlessly mounts and cancels selected-detail requests twice.
     const fallback = window.setTimeout(() => {
@@ -97,12 +151,25 @@ export function useLiveState() {
     }, 400)
     return () => {
       window.clearTimeout(fallback)
+      clearRetry()
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+      window.removeEventListener('online', reconnect)
+      window.removeEventListener('offline', onOffline)
       controller.abort()
       stream.close()
     }
   }, [])
 
-  return { data, connection, error }
+  useEffect(() => {
+    if (!offline) {
+      setShowOfflineBanner(false)
+      return
+    }
+    const timeout = window.setTimeout(() => setShowOfflineBanner(true), 2_000)
+    return () => window.clearTimeout(timeout)
+  }, [offline])
+
+  return { data, connection, error, showOfflineBanner: offline && showOfflineBanner }
 }
 
 /** Keep the last detail on a live refresh and never render a reply for a different selection. */

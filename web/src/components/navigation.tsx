@@ -1,10 +1,23 @@
-import { useState } from 'preact/hooks'
+import { ArrowUpRight, ChevronRight, Plus, RefreshCw } from 'lucide-react'
+import { useState, type ReactNode } from 'react'
 
-import { untilText, verdict, WINDOW_LABELS, windowLevel } from '../../../src/quota/usage.js'
+import { Button } from '@/components/ui/button'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { Progress } from '@/components/ui/progress'
+import { Separator } from '@/components/ui/separator'
+
+import { untilText, WINDOW_LABELS, type UsageWindow } from '../../../src/quota/usage.js'
 import { api } from '../api.js'
+import { pickQuotaWindows, QUOTA_WINDOWS } from '../quota.js'
 import { chatHref, runHref } from '../state.js'
 import type { AppState, QuotaSnapshot, Route, RunSummary } from '../types.js'
-import { EngineMark, ErrorBanner, engines, folderName, runActivity, StatusDot, useAction } from './common.js'
+import { ChatRow } from './chat-row.js'
+import { EngineMark, engineNames, engines, ErrorBanner, folderName, runActivity, StatusDot, useAction } from './common.js'
+
+const sectionLabel = 'text-xs font-medium text-muted-foreground'
+const touchButton = 'min-h-11 md:min-h-8'
+const rowLink =
+  'flex min-w-0 items-center gap-2 rounded-md px-2 py-2 hover:bg-accent focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring aria-[current=page]:bg-accent'
 
 export function hostName(host: string | null) {
   return host === 'claude-code' ? 'Claude Code' : host || 'its MCP host'
@@ -17,26 +30,94 @@ export function ChatStatus({ chat }: { chat: AppState['chats'][number] }) {
       ? hostName(chat.host)
       : { working: 'Working', idle: 'Ready', failed: 'Failed', stopped: 'Stopped' }[chat.status]
   return (
-    <span class="chat-status">
+    <span className="inline-flex min-w-0 items-center gap-1.5 wrap-anywhere">
       <StatusDot status={chat.waiting ? 'waiting' : chat.status} engine={chat.engine} />
       {label}
     </span>
   )
 }
 
+function ListSection({
+  storageKey,
+  label,
+  count,
+  initiallyOpen = true,
+  attention = false,
+  action,
+  children,
+}: {
+  storageKey: string
+  label: string
+  count: number
+  initiallyOpen?: boolean
+  attention?: boolean
+  action?: ReactNode
+  children: ReactNode
+}) {
+  const key = `grip:section:${storageKey}`
+  const [open, setOpen] = useState(() => {
+    try {
+      const stored = localStorage.getItem(key)
+      return stored === null ? initiallyOpen : stored === 'open'
+    } catch {
+      return initiallyOpen
+    }
+  })
+
+  return (
+    <Collapsible
+      open={open}
+      onOpenChange={next => {
+        setOpen(next)
+        try {
+          localStorage.setItem(key, next ? 'open' : 'closed')
+        } catch {
+          // The section can still open and close when storage is unavailable.
+        }
+      }}
+    >
+      <div className="flex min-w-0 items-center justify-between gap-2">
+        <h2 className="min-w-0">
+          <CollapsibleTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className={`group h-auto max-w-full justify-start gap-1.5 px-2 py-1 text-left whitespace-normal ${touchButton} ${sectionLabel} ${attention ? 'text-amber-700 hover:text-amber-800 dark:text-amber-400 dark:hover:text-amber-300' : ''}`}
+            >
+              <ChevronRight className="size-3.5 motion-safe:transition-transform group-data-[state=open]:rotate-90" aria-hidden="true" />
+              {label} ({count})
+            </Button>
+          </CollapsibleTrigger>
+        </h2>
+        {action}
+      </div>
+      <CollapsibleContent className="min-w-0 pt-1">{children}</CollapsibleContent>
+    </Collapsible>
+  )
+}
+
+function RowText({ title, detail, detailTitle }: { title: string; detail: string; detailTitle?: string }) {
+  return (
+    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+      <span className="truncate text-sm font-medium" title={title}>
+        {title}
+      </span>
+      <span className="truncate text-xs text-muted-foreground" title={detailTitle}>
+        {detail}
+      </span>
+    </span>
+  )
+}
+
 function WorkerLink({ run, selected, now }: { run: RunSummary; selected: boolean; now: number }) {
   return (
-    <li class="worker-item">
-      <a href={runHref(run.id)} aria-current={selected ? 'page' : undefined} class={selected ? 'is-selected' : undefined}>
+    <li className="min-w-0">
+      <a href={runHref(run.id)} aria-current={selected ? 'page' : undefined} className={rowLink}>
         <EngineMark engine={run.engine} />
-        <span class="worker-link-text">
-          <span class="worker-link-title" title={run.title}>
-            {run.title}
-          </span>
-          <small class="muted">{runActivity(run, now, true)}</small>
-        </span>
+        <RowText title={run.title} detail={runActivity(run, now, true)} />
         {run.unseen ? (
-          <span class="unseen-dot" aria-label="Unviewed result" title="Unviewed result" />
+          <span className="size-1.5 shrink-0 rounded-full bg-foreground" role="img" aria-label="Unviewed result" title="Unviewed result" />
         ) : (
           run.status === 'running' && <StatusDot status={run.status} engine={run.engine} />
         )}
@@ -64,49 +145,46 @@ export function NeedsAttention({
 }) {
   const runs = state.runs.filter(run => (run.status === 'failed' || run.status === 'stopped') && (!chatId || run.chatId === chatId))
   if (!runs.length) return null
-  const items = (
-    <ul>
-      {runs.map(run => {
-        const owner = state.chats.find(chat => chat.id === run.chatId)
-        return (
-          <li key={run.id} class="attention-item">
-            <div class="attention-copy">
-              <a href={runHref(run.id)}>
-                <EngineMark engine={run.engine} /> {run.title}
-              </a>
-              <small class="muted">
-                {runActivity(run, now)} · {owner?.title ?? 'Independent worker'}
-              </small>
-              {run.error && <small>{run.error}</small>}
-            </div>
-            <div class="attention-actions">
-              <button type="button" class="button button-secondary" disabled={offline} onClick={() => proceed(run)}>
-                Continue
-              </button>
-              <button type="button" class="button button-secondary" disabled={offline} onClick={() => retry(run)}>
-                Retry with another agent
-              </button>
-            </div>
-          </li>
-        )
-      })}
-    </ul>
-  )
-  if (compact)
-    return (
-      <details class="needs-attention attention-compact">
-        <summary>{runs.length === 1 ? '1 worker needs you' : `${runs.length} workers need you`}</summary>
-        {items}
-      </details>
-    )
+
   return (
-    <section class="needs-attention" aria-label="Needs you">
-      <div class="section-heading">
-        <h2>Needs you</h2>
-        <span class="badge">{runs.length}</span>
-      </div>
-      {items}
-    </section>
+    <ListSection
+      storageKey={compact || chatId ? 'needs-you-workspace' : 'needs-you'}
+      label="Needs you"
+      count={runs.length}
+      initiallyOpen={!compact}
+      attention
+    >
+      <ul className="grid min-w-0 divide-y">
+        {runs.map(run => {
+          const owner = state.chats.find(chat => chat.id === run.chatId)
+          return (
+            <li key={run.id} className="grid min-w-0 gap-2 px-2 py-2">
+              <div className="grid min-w-0 gap-1 text-xs wrap-anywhere text-muted-foreground">
+                <a
+                  href={runHref(run.id)}
+                  className="flex min-w-0 items-baseline gap-2 text-sm font-medium text-foreground underline-offset-4 hover:underline focus-visible:underline"
+                >
+                  <EngineMark engine={run.engine} />
+                  {run.title}
+                </a>
+                <p>
+                  {runActivity(run, now)} · {owner?.title ?? 'Independent worker'}
+                </p>
+                {run.error && <p className="text-destructive">{run.error}</p>}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button className={touchButton} type="button" variant="outline" size="sm" disabled={offline} onClick={() => proceed(run)}>
+                  Continue
+                </Button>
+                <Button className={touchButton} type="button" variant="outline" size="sm" disabled={offline} onClick={() => retry(run)}>
+                  Retry with another agent
+                </Button>
+              </div>
+            </li>
+          )
+        })}
+      </ul>
+    </ListSection>
   )
 }
 
@@ -127,180 +205,179 @@ export function Navigation({
 }) {
   const independent = state.runs.filter(run => !run.chatId || !state.chats.some(chat => chat.id === run.chatId))
   return (
-    <>
-      <div class="sidebar-header">
-        <div class="section-heading">
-          <h2>Chats</h2>
-          <button type="button" class="button button-primary" disabled={offline} onClick={newChat}>
-            + New chat
-          </button>
-        </div>
+    <nav className="grid min-w-0 gap-3" aria-label="Chats and workers">
+      <ListSection
+        storageKey="chats"
+        label="Chats"
+        count={state.chats.length}
+        action={
+          <Button className={`shrink-0 ${touchButton}`} type="button" variant="ghost" size="sm" disabled={offline} onClick={newChat}>
+            <Plus aria-hidden="true" />
+            New chat
+          </Button>
+        }
+      >
+        {state.chats.length ? (
+          <ul className="grid min-w-0 gap-1">
+            {state.chats.map((chat, index) => {
+              const selected = active.kind === 'chat' && active.id === chat.id
+              const activeWorker = active.kind === 'run' && chat.runs.some(run => run.id === active.id)
+              return (
+                <li key={chat.id} className="min-w-0">
+                  {index > 0 && <Separator className="mb-1" />}
+                  <ChatRow
+                    chat={chat}
+                    deleted={() => {
+                      if (selected || activeWorker) location.hash = ''
+                    }}
+                  >
+                    <a href={chatHref(chat.id)} className={`${rowLink} pr-12`} aria-current={selected ? 'page' : undefined}>
+                      {chat.engine || chat.host === 'claude-code' ? (
+                        <EngineMark engine={chat.engine ?? 'claude'} />
+                      ) : (
+                        <ArrowUpRight className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                      )}
+                      <RowText
+                        title={chat.title}
+                        detail={folderName(chat.folder) || hostName(chat.host)}
+                        detailTitle={chat.folder ?? undefined}
+                      />
+                      {(chat.status === 'working' || chat.waiting) && (
+                        <span className="inline-flex" aria-label={chat.waiting ? 'Waiting on workers' : 'Working'} role="img">
+                          <StatusDot status={chat.waiting ? 'waiting' : 'working'} engine={chat.engine} />
+                        </span>
+                      )}
+                    </a>
+                  </ChatRow>
+                  {chat.runs.length > 0 && (
+                    <ul className="mt-1 ml-4 grid min-w-0 gap-0.5 border-l pl-2" aria-label={`Workers for ${chat.title}`}>
+                      {chat.runs.map(run => (
+                        <WorkerLink key={run.id} run={run} now={now} selected={active.kind === 'run' && active.id === run.id} />
+                      ))}
+                    </ul>
+                  )}
+                </li>
+              )
+            })}
+          </ul>
+        ) : (
+          <p className="px-2 py-1 text-xs text-muted-foreground">No chats yet.</p>
+        )}
+      </ListSection>
+      <ListSection
+        storageKey="independent-workers"
+        label="Independent workers"
+        count={independent.length}
+        action={
+          <Button
+            className="size-11 shrink-0 md:size-8"
+            type="button"
+            variant="outline"
+            size="icon"
+            aria-label="Start one worker"
+            title="Start one worker"
+            disabled={offline}
+            onClick={newWorker}
+          >
+            <Plus aria-hidden="true" />
+          </Button>
+        }
+      >
+        {independent.length ? (
+          <ul className="grid min-w-0 gap-0.5">
+            {independent.map(run => (
+              <WorkerLink key={run.id} run={run} now={now} selected={active.kind === 'run' && active.id === run.id} />
+            ))}
+          </ul>
+        ) : (
+          <p className="px-2 py-1 text-xs text-muted-foreground">No independent workers.</p>
+        )}
+      </ListSection>
+    </nav>
+  )
+}
+
+function QuotaWindow({
+  name,
+  reading,
+  now,
+  provider,
+}: {
+  name: (typeof QUOTA_WINDOWS)[number]
+  reading?: UsageWindow
+  now: number
+  provider: string
+}) {
+  const labels = WINDOW_LABELS[name]!
+  const expired = reading?.resetsAt && Date.parse(reading.resetsAt) <= now
+  const remaining = reading ? Math.max(0, Math.min(100, Math.round(100 - reading.usedPercent))) : undefined
+  const reset = reading?.resetsAt ? untilText(reading.resetsAt, now) : ''
+  return (
+    <div className="grid min-w-0 content-start gap-1" title={reading?.stale || expired ? 'Stale reading' : undefined}>
+      <div className="flex flex-wrap items-baseline justify-between gap-x-1">
+        <span className="text-muted-foreground">{labels.short}</span>
+        <span className="font-medium whitespace-nowrap tabular-nums">{remaining === undefined ? '—' : `${remaining}% left`}</span>
       </div>
-      <nav class="chat-list" aria-label="Chats and workers">
-        {!state.chats.length && <p class="sidebar-empty muted">No chats yet.</p>}
-        <ul class="chat-items">
-          {state.chats.map(chat => {
-            const selected = active.kind === 'chat' && active.id === chat.id
-            const activeWorker = active.kind === 'run' && chat.runs.some(run => run.id === active.id)
-            return (
-              <li key={chat.id} class={`chat-item${activeWorker ? ' has-active-worker' : ''}`}>
-                <a
-                  href={chatHref(chat.id)}
-                  class={`chat-button${selected ? ' is-selected' : ''}`}
-                  aria-current={selected ? 'page' : undefined}
-                >
-                  {chat.engine || chat.host === 'claude-code' ? (
-                    <EngineMark engine={chat.engine ?? 'claude'} />
-                  ) : (
-                    <span class="external-mark" aria-hidden="true">
-                      ↗
-                    </span>
-                  )}
-                  <span class="chat-link-text">
-                    <span class="chat-link-title" title={chat.title}>
-                      {chat.title}
-                    </span>
-                    <small class="muted" title={chat.folder ?? undefined}>
-                      {folderName(chat.folder) || hostName(chat.host)}
-                    </small>
-                  </span>
-                  {(chat.status === 'working' || chat.waiting) && (
-                    <StatusDot status={chat.waiting ? 'waiting' : 'working'} engine={chat.engine} />
-                  )}
-                </a>
-                {chat.runs.length > 0 && (
-                  <ul class="worker-list" aria-label={`Workers for ${chat.title}`}>
-                    {chat.runs.map(run => (
-                      <WorkerLink key={run.id} run={run} now={now} selected={active.kind === 'run' && active.id === run.id} />
-                    ))}
-                  </ul>
-                )}
-              </li>
-            )
-          })}
-        </ul>
-        <div class="independent-workers">
-          <div class="section-heading">
-            <h2>Independent workers</h2>
-            <button
-              type="button"
-              class="icon-button"
-              aria-label="Start one worker"
-              title="Start one worker"
-              disabled={offline}
-              onClick={newWorker}
-            >
-              +
-            </button>
-          </div>
-          {independent.length ? (
-            <ul class="worker-list">
-              {independent.map(run => (
-                <WorkerLink key={run.id} run={run} now={now} selected={active.kind === 'run' && active.id === run.id} />
-              ))}
-            </ul>
-          ) : (
-            <p class="sidebar-empty muted">No independent workers.</p>
-          )}
-        </div>
-      </nav>
-    </>
+      <Progress
+        className={`h-1 ${reading?.stale || expired ? 'opacity-50' : ''}`}
+        value={remaining ?? 0}
+        aria-hidden={remaining === undefined ? true : undefined}
+        aria-label={`${provider} ${labels.long} quota remaining`}
+        aria-valuenow={remaining}
+        aria-valuetext={remaining === undefined ? undefined : `${remaining}% left`}
+      />
+      {reset && <p className="leading-tight text-muted-foreground">{reset === 'reset due' ? 'Reset due' : `Resets ${reset}`}</p>}
+    </div>
   )
 }
 
 export function QuotaStrip({ snapshot, now, offline }: { snapshot: QuotaSnapshot; now: number; offline: boolean }) {
   const action = useAction()
-  const [showRead, setShowRead] = useState(false)
-  const providers = snapshot.providers.map(provider => ({
-    ...provider,
-    windows: provider.windows.map(window =>
-      window.resetsAt && Date.parse(window.resetsAt) <= now ? { ...window, usedPercent: 0, stale: true } : window,
-    ),
-  }))
-  const refresh = (claude: boolean) =>
+  const busy = action.busy || snapshot.providers.some(provider => provider.busy)
+  const refresh = () =>
     void action.perform(async () => {
-      const refreshed = await api.refreshQuota(claude)
-      const errors = refreshed.providers.filter(
-        provider => (claude ? provider.provider === 'claude' : provider.provider !== 'claude') && provider.error,
-      )
+      const refreshed = await api.refreshQuota()
+      const errors = refreshed.providers.filter(provider => provider.error)
       if (errors.length) throw new Error(errors.map(provider => provider.error).join(' · '))
-      setShowRead(false)
     })
-  const assessment = verdict(providers, now)
+
   return (
-    <section class="quota-strip" aria-label="Quota">
-      <div class="section-heading">
-        <h2>Quota</h2>
-        <button
+    <section className="grid min-w-0 gap-2" aria-label="Quota">
+      <div className="flex items-center justify-between">
+        <h2 className={sectionLabel}>Quota</h2>
+        <Button
+          className="size-11 md:size-7"
+          variant="ghost"
+          size="icon"
           type="button"
-          class="icon-button"
-          title="Refresh Codex and Antigravity quotas"
-          aria-label="Refresh free quota readings"
-          disabled={offline || action.busy || providers.some(provider => provider.busy)}
-          onClick={() => refresh(false)}
+          title="Refresh quota"
+          aria-label="Refresh quota"
+          disabled={offline || busy}
+          onClick={refresh}
         >
-          ↻
-        </button>
+          <RefreshCw className={busy ? 'motion-safe:animate-spin' : undefined} aria-hidden="true" />
+        </Button>
       </div>
-      {engines.map(engine => {
-        const provider = providers.find(item => item.provider === engine)
-        const tightest = provider?.windows.reduce<(typeof provider.windows)[number] | undefined>((tight, window) => {
-          if (!tight || (tight.stale && !window.stale) || (tight.stale === window.stale && window.usedPercent > tight.usedPercent))
-            return window
-          return tight
-        }, undefined)
-        const left = tightest ? Math.max(0, Math.min(100, Math.round(100 - tightest.usedPercent))) : null
-        const reset = tightest?.resetsAt ? untilText(tightest.resetsAt, now) : ''
-        const details = [
-          tightest ? (WINDOW_LABELS[tightest.name]?.short ?? tightest.name) : null,
-          provider?.busy
-            ? 'Reading…'
-            : tightest?.stale
-              ? 'Stale reading'
-              : reset
-                ? reset === 'reset due'
-                  ? 'Reset due'
-                  : `Resets ${reset}`
-                : null,
-          provider?.error ? 'Read failed' : null,
-        ]
-          .filter(Boolean)
-          .join(' · ')
-        return (
-          <div class={`quota-provider engine-${engine}`} key={engine} title={provider?.error ?? undefined}>
-            <div class="quota-provider-header">
-              <EngineMark engine={engine} labelled />
-              <span>{left === null ? '—' : `${left}% left`}</span>
+      <div className="grid min-w-0 grid-cols-3 gap-2 text-xs">
+        {engines.map(engine => {
+          const provider = snapshot.providers.find(item => item.provider === engine)
+          const readings = pickQuotaWindows(provider?.windows)
+          return (
+            <div key={engine} className="row-span-3 grid min-w-0 grid-rows-subgrid" title={provider?.error ?? undefined}>
+              <h3 className="flex min-w-0 items-center gap-1 font-medium">
+                <EngineMark engine={engine} />
+                <span className="truncate" title={engineNames[engine]}>
+                  {engineNames[engine]}
+                </span>
+              </h3>
+              {QUOTA_WINDOWS.map(name => (
+                <QuotaWindow key={name} name={name} reading={readings[name]} now={now} provider={engineNames[engine]} />
+              ))}
             </div>
-            <div class={`quota-track${tightest?.stale ? ' is-stale' : ''}`} aria-hidden="true">
-              <span class={`quota-fill quota-${windowLevel(left ?? 100)}`} style={{ width: `${left ?? 0}%` }} />
-            </div>
-            <small class="muted">{details || 'No reading yet'}</small>
-          </div>
-        )
-      })}
-      <p class={`quota-verdict quota-${assessment.tone}`}>{assessment.text}</p>
+          )
+        })}
+      </div>
       <ErrorBanner text={action.error} />
-      {showRead ? (
-        <div class="quota-confirm">
-          <p>Reading Claude quota uses one small Claude turn.</p>
-          <button type="button" class="button button-secondary" disabled={action.busy} onClick={() => setShowRead(false)}>
-            Cancel
-          </button>
-          <button type="button" class="button button-secondary" disabled={offline || action.busy} onClick={() => refresh(true)}>
-            Read Claude quota
-          </button>
-        </div>
-      ) : (
-        <button
-          type="button"
-          class="quiet-button"
-          disabled={offline || action.busy || Boolean(providers.find(p => p.provider === 'claude')?.busy)}
-          onClick={() => setShowRead(true)}
-        >
-          Read Claude quota…
-        </button>
-      )}
     </section>
   )
 }

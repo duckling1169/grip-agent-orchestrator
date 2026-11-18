@@ -108,7 +108,7 @@ agy's official [headless mode](https://antigravity.google/docs/cli/headless/) su
   - Node's built-in `http`
   - `@modelcontextprotocol/sdk` (Streamable HTTP server)
   - `web-push`
-  - frontend: Preact or React with Vite, built to static files that the daemon serves
+  - frontend: React with Vite, Tailwind and shadcn/ui, built to static files that the daemon serves
   - no server framework, no database server
 
 ### 4.1 Principal machine

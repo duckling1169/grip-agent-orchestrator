@@ -87,6 +87,27 @@ it('accepts fresh quota and Claw events and replaces prior state on reconnect', 
   expect(reconcile(next, { kind: 'state', value: reconnect })).toEqual(reconnect)
 })
 
+it('removes a deleted chat and its workers from the live lists', () => {
+  const removedChat = chat('c-removed')
+  const retainedChat = chat('c-retained')
+  const removedRun = run('r-removed', removedChat.id)
+  const retainedRun = run('r-retained', retainedChat.id)
+  const independentRun = run('r-independent', null)
+  const before = {
+    ...state,
+    chats: [
+      { ...removedChat, runs: [removedRun] },
+      { ...retainedChat, runs: [retainedRun] },
+    ],
+    runs: [removedRun, retainedRun, independentRun],
+  }
+
+  expect(reconcile(before, { kind: 'chat-deleted', value: { id: removedChat.id } })).toMatchObject({
+    chats: [{ ...retainedChat, runs: [retainedRun] }],
+    runs: [retainedRun, independentRun],
+  })
+})
+
 it('accepts chat and worker routes and falls back to the list for malformed hashes', () => {
   expect(parseRoute('#/chats/c-first')).toEqual({ kind: 'chat', id: 'c-first' })
   expect(parseRoute('#/runs/r-worker/')).toEqual({ kind: 'run', id: 'r-worker' })
