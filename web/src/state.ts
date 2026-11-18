@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useState } from 'react'
 
 import { api, errorText } from './api.js'
+import { apiUrl } from './machine.js'
 import type { AppState, ChatRecord, ClawState, QuotaSnapshot, Route, RunSummary } from './types.js'
 
 export function parseRoute(hash: string): Route {
@@ -61,7 +62,8 @@ export function reconcile(state: AppState | null, event: Event): AppState | null
   }
 }
 
-export function useLiveState() {
+/** The live state of the Grip at `base` (null: the machine that served the page). */
+export function useLiveState(base: string | null) {
   const [data, setData] = useState<AppState | null>(null)
   const [connection, setConnection] = useState<'connecting' | 'online' | 'offline'>('connecting')
   const [error, setError] = useState<string | null>(null)
@@ -80,7 +82,7 @@ export function useLiveState() {
     }
 
     function openStream() {
-      const current = new EventSource('/api/events')
+      const current = new EventSource(apiUrl('/api/events', base))
       const isCurrent = () => stream === current && !controller.signal.aborted
       current.onopen = () => {
         if (!isCurrent()) return
@@ -158,7 +160,7 @@ export function useLiveState() {
       controller.abort()
       stream.close()
     }
-  }, [])
+  }, [base])
 
   useEffect(() => {
     if (!offline) {

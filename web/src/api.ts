@@ -11,6 +11,7 @@ import type {
   RunSummary,
   Worktree,
 } from './types.js'
+import { apiUrl, machineBase } from './machine.js'
 
 type WorkerOptions = { engine: Engine; model?: string; effort?: string }
 type RunStarted = RunSummary & { quotaNote?: string }
@@ -18,8 +19,9 @@ type RunStarted = RunSummary & { quotaNote?: string }
 const runPath = (id: string) => `/api/runs/${encodeURIComponent(id)}`
 const chatPath = (id: string) => `/api/chats/${encodeURIComponent(id)}`
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, { cache: 'no-store', ...init })
+/** Calls the chosen machine's Grip; `local` calls the machine that served the page. */
+async function request<T>(path: string, init?: RequestInit, local = false): Promise<T> {
+  const response = await fetch(local ? path : apiUrl(path, machineBase()), { cache: 'no-store', ...init })
   if (!response.ok) {
     const body = await response.json().catch(() => null)
     throw new Error(typeof body?.error === 'string' ? body.error : `Grip returned HTTP ${response.status}`)
@@ -33,7 +35,8 @@ function write<T>(path: string, body: unknown = {}, method: 'POST' | 'DELETE' = 
 
 export const api = {
   state: (signal: AbortSignal) => request<AppState>('/api/state', { signal }),
-  machines: (signal?: AbortSignal) => request<MachineList>('/api/machines', { signal }),
+  /** Always from the machine that served the page, so the list is the same whichever is chosen. */
+  machines: (signal?: AbortSignal) => request<MachineList>('/api/machines', { signal }, true),
   chat: (id: string, signal: AbortSignal) => request<ChatDetail>(chatPath(id), { signal }),
   run: (id: string, signal: AbortSignal) => request<RunDetail>(runPath(id), { signal }),
   worktrees: (signal: AbortSignal) => request<Worktree[]>('/api/worktrees', { signal }),

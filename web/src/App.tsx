@@ -18,6 +18,7 @@ import { ErrorBanner, StatusDot } from './components/common.js'
 import { ConfirmDialog, SettingsDialog, StartDialog, WorktreesDialog } from './components/dialogs.js'
 import { Navigation, NeedsAttention, QuotaStrip } from './components/navigation.js'
 import { ChatWorkspace, RunWorkspace } from './components/workspace.js'
+import { baseName, chooseMachine, machineBase, normalizeBase } from './machine.js'
 import { chatHref, runHref, useLiveState, useRoute } from './state.js'
 import type { ChatSummary, Machine, Route, RunSummary } from './types.js'
 
@@ -28,7 +29,19 @@ type Overlay =
   | { kind: 'stop-run'; run: RunSummary }
   | { kind: 'stop-chat'; chat: ChatSummary }
 
-function MachineSwitcher({ host, status }: { host?: string; status: string }) {
+function MachineSwitcher({
+  host,
+  status,
+  base,
+  switchTo,
+}: {
+  host?: string
+  status: string
+  base: string | null
+  switchTo: (url: string | null) => void
+}) {
+  const chosen = (machine: Machine) =>
+    machine.self ? base === null : !!machine.url && normalizeBase(machine.url, location.origin) === base
   const [machines, setMachines] = useState<Machine[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -61,7 +74,7 @@ function MachineSwitcher({ host, status }: { host?: string; status: string }) {
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" className="h-11 min-w-0 max-w-full gap-2 px-2" aria-label="Switch machine">
           <StatusDot status={status} />
-          <span className="truncate">{machines.find(machine => machine.self)?.name ?? host ?? 'Connecting…'}</span>
+          <span className="truncate">{host ?? machines.find(chosen)?.name ?? (base ? baseName(base) : 'Connecting…')}</span>
           <ChevronDown className="size-3.5 shrink-0" />
         </Button>
       </DropdownMenuTrigger>
@@ -87,15 +100,19 @@ function MachineSwitcher({ host, status }: { host?: string; status: string }) {
                     {machine.grip !== 'yes' ? ' · Grip not running' : ''}
                   </span>
                 </span>
-                {machine.self && <Check className="size-4" />}
+                {chosen(machine) && <Check className="size-4" />}
               </>
             )
-            return machine.grip === 'yes' && machine.url && !machine.self ? (
-              <DropdownMenuItem key={machine.dnsName} asChild className="min-h-12">
-                <a href={machine.url}>{content}</a>
-              </DropdownMenuItem>
-            ) : (
-              <DropdownMenuItem key={machine.dnsName} disabled={!machine.self} className="min-h-12">
+            const reachable = machine.self || (machine.grip === 'yes' && !!machine.url)
+            return (
+              <DropdownMenuItem
+                key={machine.dnsName}
+                disabled={!reachable}
+                className="min-h-12"
+                onSelect={() => {
+                  if (!chosen(machine)) switchTo(machine.self ? null : machine.url)
+                }}
+              >
                 {content}
               </DropdownMenuItem>
             )
@@ -107,7 +124,20 @@ function MachineSwitcher({ host, status }: { host?: string; status: string }) {
 }
 
 export function App() {
-  const { data, connection, error, showOfflineBanner } = useLiveState()
+  const [base, setBase] = useState(machineBase)
+  const [attempt, setAttempt] = useState(0)
+  function switchTo(url: string | null) {
+    const next = chooseMachine(url)
+    // Chat and worker ids belong to one Grip, so a switch starts at the list.
+    if (location.hash) location.hash = ''
+    setBase(next)
+  }
+  // A new key gives the other machine a fresh app: no state, overlay or detail carries over.
+  return <Grip key={`${base ?? 'here'} ${attempt}`} base={base} switchTo={switchTo} retry={() => setAttempt(n => n + 1)} />
+}
+
+function Grip({ base, switchTo, retry: reconnect }: { base: string | null; switchTo: (url: string | null) => void; retry: () => void }) {
+  const { data, connection, error, showOfflineBanner } = useLiveState(base)
   const route = useRoute()
   const [overlay, setOverlay] = useState<Overlay | null>(null)
   const [now, setNow] = useState(Date.now)
@@ -171,7 +201,7 @@ export function App() {
           <img src="/icon.svg" alt="Grip" width="30" height="30" />
         </a>
         <div className="min-w-0 flex-1">
-          <MachineSwitcher host={data?.principal.host} status={offline ? 'offline' : connection} />
+          <MachineSwitcher host={data?.principal.host} status={offline ? 'offline' : connection} base={base} switchTo={switchTo} />
         </div>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -205,10 +235,22 @@ export function App() {
           </DropdownMenuContent>
         </DropdownMenu>
       </header>
-      {showOfflineBanner && (
-        <p className="shrink-0 border-b px-4 py-2 text-sm text-muted-foreground" role="status">
-          Grip is disconnected. Reconnecting…
-        </p>
+      {showOfflineBanner && base ? (
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b px-4 py-2 text-sm" role="status">
+          <span className="mr-auto">{data?.principal.host ?? baseName(base)} is not answering.</span>
+          <Button variant="outline" size="sm" className="min-h-11 md:min-h-8" onClick={reconnect}>
+            Retry
+          </Button>
+          <Button variant="outline" size="sm" className="min-h-11 md:min-h-8" onClick={() => switchTo(null)}>
+            Switch back
+          </Button>
+        </div>
+      ) : (
+        showOfflineBanner && (
+          <p className="shrink-0 border-b px-4 py-2 text-sm text-muted-foreground" role="status">
+            Grip is disconnected. Reconnecting…
+          </p>
+        )
       )}
       <ErrorBanner text={error} />
       {lastClawEvent?.kind === 'rolled-back' && (
