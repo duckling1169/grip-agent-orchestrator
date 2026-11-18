@@ -36,16 +36,15 @@ export type CommandContext = {
 }
 
 /** How to add Grip to an orchestrator, and what to take out (design §15). */
-export function mcpConfigText(token: string): string {
-  const url = `http://127.0.0.1:${DEFAULT_MCP_PORT}/mcp`
-  return [
-    `Claude Code:`,
-    `  claude mcp add --transport http --scope user grip ${url} --header "Authorization: Bearer ${token}"`,
-    ``,
-    `Any MCP host (Streamable HTTP):`,
-    JSON.stringify({ mcpServers: { grip: { type: 'http', url, headers: { Authorization: `Bearer ${token}` } } } }, null, 2),
-  ].join('\n')
-}
+const MCP_URL = `http://127.0.0.1:${DEFAULT_MCP_PORT}/mcp`
+
+/** The one command that adds Grip to Claude Code, ready to paste into a terminal. */
+export const claudeMcpCommand = (token: string) =>
+  `claude mcp add --transport http --scope user grip ${MCP_URL} --header "Authorization: Bearer ${token}"`
+
+/** The same server for any other MCP host (Streamable HTTP), from `grip mcp-config --json`. */
+export const mcpConfigJson = (token: string) =>
+  JSON.stringify({ mcpServers: { grip: { type: 'http', url: MCP_URL, headers: { Authorization: `Bearer ${token}` } } } }, null, 2)
 
 const SWITCH_OVER = [
   `Then switch the orchestrator over to Grip:`,
@@ -131,7 +130,8 @@ export async function install(context: CommandContext): Promise<void> {
   }
 
   out(``)
-  out(mcpConfigText(token))
+  out(`Add Grip to Claude Code by running this in a terminal (grip mcp-config --json prints it for other MCP hosts):`)
+  out(claudeMcpCommand(token))
   out(``)
   for (const line of SWITCH_OVER) out(line)
 }

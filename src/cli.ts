@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 import type { ClawEngine } from './claw/index.js'
 import { startDaemon } from './daemon.js'
 import { loadOrCreateToken } from './fs-util.js'
-import { install, mcpConfigText, status, stopAll, uninstall } from './install/commands.js'
+import { claudeMcpCommand, install, mcpConfigJson, status, stopAll, uninstall } from './install/commands.js'
 import type { CommandContext } from './install/commands.js'
 import { gripLogger } from './log.js'
 import { gripPaths } from './paths.js'
@@ -17,7 +17,7 @@ const USAGE = `grip <command>
   stop-all                                 Stop every worker and chat, like the app's Stop all
   uninstall                                Remove the logon task; Grip's data, Claw and tailscale serve stay
   serve [--engines claude,codex-app,agy]   Run Grip: Claw supervisor, the orchestrator MCP and the web API
-  mcp-config                               Print how to add Grip's MCP server to an orchestrator
+  mcp-config [--json]                      Print the command that adds Grip to Claude Code, or JSON for other MCP hosts
 
   --home <folder>   Grip's data folder instead of ~/.grip (or set GRIP_HOME)
 `
@@ -68,7 +68,10 @@ async function main(argv: string[]) {
     return
   }
 
-  if (command === 'mcp-config') return console.log(mcpConfigText(await loadOrCreateToken(join(paths.home, 'mcp-token'))))
+  if (command === 'mcp-config') {
+    const token = await loadOrCreateToken(join(paths.home, 'mcp-token'))
+    return console.log(rest.includes('--json') ? mcpConfigJson(token) : claudeMcpCommand(token))
+  }
   if (command === 'install') return install(context)
   if (command === 'uninstall') return uninstall(context)
   if (command === 'status') return status(context)

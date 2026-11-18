@@ -153,7 +153,7 @@ Notes:
 - **Briefs are written by the orchestrator** (or a subagent), not by you. Grip doesn't impose a format. If `brief` is a path, Grip checks it exists, sends the worker `Do <path>` and uses the file's first heading as the run's title. If it's inline text, the title is its first line.
 - **One Claw session per turn.** Grip opens the run's Claw session for a turn and closes it when the turn ends, keeping the engine's own conversation id. A `message` reopens the session with `resumeSessionId`, so it continues the same conversation. Idle runs hold no Claw session slot and never hit Claw's idle expiry.
 - **Turn length:** each turn may run up to 3 days by default (`turnTimeoutMinutes`; Claw's own defaults are 5 to 10 minutes), since real work can take that long and Stop ends a turn sooner. One `wait_any` call waits at most 4 minutes, under MCP clients' own tool-call limits; long work is many short waits, never one long call.
-- **MCP endpoint:** `http://127.0.0.1:18797/mcp`, Streamable HTTP **with sessions**, so Grip can tell one chat from another (§5.1). `grip mcp-config` prints the command that adds it to Claude Code, and the JSON for any other MCP host.
+- **MCP endpoint:** `http://127.0.0.1:18797/mcp`, Streamable HTTP **with sessions**, so Grip can tell one chat from another (§5.1). `grip mcp-config` prints the one command that adds it to Claude Code; `--json` prints the config for any other MCP host.
 - **The tool set is deliberately small,** not Claw's 79 tools. Councils and fan-out can become Grip tools later.
 
 ### 5.1 Chats
