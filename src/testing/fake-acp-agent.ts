@@ -20,6 +20,8 @@ export type FakeAcpOptions = {
   askPermission?: boolean
   /** Hold the reply until the turn is cancelled. */
   hang?: boolean
+  /** Write a short message and call a tool before the reply. */
+  toolCallFirst?: boolean
 }
 
 /** What the fake agent was asked, for tests to check. */
@@ -111,6 +113,16 @@ export function fakeAcpAgent(options: FakeAcpOptions = {}): { spawn: SpawnPiped;
         if (options.hang) {
           await new Promise<void>(resolve => cancels.add(resolve))
           return { stopReason: 'cancelled' }
+        }
+        if (options.toolCallFirst) {
+          await client.notify('session/update', {
+            sessionId: params.sessionId,
+            update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Checking the diff.' } },
+          })
+          await client.notify('session/update', {
+            sessionId: params.sessionId,
+            update: { sessionUpdate: 'tool_call', toolCallId: 'read-1', title: 'Read the diff', status: 'completed' },
+          })
         }
         const reply = options.reply ?? 'Done.'
         const half = Math.ceil(reply.length / 2)

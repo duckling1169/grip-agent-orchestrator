@@ -129,7 +129,7 @@ Everything lives under `~/.grip/` on the principal and is never exported or sync
 - `claw.json`: installed version, last-good version, update history.
 - `push.json`: VAPID keys and the devices that turned notifications on, each with its muted events. Readable only by your user.
 - `claw-token`: Claw's bearer token, readable only by your user.
-- `mcp-token`: the orchestrator's MCP token, also the key for `grip status` and `grip stop-all` (§15).
+- `mcp-token`: the orchestrator's MCP token, also the key for `grip status`, `stop-all`, `stop` and `restart` (§15).
 - `logs/`: `grip.log` and Claw's `claw.log`.
 
 ## 5. Orchestrator interface (MCP)
@@ -160,6 +160,8 @@ Notes:
 
 A **chat** is one orchestrator conversation. Every run belongs to the chat that delegated it, and the app is built around chats: each one lists the workers it manages. There are two kinds.
 
+**Moxy** is the product name for the model that leads a chat: the one you talk to, which plans, delegates and reviews. The code calls it a leader. The app's wording moves to Moxy in the look-and-feel review.
+
 **Chats in Grip.** You start them from the app: pick the model that runs the chat, a folder and a first message.
 
 - **What it is:** a Claw session that works in the folder itself, with no worktree, because the chat is the one that reviews and merges.
@@ -168,9 +170,9 @@ A **chat** is one orchestrator conversation. Every run belongs to the chat that 
 - **Waiting on workers:** while its turn sits in `wait_any`, the app says it is waiting on its workers. If the chat is idle when one of its workers finishes, Grip sends it a one-line note, so it reviews without you. That costs a turn of its own quota, by design.
 - **Live view:** Claw plain sessions have no event stream (§7.3), so the chat shows "working on its reply" until the turn ends, then the reply.
 - **Stop:** stops its turn and every worker it manages.
-- **Which models:** only Claude can host a chat today, because Claw passes `--mcp-config` to Claude sessions only. Other leaders run through ACP (below). Until that is built, the app offers them as unavailable.
+- **Which models:** Claude leads through Claw, which passes `--mcp-config` to Claude sessions only. Codex and agy lead through ACP (below).
 
-**Leaders through ACP (planned).** Each leader needs Grip's tools for its own session only. Checked on the PC (2026-11-18):
+**Leaders through ACP.** Each leader needs Grip's tools for its own session only. Checked on the PC (2026-11-18):
 
 - **Codex** takes a per-thread config override (`mcp_servers.grip`), but Claw puts only the effort in the thread config.
 - **agy** refuses `mcpServers` in `--settings`. `agy mcp add` writes a global file, which would give Grip to agy workers too. `agy acp` takes MCP servers in ACP's `session/new`, stdio only.
@@ -305,7 +307,7 @@ The output type stays `ProviderUsage` / `UsageWindow` from `agent-usage/types`, 
 ### 9.1 Who can reach Grip
 
 1. **Network:** a Tailscale ACL grant lets only your user's devices reach the principal's Grip port. Grip is never exposed on the LAN and never through Funnel.
-2. **Identity:** Grip listens on `127.0.0.1` only. `tailscale serve` terminates HTTPS and adds `Tailscale-User-Login`. Grip accepts a request only if that login is in `config.json` (today `duckling1169@`). A request without the header, meaning a local process calling the loopback port directly, is refused for everything except `GET /health`. The one exception is `grip status` and `grip stop-all`, which send the MCP token (§15). Identity is never taken from anything the browser sends.
+2. **Identity:** Grip listens on `127.0.0.1` only. `tailscale serve` terminates HTTPS and adds `Tailscale-User-Login`. Grip accepts a request only if that login is in `config.json` (today `duckling1169@`). A request without the header, meaning a local process calling the loopback port directly, is refused for everything except `GET /health`. The one exception is `grip status`, `stop-all`, `stop` and `restart`, which send the MCP token (§15). Only they may call `POST /api/shutdown`. Identity is never taken from anything the browser sends.
 3. **MCP endpoint:** loopback only and never published through `tailscale serve`. A per-install token is passed in the orchestrator's MCP config, so arbitrary local processes can't use it.
 4. **Claw:** loopback only. Its full-control token lives only in Grip's process memory and `~/.grip/claw-token`. The browser never sees it, and Grip never offers a pass-through to Claw's API.
 5. **To verify during the build:** whether a Tailscale Service host must be tagged, and whether identity headers still arrive through a Service. Fallback: resolve the caller with `tailscale whois` through Tailscale's local API.
@@ -412,6 +414,8 @@ The agreed screens are in the design canvas (claude.ai artifact `JktKuQYLVZ7S8Fv
 - `POST /api/runs/:id/stop`
 - `POST /api/runs/:id/retry`
 - `POST /api/stop-all`
+- `POST /api/shutdown` (only `grip` on this machine)
+- `GET /api/leaders`
 - `GET /api/events` (SSE)
 - `GET` / `DELETE /api/worktrees`
 - `POST /api/quota/refresh`
@@ -465,6 +469,7 @@ Wake-on-LAN is not planned. A sleeping principal shows as offline.
   - `grip claim`: make this machine the principal
   - `grip status`: Grip, Claw and Tailscale health, plus the active runs
   - `grip stop-all`: the same as the app button, from a shell
+  - `grip stop` and `grip restart`: ask Grip to stop through its local API and wait for its process to exit, Claw included; `restart` then runs the logon task again. Both refuse while anything works, unless `--force`. Ending the task is not enough: Grip runs under `conhost --headless`, and `schtasks /End` closes no console that Grip notices.
 - **How it works today (Windows):**
   - **Where it runs from:** `grip install` runs from the built CLI (`node dist/src/cli.js install`, or `grip install` after a global install). The task starts that same Node and CLI, so a checkout works as well as a global install.
   - **What install does:**
@@ -476,7 +481,7 @@ Wake-on-LAN is not planned. A sleeping principal shows as offline.
     - prints the MCP config and the switch-over steps below
   - **Running it again** is safe: each step checks first.
   - **The log:** Grip logs to `~/.grip/logs/grip.log`, because the task has no console. The log moves to `grip.log.1` past 5 MB.
-  - **`grip status` and `grip stop-all`** call the local web API with the MCP token as a bearer. The token counts only on a request with no Tailscale identity, so a device never gets in with it.
+  - **`grip status`, `stop-all`, `stop` and `restart`** call the local web API with the MCP token as a bearer. The token counts only on a request with no Tailscale identity, so a device never gets in with it.
   - **`grip uninstall`** stops and removes the task. It keeps Grip's data, Claw and `tailscale serve`.
   - **`grip claim`** waits for the macOS principal (§17).
   - **Another data folder:** `--home <folder>` (or `GRIP_HOME`) uses a different folder, and install passes it on to the task.

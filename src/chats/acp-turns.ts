@@ -71,11 +71,19 @@ export class AcpChatTurns implements ChatTurns {
     let output = ''
     // A loaded session replays its history as updates; only the reply to this turn counts.
     let replying = false
+    // A leader writes a message, calls tools, then writes another; each message starts a paragraph.
+    let paragraph = false
     const app = client({ name: 'grip' })
       .onNotification('session/update', ({ params }) => {
         const update = params.update
-        if (replying && params.sessionId === sessionId && update.sessionUpdate === 'agent_message_chunk' && update.content.type === 'text')
-          output += update.content.text
+        if (!replying || params.sessionId !== sessionId) return
+        if (update.sessionUpdate !== 'agent_message_chunk') {
+          paragraph = output.length > 0
+          return
+        }
+        if (update.content.type !== 'text') return
+        output += (paragraph ? '\n\n' : '') + update.content.text
+        paragraph = false
       })
       // A leader works in its chat's folder, as a Claude chat does in its permission mode.
       .onRequest('session/request_permission', ({ params }) => {

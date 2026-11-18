@@ -67,6 +67,11 @@ it('starts a session with Grip over HTTP, tells a new conversation about Grip an
   expect(log.killed).toBe(1)
 })
 
+it('puts each message of a turn in its own paragraph', async () => {
+  const { turns, input } = setup({ http: true, toolCallFirst: true, reply: 'It did the task right.' })
+  await expect(turns.run(input())).resolves.toMatchObject({ output: 'Checking the diff.\n\nIt did the task right.' })
+})
+
 it("gives Grip's chat prompt as an appended system prompt where the agent takes one", async () => {
   const { turns, log, input } = setup({ http: true, systemPrompt: true, loadSession: true })
   await turns.run(input())
