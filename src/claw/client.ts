@@ -6,6 +6,8 @@
 
 import { request as httpRequest } from 'node:http'
 
+import { afterText, errorText } from '../errors.js'
+
 export type ClawEngine = 'claude' | 'codex-app' | 'agy'
 
 export type ClawHealth = { ok: boolean; version: string; sessions: number }
@@ -105,6 +107,7 @@ export class ClawClient {
 
   private async post<T>(path: string, body: Record<string, unknown>, timeoutMs = 60_000): Promise<T> {
     let res: Reply
+    const started = Date.now()
     try {
       res = await request(`${this.baseUrl}${path}`, {
         method: 'POST',
@@ -113,7 +116,8 @@ export class ClawClient {
         timeoutMs,
       })
     } catch (error) {
-      throw new ClawError(`${path}: ${(error as Error).message}`, null)
+      // Keep the cause and the time taken: a fixed limit shows up as the same time on every failure.
+      throw new ClawError(`${path}: ${errorText(error)} ${afterText(started)}`, null)
     }
     let parsed: { ok?: unknown; error?: unknown } & Record<string, unknown>
     try {

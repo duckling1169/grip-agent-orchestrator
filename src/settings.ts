@@ -10,7 +10,7 @@ export type Settings = {
   modelListRefreshMinutes: number
   /** Look for a newer Claw this often. */
   clawUpdateCheckHours: number
-  /** Give up on one chat or worker turn after this long. */
+  /** Give up on one chat or worker turn after this long. Long by default: real work can take days, and Stop ends a turn sooner. */
   turnTimeoutMinutes: number
   /** Forget an MCP session (a Claude Code chat) idle this long. It then reconnects as a new chat. */
   mcpSessionIdleDays: number
@@ -20,7 +20,7 @@ export const DEFAULT_SETTINGS: Settings = {
   quotaRefreshMinutes: 5,
   modelListRefreshMinutes: 60,
   clawUpdateCheckHours: 24,
-  turnTimeoutMinutes: 120,
+  turnTimeoutMinutes: 3 * 24 * 60,
   mcpSessionIdleDays: 7,
 }
 

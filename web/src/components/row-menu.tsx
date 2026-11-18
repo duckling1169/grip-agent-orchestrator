@@ -16,7 +16,6 @@ export function RowMenu({
   rename,
   remove,
   offline,
-  size = 'default',
   children,
 }: {
   noun: 'chat' | 'worker'
@@ -25,11 +24,9 @@ export function RowMenu({
   rename: (title: string) => Promise<void>
   remove: () => Promise<void>
   offline: boolean
-  size?: 'default' | 'small'
   children: ReactNode
 }) {
   const [dialog, setDialog] = useState<'rename' | 'delete' | null>(null)
-  const place = size === 'small' ? 'top-0.5' : 'top-2'
   return (
     <div className="group relative min-w-0">
       {children}
@@ -38,7 +35,7 @@ export function RowMenu({
           <Button
             variant="ghost"
             size="icon"
-            className={`absolute ${place} right-0 size-11 opacity-100 md:size-8 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 data-[state=open]:opacity-100`}
+            className="absolute top-1/2 right-0 size-11 -translate-y-1/2 text-muted-foreground opacity-100 hover:bg-transparent hover:text-foreground focus-visible:text-foreground focus-visible:ring-0 data-[state=open]:text-foreground data-[state=open]:opacity-100 md:size-8 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 dark:hover:bg-transparent"
             aria-label={`Actions for ${noun} ${title}`}
           >
             <MoreHorizontal className="size-4" />

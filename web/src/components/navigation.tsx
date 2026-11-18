@@ -12,30 +12,25 @@ import { pickQuotaWindows, QUOTA_WINDOWS } from '../quota.js'
 import { chatHref, runHref } from '../state.js'
 import type { AppState, QuotaSnapshot, Route, RunSummary } from '../types.js'
 import { RowMenu } from './row-menu.js'
-import { EngineMark, engineNames, engines, ErrorBanner, folderName, runActivity, StatusDot, useAction } from './common.js'
+import { useStoredState } from '../browser.js'
+import {
+  chatMark,
+  chatStatusText,
+  EngineMark,
+  engineNames,
+  engines,
+  ErrorBanner,
+  focusRing,
+  folderName,
+  hostName,
+  runActivity,
+  runMark,
+  touchButton,
+  useAction,
+} from './common.js'
 
 const sectionLabel = 'text-xs font-medium text-muted-foreground'
-const touchButton = 'min-h-11 md:min-h-8'
-const rowLink =
-  'flex min-w-0 items-center gap-2 rounded-md px-2 py-2 hover:bg-accent focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring aria-[current=page]:bg-accent'
-
-export function hostName(host: string | null) {
-  return host === 'claude-code' ? 'Claude Code' : host || 'its MCP host'
-}
-
-export function ChatStatus({ chat }: { chat: AppState['chats'][number] }) {
-  const label = chat.waiting
-    ? 'Waiting on workers'
-    : chat.kind === 'external'
-      ? hostName(chat.host)
-      : { working: 'Working', idle: 'Ready', failed: 'Failed', stopped: 'Stopped' }[chat.status]
-  return (
-    <span className="inline-flex min-w-0 items-center gap-1.5 wrap-anywhere">
-      <StatusDot status={chat.waiting ? 'waiting' : chat.status} engine={chat.engine} />
-      {label}
-    </span>
-  )
-}
+const rowLink = `flex min-w-0 items-center gap-2 rounded-md px-2 py-2 hover:bg-accent aria-[current=page]:bg-accent ${focusRing}`
 
 function ListSection({
   storageKey,
@@ -54,28 +49,14 @@ function ListSection({
   action?: ReactNode
   children: ReactNode
 }) {
-  const key = `grip:section:${storageKey}`
-  const [open, setOpen] = useState(() => {
-    try {
-      const stored = localStorage.getItem(key)
-      return stored === null ? initiallyOpen : stored === 'open'
-    } catch {
-      return initiallyOpen
-    }
-  })
+  const [open, setOpen] = useStoredState(
+    `grip:section:${storageKey}`,
+    stored => (stored === null ? initiallyOpen : stored === 'open'),
+    next => (next ? 'open' : 'closed'),
+  )
 
   return (
-    <Collapsible
-      open={open}
-      onOpenChange={next => {
-        setOpen(next)
-        try {
-          localStorage.setItem(key, next ? 'open' : 'closed')
-        } catch {
-          // The section can still open and close when storage is unavailable.
-        }
-      }}
-    >
+    <Collapsible open={open} onOpenChange={setOpen}>
       <div className="flex min-w-0 items-center justify-between gap-2">
         <h2 className="min-w-0">
           <CollapsibleTrigger asChild>
@@ -112,12 +93,13 @@ function RowText({ title, detail, detailTitle }: { title: string; detail: string
 
 function WorkerLink({ run, selected, now, offline }: { run: RunSummary; selected: boolean; now: number; offline: boolean }) {
   const stops = run.status === 'running' ? ' and stops working' : ''
-  const files = run.worktree ? 'Its worktree stays on disk until you remove it under Worktrees.' : 'Files stay on disk.'
+  const files = run.worktree
+    ? 'An unchanged worktree is removed; one with work in it stays until you remove it under Worktrees.'
+    : 'Files stay on disk.'
   return (
     <li className="min-w-0">
       <RowMenu
         noun="worker"
-        size="small"
         title={run.title}
         deleteDescription={`${run.title} leaves your list${stops}. ${files}`}
         offline={offline}
@@ -128,17 +110,17 @@ function WorkerLink({ run, selected, now, offline }: { run: RunSummary; selected
         }}
       >
         <a href={runHref(run.id)} aria-current={selected ? 'page' : undefined} className={`${rowLink} pr-12 md:pr-9`}>
-          <EngineMark engine={run.engine} />
-          <RowText title={run.title} detail={runActivity(run, now, true)} />
-          {run.unseen ? (
+          <EngineMark engine={run.engine} status={runMark(run)} statusLabel={runActivity(run, now)} />
+          <span className="min-w-0 flex-1 truncate text-sm font-medium" title={run.title}>
+            {run.title}
+          </span>
+          {run.unseen && (
             <span
               className="size-1.5 shrink-0 rounded-full bg-foreground"
               role="img"
               aria-label="Unviewed result"
               title="Unviewed result"
             />
-          ) : (
-            run.status === 'running' && <StatusDot status={run.status} engine={run.engine} />
           )}
         </a>
       </RowMenu>
@@ -258,7 +240,7 @@ export function Navigation({
                   >
                     <a href={chatHref(chat.id)} className={`${rowLink} pr-12`} aria-current={selected ? 'page' : undefined}>
                       {chat.engine || chat.host === 'claude-code' ? (
-                        <EngineMark engine={chat.engine ?? 'claude'} />
+                        <EngineMark engine={chat.engine ?? 'claude'} status={chatMark(chat)} statusLabel={chatStatusText(chat)} />
                       ) : (
                         <ArrowUpRight className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
                       )}
@@ -267,11 +249,6 @@ export function Navigation({
                         detail={folderName(chat.folder) || hostName(chat.host)}
                         detailTitle={chat.folder ?? undefined}
                       />
-                      {(chat.status === 'working' || chat.waiting) && (
-                        <span className="inline-flex" aria-label={chat.waiting ? 'Waiting on workers' : 'Working'} role="img">
-                          <StatusDot status={chat.waiting ? 'waiting' : 'working'} engine={chat.engine} />
-                        </span>
-                      )}
                     </a>
                   </RowMenu>
                   {chat.runs.length > 0 && (

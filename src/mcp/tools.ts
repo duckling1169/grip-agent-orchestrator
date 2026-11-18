@@ -14,6 +14,12 @@ import type { McpChats } from './http.js'
 
 const WAIT_DEFAULT_SEC = 120
 const WAIT_MAX_SEC = 600
+/**
+ * Waits end by this, whatever was asked: MCP clients give up on a tool call after a few minutes
+ * (Claude Code at about 7), and a call that times out leaves the orchestrator unsure what happened.
+ * A null answer just means call again.
+ */
+const WAIT_CAP_SEC = 240
 
 export type McpCaller = { chatId?: string; host?: string; chats?: McpChats }
 
@@ -55,6 +61,24 @@ async function whileWaiting<T>(chats: McpChats | undefined, chatId: string | und
       chats.setWaiting(chatId, false)
     }
   }
+}
+
+/**
+ * Refuse a model the engine's own CLI does not list, before a run starts and fails on it. Only
+ * Codex and Antigravity are checked: their lists come from the CLI itself, while Claude's is
+ * Grip's own and may lag behind (Claude Code also takes aliases such as `opus`). An engine
+ * whose list cannot be read is not checked. Antigravity also takes a model without its effort
+ * suffix, and Claw's `agy/` prefix.
+ */
+export async function checkModel(models: McpModels, engine: Run['engine'], model: string): Promise<void> {
+  if (engine === 'claude') return
+  const list = (await models.list()).find(entry => entry.engine === engine)
+  if (!list || list.error || list.models.length === 0) return
+  const ids = list.models.map(option => option.id)
+  const wanted = engine === 'agy' ? model.replace(/^agy\//, '') : model
+  const known = ids.includes(wanted) || (engine === 'agy' && ids.some(id => id.startsWith(`${wanted}-`)))
+  if (!known)
+    throw new Error(`Unknown ${engine} model "${model}". Use an id from the models tool, for example: ${ids.slice(0, 5).join(', ')}.`)
 }
 
 /**
@@ -112,7 +136,7 @@ export function createGripMcpServer(
         'Give the brief as a file path (relative to folder, or absolute) or as text. ' +
         "Adds quotaNote when that engine's provider is low or out; the run starts either way.",
       inputSchema: {
-        folder: z.string().describe('Absolute path of the folder or repo to work in'),
+        folder: z.string().optional().describe("Absolute path of the folder or repo to work in. A retry defaults to the old run's folder."),
         engine: z.enum(ENGINES as [string, ...string[]]).describe('Which worker: claude, codex or agy'),
         brief_path: z.string().optional().describe('Path to a brief file describing the task'),
         brief_text: z.string().optional().describe('The task, written out, when there is no brief file'),
@@ -123,16 +147,26 @@ export function createGripMcpServer(
             'Model id from the models tool. Choose one: left out, the agent picks its own default, and Grip cannot tell which one ran.',
           ),
         effort: z.string().optional().describe("Reasoning effort: one of the chosen model's efforts from the models tool"),
-        retry_of: z.string().optional().describe('Id of an earlier run this one redoes from its brief'),
+        retry_of: z
+          .string()
+          .optional()
+          .describe(
+            "Id of an earlier run to redo from scratch, with its brief, folder and title unless you give new ones. To continue a run's own conversation instead, use message.",
+          ),
+        title: z.string().optional().describe("Short name for this run and its branch. Defaults to the brief's first line."),
         chat_title: z.string().optional().describe('Short title for this chat in Grip'),
       },
     },
     args =>
       guarded(async () => {
-        const chatId = await chatForDelegation(args.folder, args.chat_title?.trim())
+        if (args.model && models) await checkModel(models, args.engine as Run['engine'], args.model)
+        const folder = args.folder ?? (args.retry_of ? manager.list().find(run => run.id === args.retry_of)?.folder : undefined)
+        if (!folder) throw new Error('a folder is required')
+        const chatId = await chatForDelegation(folder, args.chat_title?.trim())
         const run = await manager.delegate({
-          folder: args.folder,
+          folder,
           engine: args.engine as Run['engine'],
+          ...(args.title ? { title: args.title } : {}),
           brief: { ...(args.brief_path ? { path: args.brief_path } : {}), ...(args.brief_text ? { text: args.brief_text } : {}) },
           ...(args.model ? { model: args.model } : {}),
           ...(args.effort ? { effort: args.effort } : {}),
@@ -168,7 +202,9 @@ export function createGripMcpServer(
     'list',
     {
       title: 'List runs',
-      description: 'Runs newest first. Unread means finished and not yet reviewed with result or wait_any.',
+      description:
+        'Runs newest first. Unread means finished and not yet reviewed with result or wait_any. ' +
+        'A running run in a repo has activity: its newest edit, last commit and how many files changed, to tell a working run from a stuck one.',
       inputSchema: {
         status: z.enum(['running', 'done', 'failed', 'stopped']).optional(),
         folder: z.string().optional().describe('Only runs started in this folder'),
@@ -176,9 +212,15 @@ export function createGripMcpServer(
       annotations: { readOnlyHint: true },
     },
     args =>
-      guarded(async () =>
-        manager.list({ ...(args.status ? { status: args.status } : {}), ...(args.folder ? { folder: args.folder } : {}) }).map(summarize),
-      ),
+      guarded(async () => {
+        const runs = manager.list({ ...(args.status ? { status: args.status } : {}), ...(args.folder ? { folder: args.folder } : {}) })
+        return Promise.all(
+          runs.map(async run => {
+            const activity = run.status === 'running' ? await manager.activity(run) : null
+            return { ...summarize(run), ...(activity ? { activity } : {}) }
+          }),
+        )
+      }),
   )
 
   server.registerTool(
@@ -198,7 +240,8 @@ export function createGripMcpServer(
       title: 'Wait for the next finished run',
       description:
         'Return the next run that has finished (done or failed) and has not been read, with its full result, waiting up to timeout_sec. ' +
-        'Waits for runs in this chat by default. Pass run_ids to wait for specific runs from any chat. Returns null on timeout.',
+        'Waits for runs in this chat by default. Pass run_ids to wait for specific runs from any chat. ' +
+        `Returns null on timeout; a single call waits at most ${WAIT_CAP_SEC} seconds, so call it again to keep waiting.`,
       inputSchema: {
         timeout_sec: z.number().int().min(0).max(WAIT_MAX_SEC).optional().describe(`Default ${WAIT_DEFAULT_SEC}, at most ${WAIT_MAX_SEC}`),
         run_ids: z.array(z.string()).optional().describe('Only wait for these runs'),
@@ -211,7 +254,7 @@ export function createGripMcpServer(
         if (extra.signal.aborted || (chats && !chatId && !args.run_ids)) return null
         const details = await whileWaiting(chats, chatId, () =>
           manager.waitAny({
-            timeoutMs: (args.timeout_sec ?? WAIT_DEFAULT_SEC) * 1000,
+            timeoutMs: Math.min(args.timeout_sec ?? WAIT_DEFAULT_SEC, WAIT_CAP_SEC) * 1000,
             ...(args.run_ids ? { ids: args.run_ids } : { chatId }),
             signal: extra.signal,
           }),

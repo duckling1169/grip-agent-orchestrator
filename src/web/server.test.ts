@@ -321,19 +321,22 @@ describe('web API chats', () => {
     expect((await t.api('DELETE', `/api/chats/${chat.id}`, {})).status).toBe(404)
   })
 
-  it('renames and deletes a worker, keeping its worktree listed', async () => {
+  it('renames and deletes a worker, keeping a worktree with work in it listed', async () => {
     const t = await setup()
     const run = (await t.api('POST', '/api/runs', { folder: t.repo, engine: 'agy', brief: { text: 'Old' } })).body
     await t.claw.waitForSend(`grip-${run.id}`)
     expect((await t.api('POST', `/api/runs/${run.id}/rename`, { title: '  New  ' })).body.title).toBe('New')
     expect((await t.api('POST', `/api/runs/${run.id}/rename`, { title: ' ' })).status).toBe(400)
+    await writeFile(join(run.worktree, 'started.txt'), 'some work\n')
     expect((await t.api('DELETE', `/api/runs/${run.id}`, {})).body).toEqual({ deleted: run.id })
     await t.manager.settled(run.id)
     expect((await t.api('GET', '/api/state')).body.runs).toEqual([])
     expect((await t.api('GET', `/api/runs/${run.id}`)).status).toBe(404)
     expect((await t.api('DELETE', `/api/runs/${run.id}`, {})).status).toBe(404)
     const listed = (await t.api('GET', '/api/worktrees')).body
-    expect(listed).toEqual([expect.objectContaining({ path: run.worktree, run: null })])
+    expect(listed).toEqual([
+      expect.objectContaining({ path: run.worktree, run: expect.objectContaining({ title: 'New', status: 'stopped' }) }),
+    ])
     expect((await t.api('DELETE', '/api/worktrees', { path: run.worktree })).status).toBe(200)
   })
 

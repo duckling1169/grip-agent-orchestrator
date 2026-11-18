@@ -1,4 +1,5 @@
 import { realpath, stat } from 'node:fs/promises'
+import { errorText } from '../errors.js'
 import { resolve } from 'node:path'
 
 import type { ClawEngine, ClawSendResult, ClawSession, StartSessionOptions } from '../claw/client.js'
@@ -35,15 +36,26 @@ export const GRIP_MCP_NAME = 'grip'
 export const GRIP_TOOLS = `mcp__${GRIP_MCP_NAME}`
 
 export type DelegateInput = {
-  folder: string
+  /** Required, except for a retry, which defaults to the retried run's folder. */
+  folder?: string
   engine: Engine
+  /** Required, except for a retry, which defaults to the retried run's brief. */
   brief: { path?: string; text?: string }
+  /** Names the run and its branch; otherwise the brief's first line does (a retry keeps the old name). */
+  title?: string
   model?: string
   effort?: string
   /** A run this one retries from scratch, on any engine. */
   retryOf?: string
   /** The chat delegating it (design §5.1). */
   chatId?: string
+}
+
+export type RunActivity = {
+  lastEdit: GitFacts['newestEdit']
+  lastCommit: GitFacts['lastCommit']
+  changedFiles: number
+  commits: number
 }
 
 export type RunDetails = {
@@ -107,26 +119,34 @@ export class RunManager {
   }
 
   async delegate(input: DelegateInput): Promise<Run> {
-    const folder = await realpath(resolve(input.folder)).catch(() => {
-      throw new Error(`folder not found: ${input.folder}`)
+    const original = input.retryOf ? this.store.get(input.retryOf) : null
+    if (input.retryOf && !original) throw new Error(`unknown run ${input.retryOf}`)
+    const asked = input.folder ?? original?.folder
+    if (!asked) throw new Error('a folder is required')
+    const folder = await realpath(resolve(asked)).catch(() => {
+      throw new Error(`folder not found: ${asked}`)
     })
-    if (!(await stat(folder)).isDirectory()) throw new Error(`not a folder: ${input.folder}`)
+    if (!(await stat(folder)).isDirectory()) throw new Error(`not a folder: ${asked}`)
     const guarded = protectedFolderOf(folder)
     if (guarded) throw new Error(`refusing to run a worker in ${folder}: it is inside protected folder ${guarded}`)
-    if (input.retryOf && !this.store.get(input.retryOf)) throw new Error(`unknown run ${input.retryOf}`)
 
-    const brief = await resolveBrief(input.brief, folder)
+    // A retry without a brief redoes the old one.
+    const given = input.brief.path || input.brief.text
+    const briefInput =
+      !given && original ? (original.brief.kind === 'path' ? { path: original.brief.path } : { text: original.brief.text }) : input.brief
+    const brief = await resolveBrief(briefInput, folder)
+    const title = input.title?.trim() || original?.title || brief.title
     const repo = await this.options.worktrees.repoOf(folder)
     let cwd = folder
     let runRepo: Run['repo'] = null
     if (repo) {
-      const made = await this.options.worktrees.create(repo, input.engine, brief.title)
+      const made = await this.options.worktrees.create(repo, input.engine, title)
       cwd = made.path
       runRepo = { root: repo.root, base: made.base, baseCommit: made.baseCommit, worktree: made.path, branch: made.branch }
     }
 
     const run = await this.store.create({
-      title: brief.title,
+      title,
       engine: input.engine,
       folder,
       cwd,
@@ -137,7 +157,41 @@ export class RunManager {
       ...(input.retryOf ? { retryOf: input.retryOf } : {}),
       ...(input.chatId ? { chatId: input.chatId } : {}),
     })
-    return this.beginTurn(run, brief.message)
+    const started = await this.beginTurn(run, brief.message)
+    // The retried run's worktree is no longer needed if it never changed anything.
+    if (original && original.status !== 'running') await this.removeIfEmpty(original)
+    return started
+  }
+
+  /**
+   * Signs of life in a run's worktree: its newest edit, how many files changed and commits made.
+   * Claw reports nothing during a turn, so this is how an orchestrator tells a working run from a
+   * stuck one. Null outside a repo, where unrelated files would mislead.
+   */
+  async activity(run: Run): Promise<RunActivity | null> {
+    if (!run.repo) return null
+    const facts = await this.options.worktrees.facts(run.repo.worktree, run.repo.baseCommit).catch(() => null)
+    if (!facts) return null
+    return {
+      lastEdit: facts.newestEdit,
+      lastCommit: facts.lastCommit,
+      changedFiles: facts.changedFiles.length,
+      commits: facts.ahead,
+    }
+  }
+
+  /**
+   * Remove a finished run's worktree and branch when the run changed nothing there: no edits and
+   * no commits. A worktree with any work in it is never removed automatically.
+   */
+  async removeIfEmpty(run: Run): Promise<boolean> {
+    if (!run.repo || run.status === 'running') return false
+    const facts = await this.options.worktrees.facts(run.repo.worktree, run.repo.baseCommit).catch(() => null)
+    if (!facts || facts.ahead > 0 || facts.changedFiles.length > 0) return false
+    return this.options.worktrees.remove(run.repo.root, run.repo.worktree, run.repo.base).then(
+      () => true,
+      () => false,
+    )
   }
 
   /**
@@ -162,9 +216,11 @@ export class RunManager {
     return stopped
   }
 
-  /** Delete a run from the app: stop it if it is working, then stop showing it. Its worktree stays. */
+  /** Delete a run from the app: stop it if it is working, then stop showing it. Its worktree stays if it holds any work. */
   async delete(id: string): Promise<{ deleted: string }> {
     await this.stop(id)
+    await this.inFlight.get(id)
+    await this.removeIfEmpty(this.mustGet(id))
     await this.store.delete(id)
     return { deleted: id }
   }
@@ -304,7 +360,7 @@ export class RunManager {
         : ''
       result = { output: `${sent.output}${denied}`, error: sent.error ?? null, sessionId: sent.sessionId ?? null }
     } catch (error) {
-      result = { output: '', error: (error as Error).message, sessionId: null }
+      result = { output: '', error: errorText(error), sessionId: null }
     } finally {
       await claw.stopSession(run.session).catch(() => undefined)
     }

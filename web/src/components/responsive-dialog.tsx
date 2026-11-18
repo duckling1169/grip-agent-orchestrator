@@ -1,21 +1,11 @@
 import { X } from 'lucide-react'
-import { useRef, useSyncExternalStore, type ReactNode } from 'react'
+import { useRef, type ReactNode } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Sheet, SheetClose, SheetContent, SheetFooter, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 
-const desktopQuery = '(min-width: 768px)'
-
-function subscribeToDesktop(callback: () => void) {
-  const media = window.matchMedia(desktopQuery)
-  media.addEventListener('change', callback)
-  return () => media.removeEventListener('change', callback)
-}
-
-function isDesktop() {
-  return window.matchMedia(desktopQuery).matches
-}
+import { DESKTOP, useMediaQuery } from '../browser.js'
 
 export function ResponsiveDialog({
   title,
@@ -32,7 +22,7 @@ export function ResponsiveDialog({
   actions: ReactNode
   children: ReactNode
 }) {
-  const desktop = useSyncExternalStore(subscribeToDesktop, isDesktop)
+  const desktop = useMediaQuery(DESKTOP)
   const titleRef = useRef<HTMLHeadingElement>(null)
   const opener = useRef<HTMLElement | null>(null)
   const handleOpenChange = (open: boolean) => {

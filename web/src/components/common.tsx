@@ -1,10 +1,16 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Check, Copy } from 'lucide-react'
 import DOMPurify from 'dompurify'
 import { marked } from 'marked'
 
 import { agoText, durationText, minutesBetween } from '../../../src/quota/usage.js'
 import { errorText } from '../api.js'
-import type { Engine, RunSummary } from '../types.js'
+import type { ChatSummary, Engine, RunSummary } from '../types.js'
+
+/** Buttons at least 44 px tall on touch screens, compact with a mouse. */
+export const touchButton = 'min-h-11 md:min-h-8'
+/** The keyboard focus ring for rows and links that fill their space. */
+export const focusRing = 'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring'
 
 export const engines: Engine[] = ['claude', 'codex', 'agy']
 // Model families, not product names: Codex runs GPT models and Antigravity runs Gemini.
@@ -16,15 +22,74 @@ export function isEngine(value: string): value is Engine {
   return engines.some(engine => engine === value)
 }
 
-export function EngineMark({ engine, labelled = false }: { engine: Engine; labelled?: boolean }) {
+/** What an agent's icon shows on its own: a medium blink while working, a slow one while waiting. */
+export type MarkStatus = 'working' | 'waiting' | 'failed' | 'stopped' | 'idle'
+
+const markLooks: Record<MarkStatus, string> = {
+  working: 'motion-safe:animate-blink',
+  waiting: 'motion-safe:animate-blink-slow',
+  failed: 'text-destructive',
+  stopped: 'opacity-50',
+  idle: '',
+}
+
+export function EngineMark({
+  engine,
+  labelled = false,
+  status,
+  statusLabel,
+}: {
+  engine: Engine
+  labelled?: boolean
+  status?: MarkStatus
+  /** Said by screen readers and on hover when the icon alone carries the status. */
+  statusLabel?: string
+}) {
+  const color = status === 'failed' ? '' : engineColors[engine]
   return (
     <span
-      className={`inline-flex shrink-0 items-center gap-1.5 ${engineColors[engine]}`}
-      title={engineNames[engine]}
-      aria-hidden={labelled ? undefined : true}
+      className={`inline-flex shrink-0 items-center gap-1.5 ${color} ${status ? markLooks[status] : ''}`}
+      title={statusLabel ? `${engineNames[engine]}: ${statusLabel}` : engineNames[engine]}
+      {...(statusLabel
+        ? { role: 'img', 'aria-label': `${engineNames[engine]}, ${statusLabel}` }
+        : { 'aria-hidden': labelled ? undefined : true })}
     >
       {engineMarks[engine]}
+      {/* With motion turned off nothing blinks, so a dot says working and a ring says waiting. */}
+      {status === 'working' && <span className="hidden size-1.5 rounded-full bg-current motion-reduce:inline-block" aria-hidden="true" />}
+      {status === 'waiting' && (
+        <span className="hidden size-1.5 rounded-full border border-current motion-reduce:inline-block" aria-hidden="true" />
+      )}
       {labelled && <span className="text-foreground">{engineNames[engine]}</span>}
+    </span>
+  )
+}
+
+export function runMark(run: RunSummary): MarkStatus {
+  return run.status === 'running' ? 'working' : run.status === 'done' ? 'idle' : run.status
+}
+
+export function chatMark(chat: ChatSummary): MarkStatus {
+  if (chat.waiting) return 'waiting'
+  return chat.status === 'working' ? 'working' : chat.status === 'failed' || chat.status === 'stopped' ? chat.status : 'idle'
+}
+
+export function hostName(host: string | null) {
+  return host === 'claude-code' ? 'Claude Code' : host || 'its MCP host'
+}
+
+export function chatStatusText(chat: ChatSummary) {
+  if (chat.waiting) return 'Waiting on workers'
+  return chat.kind === 'external'
+    ? hostName(chat.host)
+    : { working: 'Working', idle: 'Ready', failed: 'Failed', stopped: 'Stopped' }[chat.status]
+}
+
+export function ChatStatus({ chat }: { chat: ChatSummary }) {
+  return (
+    <span className="inline-flex min-w-0 items-center gap-1.5 wrap-anywhere">
+      <StatusDot status={chat.waiting ? 'waiting' : chat.status} engine={chat.engine} />
+      {chatStatusText(chat)}
     </span>
   )
 }
@@ -32,7 +97,13 @@ export function EngineMark({ engine, labelled = false }: { engine: Engine; label
 export function StatusDot({ status, engine }: { status: string; engine?: Engine | null }) {
   const working = status === 'working' || status === 'running'
   const color =
-    working && engine ? engineColors[engine] : status === 'failed' || status === 'offline' ? 'text-destructive' : 'text-muted-foreground'
+    working && engine
+      ? engineColors[engine]
+      : status === 'online'
+        ? 'text-emerald-500'
+        : status === 'failed' || status === 'offline'
+          ? 'text-destructive'
+          : 'text-muted-foreground'
   return (
     <span
       className={`inline-block size-1.5 shrink-0 rounded-full bg-current ${color} ${working ? 'motion-safe:animate-pulse' : ''}`}
@@ -54,12 +125,48 @@ export function folderName(path: string | null | undefined) {
   return path?.split(/[\\/]/).filter(Boolean).at(-1) ?? path ?? ''
 }
 
-export function Time({ at }: { at: string }) {
+/** A time of day with the full date on hover, or with `full` the date and time written out. */
+export function Time({ at, full = false, className }: { at: string; full?: boolean; className?: string }) {
   const date = new Date(at)
   return (
-    <time dateTime={at} title={date.toLocaleString()}>
-      {date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+    <time className={className} dateTime={at} title={full ? undefined : date.toLocaleString()}>
+      {full ? date.toLocaleString() : date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
     </time>
+  )
+}
+
+/** Copies text to the clipboard; `copied` stays true for a moment after, to show it worked. */
+export function useCopy() {
+  const [copied, setCopied] = useState(false)
+  const [error, setError] = useState<string>()
+  useEffect(() => {
+    if (!copied) return
+    const timer = setTimeout(() => setCopied(false), 1500)
+    return () => clearTimeout(timer)
+  }, [copied])
+  const copy = (text: string) => {
+    setError(undefined)
+    navigator.clipboard.writeText(text).then(
+      () => setCopied(true),
+      (failure: unknown) => setError(errorText(failure)),
+    )
+  }
+  return { copied, error, copy }
+}
+
+/** Copies a message's text as written (its Markdown), and shows a tick for a moment after. */
+export function CopyButton({ text, label = 'Copy message', className = '' }: { text: string; label?: string; className?: string }) {
+  const { copied, copy } = useCopy()
+  return (
+    <button
+      type="button"
+      className={`relative inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground after:absolute after:-inset-2.5 hover:text-foreground focus-visible:text-foreground focus-visible:outline-2 focus-visible:outline-ring md:after:inset-0 ${className}`}
+      aria-label={copied ? 'Copied' : label}
+      title={copied ? 'Copied' : label}
+      onClick={() => copy(text)}
+    >
+      {copied ? <Check className="size-3.5" aria-hidden="true" /> : <Copy className="size-3.5" aria-hidden="true" />}
+    </button>
   )
 }
 

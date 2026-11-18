@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -222,6 +223,45 @@ describe('message, stop and wait', () => {
     const reopened = await RunStore.open(join(t.base, 'grip-home'))
     expect(reopened.get(run.id)).toBeNull()
     expect(reopened.isDeleted(run.id)).toBe(true)
+  })
+
+  it('retries from the old brief, folder and name, and removes the old worktree when it is empty', async () => {
+    const t = await setup()
+    const first = await t.manager.delegate({ folder: t.repo, engine: 'agy', brief: { path: 'docs/brief-login.md' }, title: 'Login fix' })
+    expect(first.repo?.branch).toBe('grip/agy-login-fix')
+    await t.claw.waitForSend(first.session)
+    t.claw.answer(first.session, { output: '', error: 'turn timed out' })
+    await t.manager.settled(first.id)
+    const retry = await t.manager.delegate({ engine: 'codex', brief: {}, retryOf: first.id })
+    expect(retry).toMatchObject({ title: 'Login fix', folder: t.repo, brief: { kind: 'path' }, retryOf: first.id })
+    expect(existsSync(first.cwd)).toBe(false)
+    expect(git(t.repo, 'branch', '--list', 'grip/agy-login-fix')).toBe('')
+  })
+
+  it('keeps a worktree with work in it when its run is retried or deleted', async () => {
+    const t = await setup()
+    const run = await t.manager.delegate({ folder: t.repo, engine: 'claude', brief: { text: 'Start it' } })
+    await t.claw.waitForSend(run.session)
+    await writeFile(join(run.cwd, 'half.ts'), 'export {}\n')
+    t.claw.answer(run.session, { output: '', error: 'turn timed out' })
+    await t.manager.settled(run.id)
+    const retry = await t.manager.delegate({ engine: 'codex', brief: {}, retryOf: run.id })
+    await t.manager.delete(run.id)
+    expect(existsSync(join(run.cwd, 'half.ts'))).toBe(true)
+    await t.claw.waitForSend(retry.session)
+    await t.manager.delete(retry.id)
+    expect(existsSync(retry.cwd)).toBe(false)
+  })
+
+  it("reports a running run's activity from its worktree", async () => {
+    const t = await setup()
+    const run = await t.manager.delegate({ folder: t.repo, engine: 'codex', brief: { text: 'Work' } })
+    await t.claw.waitForSend(run.session)
+    expect(await t.manager.activity(run)).toMatchObject({ lastEdit: null, changedFiles: 0, commits: 0 })
+    await writeFile(join(run.cwd, 'progress.ts'), 'export {}\n')
+    expect(await t.manager.activity(run)).toMatchObject({ lastEdit: { file: 'progress.ts' }, changedFiles: 1 })
+    const plain = await t.manager.delegate({ folder: t.plain, engine: 'agy', brief: { text: 'Notes' } })
+    expect(await t.manager.activity(plain)).toBeNull()
   })
 
   it('renames a run', async () => {

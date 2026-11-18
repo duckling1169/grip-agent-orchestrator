@@ -1,4 +1,5 @@
 import { realpath, stat, writeFile } from 'node:fs/promises'
+import { errorText } from '../errors.js'
 import { basename, join, resolve } from 'node:path'
 
 import { GRIP_TOOLS, PERMISSION_MODE } from '../runs/manager.js'
@@ -253,7 +254,7 @@ export class ChatManager {
         : ''
       result = { output: sent.output + denied, error: sent.error ?? null, sessionId: sent.sessionId ?? null }
     } catch (error) {
-      result = { output: '', error: (error as Error).message, sessionId: null }
+      result = { output: '', error: errorText(error), sessionId: null }
     } finally {
       await this.o.claw.stopSession(session).catch(() => undefined)
     }

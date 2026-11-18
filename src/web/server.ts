@@ -172,7 +172,8 @@ export async function startWebHttp(options: WebOptions): Promise<{ server: Serve
           repo: root,
           bytes: disk.bytes,
           sizeComplete: disk.complete,
-          run: run && !store.isDeleted(run.id) ? summarize(run) : null,
+          // A deleted worker still names its worktree, so you can tell what you are removing.
+          run: run && summarize(run),
         })
       }
     }

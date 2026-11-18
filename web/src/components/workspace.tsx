@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowUpRight } from 'lucide-react'
+import { ArrowLeft, ArrowUp, ArrowUpRight, LoaderCircle } from 'lucide-react'
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 
 import { Badge } from '@/components/ui/badge'
@@ -19,9 +19,27 @@ import { agoText, durationText, minutesBetween } from '../../../src/quota/usage.
 import { api } from '../api.js'
 import { chatHref, runHref, useDetail } from '../state.js'
 import type { AppState, ChatSummary, Engine, RunDetail, RunSummary, TimelineEntry } from '../types.js'
-import { EngineMark, ErrorBanner, folderName, isEngine, Markdown, runActivity, StatusDot, Time, useAction } from './common.js'
+import { useMediaQuery } from '../browser.js'
+import {
+  ChatStatus,
+  CopyButton,
+  EngineMark,
+  ErrorBanner,
+  focusRing,
+  folderName,
+  hostName,
+  isEngine,
+  Markdown,
+  runActivity,
+  runMark,
+  StatusDot,
+  Time,
+  touchButton,
+  useAction,
+  useCopy,
+} from './common.js'
 import { useModelChoices } from './dialogs.js'
-import { ChatStatus, hostName } from './navigation.js'
+import { ResizeHandle, useColumnWidth } from './resize-handle.js'
 
 const contentWidth = 'mx-auto w-full max-w-4xl px-4 sm:px-6 lg:px-8'
 const composerFrame = 'shrink-0 border-t bg-background pt-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)]'
@@ -30,7 +48,6 @@ const scrollFrame = 'min-h-0 min-w-0 flex-1 [&_[data-slot=scroll-area-viewport]>
 const viewportSelector = '[data-slot="scroll-area-viewport"]'
 const pathText = 'font-mono text-xs wrap-anywhere'
 const textLink = 'font-medium underline-offset-4 hover:underline focus-visible:underline'
-const touchButton = 'min-h-11 md:min-h-8'
 
 export function Composer({
   name,
@@ -56,6 +73,13 @@ export function Composer({
   useEffect(() => {
     if (focus !== undefined) ref.current?.focus()
   }, [focus])
+  // The box grows with its text. Browsers without field-sizing get the same from its scroll height.
+  useLayoutEffect(() => {
+    const box = ref.current
+    if (!box || CSS.supports('field-sizing', 'content')) return
+    box.style.height = 'auto'
+    box.style.height = `${box.scrollHeight + box.offsetHeight - box.clientHeight}px`
+  }, [text])
 
   return (
     <form
@@ -77,29 +101,45 @@ export function Composer({
         <label className="sr-only" htmlFor={id}>
           {name}
         </label>
-        <Textarea
-          className="max-h-40 resize-y overflow-y-auto"
-          id={id}
-          ref={ref}
-          rows={2}
-          value={text}
-          disabled={blocked}
-          readOnly={action.busy}
-          onChange={event => {
-            setText(event.currentTarget.value)
-            setNotice('')
-          }}
-          placeholder={name}
-        />
+        <div className="relative">
+          <Textarea
+            className="max-h-[40dvh] min-h-11 resize-none overflow-y-auto pr-11 md:min-h-9 md:pr-9"
+            id={id}
+            ref={ref}
+            rows={1}
+            value={text}
+            disabled={blocked}
+            readOnly={action.busy}
+            onChange={event => {
+              setText(event.currentTarget.value)
+              setNotice('')
+            }}
+            onKeyDown={event => {
+              // Enter sends and Shift+Enter starts a new line, as in Claude Code. Phone keyboards have
+              // no Shift, so there Enter stays a new line and the Send button sends.
+              if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
+              if (!window.matchMedia('(any-pointer: fine)').matches) return
+              event.preventDefault()
+              event.currentTarget.form?.requestSubmit()
+            }}
+            placeholder={name}
+          />
+          <Button
+            className="absolute right-2 bottom-2 size-7 rounded-full after:absolute after:-inset-2 md:right-[7px] md:bottom-[7px] md:size-6 md:after:inset-0 [&_svg]:size-3.5"
+            size="icon"
+            type="submit"
+            aria-label={action.busy ? 'Sending' : 'Send message'}
+            disabled={!text.trim() || blocked || action.busy}
+          >
+            {action.busy ? <LoaderCircle className="motion-safe:animate-spin" aria-hidden="true" /> : <ArrowUp aria-hidden="true" />}
+          </Button>
+        </div>
         <ErrorBanner text={action.error} />
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
           <span className="min-w-0 flex-1 text-xs text-muted-foreground" role="status">
             {notice || (queued ? 'Messages queue while Claude is working.' : '')}
           </span>
           {settings}
-          <Button className={`shrink-0 ${touchButton}`} size="sm" type="submit" disabled={!text.trim() || blocked || action.busy}>
-            {action.busy ? 'Sending…' : 'Send message'}
-          </Button>
         </div>
       </div>
     </form>
@@ -262,7 +302,7 @@ function WorkerCard({
         <CardHeader className="gap-2 px-0 pt-0">
           <a
             href={href}
-            className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5 px-4 pt-4 pb-2 transition-colors hover:bg-muted focus-visible:bg-muted focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
+            className={`flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5 px-4 pt-4 pb-2 transition-colors hover:bg-muted focus-visible:bg-muted ${focusRing}`}
           >
             {engine && <EngineMark engine={engine} />}
             <strong className="min-w-0 flex-1 text-sm font-medium wrap-anywhere">{title}</strong>
@@ -292,6 +332,7 @@ function TimelineItem({ entry, runs, now }: { entry: TimelineEntry; runs: RunSum
         <div className="flex flex-wrap items-baseline gap-x-2 text-xs text-muted-foreground">
           <strong className="font-medium text-foreground">{from}</strong>
           <Time at={entry.at} />
+          {entry.text && <CopyButton text={entry.text} className="ml-auto self-center" />}
         </div>
         {entry.text && <Markdown text={entry.text} />}
         {entry.kind === 'reply' && <ErrorBanner text={entry.error} />}
@@ -347,6 +388,7 @@ function TimelineItem({ entry, runs, now }: { entry: TimelineEntry; runs: RunSum
           <>
             <span>Worker result</span>
             <Time at={entry.at} />
+            {entry.preview && <CopyButton text={entry.preview} label="Copy result" className="ml-auto self-center" />}
           </>
         }
       >
@@ -399,6 +441,7 @@ export function ChatWorkspace({
   attention?: ReactNode
 }) {
   const detail = useDetail(id, api.chat, live)
+  const wide = useMediaQuery(WIDE)
   const chat = live ?? (detail.data && { ...detail.data.chat, runs: detail.data.runs })
   const entries = detail.data?.timeline
   const thread = useRef<HTMLDivElement>(null)
@@ -449,66 +492,77 @@ export function ChatWorkspace({
           </>
         }
       />
-      {attention && (
-        <div className={`${contentWidth} max-h-[min(11rem,30dvh)] shrink-0 overflow-y-auto py-3 empty:hidden md:hidden`}>{attention}</div>
-      )}
-      <ScrollArea
-        className={scrollFrame}
-        ref={thread}
-        onScrollCapture={event => {
-          const viewport = event.target
-          if (viewport instanceof HTMLElement && viewport.matches(viewportSelector)) {
-            stickToLatest.current = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 72
-          }
-        }}
-      >
-        <div className={`${contentWidth} grid min-w-0 gap-4 py-4 sm:gap-6 sm:py-6`}>
-          <LoadNotice loading={!entries && !detail.error} error={detail.error} retry={detail.refresh} />
-          {entries &&
-            (entries.length ? (
-              <ol className="grid min-w-0 gap-5 sm:gap-6" aria-label="Conversation">
-                {entries.map((entry, index) => (
-                  <TimelineItem key={`${entry.at}-${entry.kind}-${index}`} entry={entry} runs={chat.runs} now={now} />
-                ))}
-              </ol>
-            ) : (
-              <p className="py-4 text-sm wrap-anywhere text-muted-foreground">
-                {external ? 'No messages yet.' : `Claude is ready in ${chat.folder ?? 'this folder'}. Send a message to start.`}
-              </p>
-            ))}
-          {chat.status === 'working' && (
-            <p className="flex items-center gap-2 text-sm text-muted-foreground" role="status">
-              <StatusDot status={chat.waiting ? 'waiting' : 'working'} engine={chat.engine} />
-              {chat.waiting ? 'Claude is waiting for its workers.' : 'Claude is working on its reply.'}
-            </p>
+      <div className="flex min-h-0 flex-1">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          {attention && (
+            <div className={`${contentWidth} max-h-[min(11rem,30dvh)] shrink-0 overflow-y-auto py-3 empty:hidden md:hidden`}>
+              {attention}
+            </div>
           )}
-          <ErrorBanner text={chat.error} />
-        </div>
-      </ScrollArea>
-      {external ? (
-        <footer className={composerFrame}>
-          <p className={`${contentWidth} text-sm text-muted-foreground`}>Reply to this chat in {hostName(chat.host)}.</p>
-        </footer>
-      ) : (
-        <Composer
-          name="Message Claude"
-          queued={chat.status === 'working'}
-          blocked={offline}
-          settings={
-            <TurnSettings
-              engine="claude"
-              model={chat.model}
-              effort={chat.effort}
-              disabled={offline}
-              save={settings => api.chatSettings(id, settings)}
+          <ScrollArea
+            className={scrollFrame}
+            ref={thread}
+            onScrollCapture={event => {
+              const viewport = event.target
+              if (viewport instanceof HTMLElement && viewport.matches(viewportSelector)) {
+                stickToLatest.current = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 72
+              }
+            }}
+          >
+            <div className={`${contentWidth} grid min-w-0 gap-4 py-4 sm:gap-6 sm:py-6`}>
+              <LoadNotice loading={!entries && !detail.error} error={detail.error} retry={detail.refresh} />
+              {entries &&
+                (entries.length ? (
+                  <ol className="grid min-w-0 gap-5 sm:gap-6" aria-label="Conversation">
+                    {entries.map((entry, index) => (
+                      <TimelineItem key={`${entry.at}-${entry.kind}-${index}`} entry={entry} runs={chat.runs} now={now} />
+                    ))}
+                  </ol>
+                ) : (
+                  <p className="py-4 text-sm wrap-anywhere text-muted-foreground">
+                    {external ? 'No messages yet.' : `Claude is ready in ${chat.folder ?? 'this folder'}. Send a message to start.`}
+                  </p>
+                ))}
+              {chat.status === 'working' && (
+                <p className="flex items-center gap-2 text-sm text-muted-foreground" role="status">
+                  <StatusDot status={chat.waiting ? 'waiting' : 'working'} engine={chat.engine} />
+                  {chat.waiting ? 'Claude is waiting for its workers.' : 'Claude is working on its reply.'}
+                </p>
+              )}
+              <ErrorBanner text={chat.error} />
+            </div>
+          </ScrollArea>
+          {external ? (
+            <footer className={composerFrame}>
+              <p className={`${contentWidth} text-sm text-muted-foreground`}>Reply to this chat in {hostName(chat.host)}.</p>
+            </footer>
+          ) : (
+            <Composer
+              name="Message Claude"
+              queued={chat.status === 'working'}
+              blocked={offline}
+              settings={
+                <TurnSettings
+                  engine="claude"
+                  model={chat.model}
+                  effort={chat.effort}
+                  disabled={offline}
+                  save={settings => api.chatSettings(id, settings)}
+                />
+              }
+              send={async text => {
+                await api.messageChat(id, text)
+                detail.refresh()
+              }}
             />
-          }
-          send={async text => {
-            await api.messageChat(id, text)
-            detail.refresh()
-          }}
-        />
-      )}
+          )}
+        </div>
+        {wide && (
+          <DetailsColumn label="Chat details">
+            <ChatDetails chat={chat} now={now} />
+          </DetailsColumn>
+        )}
+      </div>
     </>
   )
 }
@@ -526,9 +580,9 @@ function Facts({ children }: { children: ReactNode }) {
   return <dl className="grid min-w-0 grid-cols-2 gap-x-4 gap-y-3 text-sm wrap-anywhere sm:gap-x-6">{children}</dl>
 }
 
-function Fact({ name, children }: { name: string; children: ReactNode }) {
+function Fact({ name, wide = false, children }: { name: string; wide?: boolean; children: ReactNode }) {
   return (
-    <div className="min-w-0">
+    <div className={`min-w-0 ${wide ? 'col-span-2' : ''}`}>
       <dt className="mb-0.5 text-xs text-muted-foreground">{name}</dt>
       <dd>{children}</dd>
     </div>
@@ -584,7 +638,8 @@ function RunOutput({ run, now }: { run: RunDetail; now: number }) {
           <ol className="grid min-w-0 divide-y">
             {run.turns.map(turn => (
               <li key={turn.turn} className="grid min-w-0 gap-3 py-4 first:pt-0 last:pb-0">
-                <h3 className="text-sm font-medium">
+                <h3 className="flex items-center gap-1 text-sm font-medium">
+                  {turn.output && <CopyButton text={turn.output} label={`Copy turn ${turn.turn} output`} className="order-last ml-auto" />}
                   Turn {turn.turn}{' '}
                   <span className="font-normal text-muted-foreground">
                     · {turn.from === 'user' ? 'You' : turn.turn === 1 ? 'Original brief' : 'Orchestrator'}
@@ -603,6 +658,15 @@ function RunOutput({ run, now }: { run: RunDetail; now: number }) {
           <p className="text-sm text-muted-foreground">No turns recorded yet.</p>
         )}
       </WorkerSection>
+      {run.diff && <Diff diff={run.diff} />}
+    </>
+  )
+}
+
+/** What the worker changed so far, beside its output on wide screens. */
+function RunGit({ run, now }: { run: RunDetail; now: number }) {
+  return (
+    <>
       {run.overlaps.length > 0 && (
         <WorkerSection title="Overlapping changes">
           <ul className="grid gap-2 text-sm text-muted-foreground">
@@ -644,7 +708,69 @@ function RunOutput({ run, now }: { run: RunDetail; now: number }) {
           )}
         </WorkerSection>
       )}
-      {run.diff && <Diff diff={run.diff} />}
+    </>
+  )
+}
+
+/**
+ * The third column on wide screens: details beside the conversation or output, so the middle
+ * holds only what you read and write. Drag its left edge to resize it.
+ */
+function DetailsColumn({ label, children }: { label: string; children: ReactNode }) {
+  const column = useColumnWidth('details', 320, 260, 560)
+  return (
+    <aside aria-label={label} className="relative hidden min-h-0 shrink-0 flex-col border-l xl:flex" style={{ width: column.width }}>
+      <ResizeHandle column={column} edge="left" label="Resize the details column" />
+      <ScrollArea className={scrollFrame}>
+        <div className="grid min-w-0 gap-5 px-5 py-5">{children}</div>
+      </ScrollArea>
+    </aside>
+  )
+}
+
+const WIDE = '(min-width: 1280px)'
+
+function ChatDetails({ chat, now }: { chat: ChatSummary; now: number }) {
+  return (
+    <>
+      <WorkerSection title={`Workers (${chat.runs.length})`}>
+        {chat.runs.length ? (
+          <ul className="-mx-2 grid min-w-0 gap-0.5">
+            {chat.runs.map(run => (
+              <li key={run.id} className="min-w-0">
+                <a href={runHref(run.id)} className={`flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 hover:bg-accent ${focusRing}`}>
+                  <EngineMark engine={run.engine} status={runMark(run)} statusLabel={runActivity(run, now)} />
+                  <span className="grid min-w-0 flex-1">
+                    <span className="truncate text-sm font-medium" title={run.title}>
+                      {run.title}
+                    </span>
+                    <span className="truncate text-xs text-muted-foreground">{runActivity(run, now)}</span>
+                  </span>
+                </a>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-sm text-muted-foreground">No workers yet.</p>
+        )}
+      </WorkerSection>
+      <WorkerSection title="Chat details">
+        <Facts>
+          <Fact name="Agent" wide>
+            {chat.kind === 'external' ? hostName(chat.host) : <AgentLine engine={chat.engine ?? 'claude'} model={chat.model} />}
+          </Fact>
+          {chat.effort && <Fact name="Effort">{chat.effort}</Fact>}
+          <Fact name="Started">
+            <Time at={chat.createdAt} full />
+          </Fact>
+          <Fact name="Turns">{chat.turns}</Fact>
+          {chat.folder && (
+            <Fact name="Folder" wide>
+              <code className={pathText}>{chat.folder}</code>
+            </Fact>
+          )}
+        </Facts>
+      </WorkerSection>
     </>
   )
 }
@@ -657,6 +783,17 @@ function ModelName({ engine, model }: { engine: Engine; model: string | null }) 
   const { chosen } = useModelChoices(engine, model ?? '', '')
   if (!model) return <span className="text-muted-foreground">agent's default model</span>
   return <span title={model}>{chosen?.label ?? model}</span>
+}
+
+/** The agent and its model, as the details columns show them. */
+function AgentLine({ engine, model }: { engine: Engine; model: string | null }) {
+  return (
+    <>
+      <EngineMark engine={engine} labelled />
+      {' · '}
+      <ModelName engine={engine} model={model} />
+    </>
+  )
 }
 
 export function RunWorkspace({
@@ -679,8 +816,8 @@ export function RunWorkspace({
   retry: (run: RunSummary) => void
 }) {
   const detail = useDetail(id, api.run, live)
-  const copy = useAction()
-  const [copied, setCopied] = useState(false)
+  const wide = useMediaQuery(WIDE)
+  const copy = useCopy()
   const run = live ?? (detail.data && { ...detail.data, turns: detail.data.turns.length })
   if (!run)
     return (
@@ -697,6 +834,46 @@ export function RunWorkspace({
   const active = run.status === 'running'
   const ended = run.finishedAt ? Date.parse(run.finishedAt) : now
   const elapsed = durationText(minutesBetween(run.createdAt, ended) ?? 0)
+  const facts = (
+    <>
+      <WorkerSection title="Worker details">
+        <Facts>
+          <Fact name="Agent" wide>
+            <AgentLine engine={run.engine} model={run.model} />
+          </Fact>
+          {detail.data?.effort && <Fact name="Effort">{detail.data.effort}</Fact>}
+          <Fact name="Chat">
+            {run.chatId ? (
+              <a className={textLink} href={back}>
+                {owner?.title ?? 'Chat'}
+              </a>
+            ) : (
+              'Independent worker'
+            )}
+          </Fact>
+          <Fact name="Started">
+            <Time at={run.createdAt} full />
+          </Fact>
+          <Fact name="Elapsed">{elapsed}</Fact>
+          <Fact name="Turns started">{run.turns}</Fact>
+          <Fact name="Folder" wide>
+            <code className={pathText}>{run.folder}</code>
+          </Fact>
+          {run.worktree && (
+            <Fact name="Worktree" wide>
+              <code className={pathText}>{run.worktree}</code>
+            </Fact>
+          )}
+          {run.branch && (
+            <Fact name="Branch" wide>
+              <code className={pathText}>{run.branch}</code>
+            </Fact>
+          )}
+        </Facts>
+      </WorkerSection>
+      {detail.data && <RunGit run={detail.data} now={now} />}
+    </>
+  )
   return (
     <>
       <WorkspaceHeader
@@ -717,20 +894,8 @@ export function RunWorkspace({
         }
         actions={
           <>
-            <Button
-              className={touchButton}
-              variant="outline"
-              size="sm"
-              type="button"
-              disabled={copy.busy}
-              onClick={() =>
-                void copy.perform(async () => {
-                  await navigator.clipboard.writeText(run.worktree ?? run.folder)
-                  setCopied(true)
-                })
-              }
-            >
-              {copied ? 'Path copied' : 'Copy folder path'}
+            <Button className={touchButton} variant="outline" size="sm" type="button" onClick={() => copy.copy(run.worktree ?? run.folder)}>
+              {copy.copied ? 'Path copied' : 'Copy folder path'}
             </Button>
             {active ? (
               <Button className={touchButton} variant="outline" size="sm" type="button" disabled={offline} onClick={() => stop(run)}>
@@ -744,71 +909,40 @@ export function RunWorkspace({
           </>
         }
       />
-      <ScrollArea className={scrollFrame}>
-        <div className={`${contentWidth} grid min-w-0 gap-5 pt-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] sm:pt-6`}>
-          <ErrorBanner text={run.error} />
-          <ErrorBanner text={copy.error} />
-          <WorkerSection title="Worker details">
-            <Facts>
-              <Fact name="Agent">
-                <EngineMark engine={run.engine} labelled />
-                {' · '}
-                <ModelName engine={run.engine} model={run.model} />
-              </Fact>
-              {detail.data?.effort && <Fact name="Effort">{detail.data.effort}</Fact>}
-              <Fact name="Chat">
-                {run.chatId ? (
-                  <a className={textLink} href={back}>
-                    {owner?.title ?? 'Chat'}
-                  </a>
-                ) : (
-                  'Independent worker'
-                )}
-              </Fact>
-              <Fact name="Started">
-                <time dateTime={run.createdAt}>{new Date(run.createdAt).toLocaleString()}</time>
-              </Fact>
-              <Fact name="Elapsed">{elapsed}</Fact>
-              <Fact name="Turns started">{run.turns}</Fact>
-              <Fact name="Folder">
-                <code className={pathText}>{run.folder}</code>
-              </Fact>
-              {run.worktree && (
-                <Fact name="Worktree">
-                  <code className={pathText}>{run.worktree}</code>
-                </Fact>
-              )}
-              {run.branch && (
-                <Fact name="Branch">
-                  <code className={pathText}>{run.branch}</code>
-                </Fact>
-              )}
-            </Facts>
-          </WorkerSection>
-          <LoadNotice loading={!detail.data && !detail.error} error={detail.error} retry={detail.refresh} />
-          {detail.data && <RunOutput run={detail.data} now={now} />}
-        </div>
-      </ScrollArea>
-      {!active && (
-        <Composer
-          name="Message worker"
-          blocked={offline}
-          settings={
-            <TurnSettings
-              engine={run.engine}
-              model={run.model}
-              effort={run.effort ?? null}
-              disabled={offline}
-              save={settings => api.runSettings(id, settings)}
+      <div className="flex min-h-0 flex-1">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <ScrollArea className={scrollFrame}>
+            <div className={`${contentWidth} grid min-w-0 gap-5 pt-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] sm:pt-6`}>
+              <ErrorBanner text={run.error} />
+              <ErrorBanner text={copy.error} />
+              {!wide && facts}
+              <LoadNotice loading={!detail.data && !detail.error} error={detail.error} retry={detail.refresh} />
+              {detail.data && <RunOutput run={detail.data} now={now} />}
+            </div>
+          </ScrollArea>
+          {!active && (
+            <Composer
+              name="Message worker"
+              blocked={offline}
+              settings={
+                <TurnSettings
+                  engine={run.engine}
+                  model={run.model}
+                  effort={run.effort ?? null}
+                  disabled={offline}
+                  save={settings => api.runSettings(id, settings)}
+                />
+              }
+              focus={focus}
+              send={async text => {
+                await api.messageRun(id, text)
+                detail.refresh()
+              }}
             />
-          }
-          focus={focus}
-          send={async text => {
-            await api.messageRun(id, text)
-            detail.refresh()
-          }}
-        />
-      )}
+          )}
+        </div>
+        {wide && <DetailsColumn label="Worker details">{facts}</DetailsColumn>}
+      </div>
     </>
   )
 }

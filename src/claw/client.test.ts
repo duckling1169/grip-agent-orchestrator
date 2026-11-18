@@ -38,3 +38,8 @@ it("gives up only at Grip's own limit", async () => {
     (client as unknown as { post: (p: string, b: object, t: number) => Promise<unknown> }).post('/session/send', {}, 100),
   ).rejects.toThrow('/session/send: no answer in')
 })
+
+it('names the cause and the time taken when Claw cannot be reached', async () => {
+  const client = new ClawClient('http://127.0.0.1:9', 'token')
+  await expect(client.stopSession('s')).rejects.toThrow(/^\/session\/stop: connect ECONNREFUSED 127\.0\.0\.1:9 after \d+ s$/)
+})

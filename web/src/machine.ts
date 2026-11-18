@@ -1,3 +1,5 @@
+import { readStored, writeStored } from './browser.js'
+
 /**
  * Which machine's Grip the app shows (DESIGN §12). The page always comes from the machine it was
  * installed from; API calls and the event stream go to the chosen machine's address. Null means
@@ -21,23 +23,15 @@ export function apiUrl(path: string, base: string | null): string {
   return base ? new URL(path, base).toString() : path
 }
 
-let current: string | null = null
-try {
-  current = normalizeBase(localStorage.getItem(KEY), location.origin)
-} catch {
-  // Storage can be unavailable (private mode); the app then shows this machine.
-}
+// Without storage (private mode) the app shows this machine.
+const stored = readStored(KEY)
+let current = stored ? normalizeBase(stored, location.origin) : null
 
 export const machineBase = () => current
 
 export function chooseMachine(url: string | null): string | null {
   current = normalizeBase(url, location.origin)
-  try {
-    if (current) localStorage.setItem(KEY, current)
-    else localStorage.removeItem(KEY)
-  } catch {
-    // The choice still holds until the page reloads.
-  }
+  writeStored(KEY, current)
   return current
 }
 

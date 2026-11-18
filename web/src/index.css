@@ -92,3 +92,13 @@
     min-height: 100dvh;
   }
 }
+
+@theme {
+  --animate-blink: blink 1.2s ease-in-out infinite;
+  --animate-blink-slow: blink 3s ease-in-out infinite;
+  @keyframes blink {
+    50% {
+      opacity: 0.25;
+    }
+  }
+}

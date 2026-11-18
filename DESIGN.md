@@ -136,13 +136,13 @@ Orchestrators add Grip as an MCP server (`http://127.0.0.1:<port>/mcp`) **instea
 
 | Tool | Input | Returns |
 |---|---|---|
-| `delegate` | `folder`, `engine` (`claude` / `codex` / `agy`), `model?`, `effort?`, `brief` (path or inline text), `retryOf?`, `chatTitle?` | Immediately: `runId`, worktree path, branch, and a quota note when that provider is low or out (information only, never a block). `chatTitle` names the calling chat in the app (§5.1) |
+| `delegate` | `folder`, `engine` (`claude` / `codex` / `agy`), `model?`, `effort?`, `brief` (path or inline text), `title?`, `retryOf?`, `chatTitle?` | Immediately: `runId`, worktree path, branch, and a quota note when that provider is low or out (information only, never a block). `title` names the run and its branch (default: the brief's first line). `chatTitle` names the calling chat in the app (§5.1). A retry may leave out `folder` and `brief` to reuse the old run's, and keeps its title |
 | `message` | `runId`, `text` | Ack. The next turn starts in the background |
 | `stop` | `runId` | Ack after the worker's process tree is gone |
-| `list` | `status?` (`running` / `done` / `failed`), `folder?` | Runs with title, engine, model, folder, branch, status, elapsed time, git facts, unviewed flag |
+| `list` | `status?` (`running` / `done` / `failed`), `folder?` | Runs with title, engine, model, folder, branch, status, elapsed time, git facts, unviewed flag. A running run in a repo adds `activity`: newest edit, last commit, files changed and commits, since Claw reports nothing mid-turn |
 | `result` | `runId` | Brief, final result text, diff stats plus the unified diff, git facts, overlap warnings, and any messages you sent the worker yourself. Marks the run viewed |
 | `wait_any` | `timeoutSec`, `runIds?` | The next run to finish or fail that hasn't been viewed yet, as `result`, or `null` on timeout |
-| `models` | `engine?` | Each engine's models from the same catalog as the app's pickers (`src/models.ts`: Codex `model/list`, `agy models`, a fixed Claude list): the id to pass as `model`, its name, efforts and default effort. `delegate` asks for one, because with none the agent picks its own default and Claw does not report which |
+| `models` | `engine?` | Each engine's models from the same catalog as the app's pickers (`src/models.ts`: Codex `model/list`, `agy models`, a fixed Claude list): the id to pass as `model`, its name, efforts and default effort. `delegate` asks for one, because with none the agent picks its own default and Claw does not report which. It refuses a Codex or Antigravity model their CLI does not list (Antigravity base names without the effort suffix pass), so a typo fails at once instead of in the run; Claude models and unreadable lists are not checked |
 | `quota` | — | Current windows per provider plus the `verdict()` line (added with the quota module, §8) |
 
 Notes:
@@ -150,7 +150,7 @@ Notes:
 - **Delegation is asynchronous.** Claw's `/session/send` blocks, so Grip runs it in the background and tracks the run. An orchestrator's loop is: `delegate` several tasks, then repeat `wait_any`, review, and `message` or merge.
 - **Briefs are written by the orchestrator** (or a subagent), not by you. Grip doesn't impose a format. If `brief` is a path, Grip checks it exists, sends the worker `Do <path>` and uses the file's first heading as the run's title. If it's inline text, the title is its first line.
 - **One Claw session per turn.** Grip opens the run's Claw session for a turn and closes it when the turn ends, keeping the engine's own conversation id. A `message` reopens the session with `resumeSessionId`, so it continues the same conversation. Idle runs hold no Claw session slot and never hit Claw's idle expiry.
-- **Turn length:** each turn may run up to 2 hours (Claw's own defaults are 5 to 10 minutes).
+- **Turn length:** each turn may run up to 3 days by default (`turnTimeoutMinutes`; Claw's own defaults are 5 to 10 minutes), since real work can take that long and Stop ends a turn sooner. One `wait_any` call waits at most 4 minutes, under MCP clients' own tool-call limits; long work is many short waits, never one long call.
 - **MCP endpoint:** `http://127.0.0.1:18797/mcp`, Streamable HTTP **with sessions**, so Grip can tell one chat from another (§5.1). `grip mcp-config` prints the command that adds it to Claude Code, and the JSON for any other MCP host.
 - **The tool set is deliberately small,** not Claw's 79 tools. Councils and fan-out can become Grip tools later.
 
@@ -220,7 +220,8 @@ Follow-up enhancement: verify these paths against the installed native apps usin
 
 - **Runs belong to Grip, not to the chat that started them.** If an orchestrator's chat closes, its workers keep running, and their results, briefs and diffs are kept. A new orchestrator chat, of any model, picks up the oversight with `list` and `wait_any`. The app shows finished, unviewed runs either way.
 - **A stopped or failed worker can only be continued by the same engine,** through Claw's session resume. Another engine can't inherit its context.
-- **Retry with another engine** (`delegate` with `retryOf`, or the **Retry with…** button) starts a fresh run from the same brief in a new worktree.
+- **Retry with another engine** (`delegate` with `retryOf`, or the **Retry with…** button) starts a fresh run from the same brief in a new worktree. To continue the run's own conversation instead, message it (**Continue**). When the retried run, or a deleted one, changed nothing in its worktree (no edits, no commits), Grip removes that worktree and branch; one with any work in it stays.
+- **Errors keep their cause:** a run's error names the Claw call, the underlying error and its code, and how long it took, for example `/session/send: socket hang up (ECONNRESET) after 7 min`.
 
 ### 6.4 Interrupted runs
 
@@ -354,7 +355,9 @@ The agreed screens are in the design canvas (claude.ai artifact `JktKuQYLVZ7S8Fv
 - **Telling agents apart:** each engine has one mark and colour, used for chats, workers and quota alike: Claude ✻ terracotta, Codex ◆ green, Antigravity ▲ blue (from `agent-usage`'s theme). A working run has a slow pulsing dot in its engine's colour. Yellow is kept for the *Needs you* block alone.
 - **Views and actions:**
   - **Needs you** at the top: a stopped or failed worker, or an admin request, with **Continue** and **Retry with another agent**. It names the chat waiting on it.
-  - **Chat list:** chats with their workers nested, then runs that belong to no chat. Unviewed runs are marked.
+  - **Chat list:** chats with their workers nested, then runs that belong to no chat. Unviewed runs are marked. Each agent's icon carries its status: a medium blink while working, a slow blink while a chat waits on its workers, solid when idle or done, red when failed, dimmed when stopped. Hovering it, or a screen reader, says the status in words.
+  - **Layout:** the chat list, the conversation or worker output, and on windows 1280 px and wider a third column of details: for a chat, its workers with their activity and the chat's agent, model, folder and turns; for a worker, its details, git facts and overlapping changes. Narrower windows show those details inline. Drag the edge of the chat list or the details column to resize it (arrow keys too; double-click resets); widths are kept per browser.
+  - **Message box:** one line high, growing with its text; Enter sends and Shift+Enter starts a new line (a phone's Enter starts a new line), with a small send arrow inside the box.
   - **A Grip chat:** the conversation, with each hand-off shown inline as a card for that worker and its live status, plus a message box. Action: **Stop this chat**, which also stops its workers.
   - **A Claude Code chat:** the thread of briefs, messages and results Grip saw (§5.1), the *Needs you* block for its workers, and a note that you reply to it in its own host.
   - **Worker detail:** everything in §7.1, plus the chat it works for and the model by name. With no model chosen it says the agent's default model, since Claw does not report which one the agent picked. Actions: **Message** (its chat sees it too), **Stop**, **Retry with another agent**, **Copy the folder path**.
@@ -461,4 +464,3 @@ Wake-on-LAN is not planned. A sleeping principal shows as offline.
 - The status of Google's terms on third-party orchestration of `agy -p`.
 - Does the Claude Code desktop app open one MCP session per conversation, so each chat gets its own session (§5.1)? If not, Grip needs another way to tell its chats apart.
 - Does a `mcp__grip` deny rule in a Claude worker's settings block every Grip tool, including ones loaded from your user config?
-- Can a Grip chat's turn wait in `wait_any` for long stretches inside the 2-hour turn limit, or should `wait_any` return sooner so the chat ends its turn and Grip wakes it with a note?

@@ -154,6 +154,26 @@ describe('Grip MCP over HTTP', () => {
     ])
   })
 
+  it('refuses a Codex or Antigravity model their CLI does not list', async () => {
+    const { client, folder } = await setup()
+    const call = (engine: string, model: string) =>
+      client.callTool({ name: 'delegate', arguments: { folder, engine, model, brief_text: 'Do it' } })
+    const typo = (await call('agy', 'gemini-4-argn-high')) as { isError?: boolean; content: { text: string }[] }
+    expect(typo.isError).toBe(true)
+    expect(typo.content[0]!.text).toBe(
+      'Unknown agy model "gemini-4-argn-high". Use an id from the models tool, for example: gemini-4-argon-high.',
+    )
+    // Listed ids, Antigravity's base names and Claw's prefix pass; so do Claude's aliases and an unreadable list.
+    for (const [engine, model] of [
+      ['agy', 'gemini-4-argon-high'],
+      ['agy', 'gemini-4-argon'],
+      ['agy', 'agy/gemini-4-argon-high'],
+      ['claude', 'opus'],
+      ['codex', 'gpt-anything'],
+    ])
+      expect(json(await call(engine!, model!))).toMatchObject({ engine, model, status: 'running' })
+  })
+
   it('reads quota, and notes a low provider when delegating to it', async () => {
     const { client, folder } = await setup()
     expect(json(await client.callTool({ name: 'quota', arguments: {} })).verdict.text).toBe('Waiting for a reading')

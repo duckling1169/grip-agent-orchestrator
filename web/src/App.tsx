@@ -14,9 +14,11 @@ import {
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Toaster } from '@/components/ui/sonner'
 import { api, errorText } from './api.js'
-import { ErrorBanner, StatusDot } from './components/common.js'
+import { DESKTOP, useMediaQuery } from './browser.js'
+import { ErrorBanner, StatusDot, touchButton } from './components/common.js'
 import { ConfirmDialog, SettingsDialog, StartDialog, WorktreesDialog } from './components/dialogs.js'
 import { Navigation, NeedsAttention, QuotaStrip } from './components/navigation.js'
+import { ResizeHandle, useColumnWidth } from './components/resize-handle.js'
 import { ChatWorkspace, RunWorkspace } from './components/workspace.js'
 import { baseName, chooseMachine, machineBase, normalizeBase } from './machine.js'
 import { chatHref, runHref, useLiveState, useRoute } from './state.js'
@@ -141,22 +143,17 @@ function Grip({ base, switchTo, retry: reconnect }: { base: string | null; switc
   const route = useRoute()
   const [overlay, setOverlay] = useState<Overlay | null>(null)
   const [now, setNow] = useState(Date.now)
-  const [wide, setWide] = useState(() => matchMedia('(min-width: 768px)').matches)
+  const wide = useMediaQuery(DESKTOP)
   const [continueRun, setContinueRun] = useState<{ id: string; count: number }>()
   const workspace = useRef<HTMLElement>(null)
   const sidebar = useRef<HTMLElement>(null)
+  const sidebarWidth = useColumnWidth('sidebar', 352, 240, 560)
   const offline = connection === 'offline' || data?.principal.online === false
   const disabled = offline || !data
   const defaultChat = data?.chats[0]
   const active: Route = route.kind === 'home' && wide && defaultChat ? { kind: 'chat', id: defaultChat.id } : route
   const activeId = active.kind === 'home' ? null : active.id
   const autoFocusRun = route.kind === 'run' && route.id === continueRun?.id ? continueRun.count : undefined
-  useEffect(() => {
-    const query = matchMedia('(min-width: 768px)')
-    const resize = (event: MediaQueryListEvent) => setWide(event.matches)
-    query.addEventListener('change', resize)
-    return () => query.removeEventListener('change', resize)
-  }, [])
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 30_000)
     return () => window.clearInterval(timer)
@@ -238,10 +235,10 @@ function Grip({ base, switchTo, retry: reconnect }: { base: string | null; switc
       {showOfflineBanner && base ? (
         <div className="flex shrink-0 flex-wrap items-center gap-2 border-b px-4 py-2 text-sm" role="status">
           <span className="mr-auto">{data?.principal.host ?? baseName(base)} is not answering.</span>
-          <Button variant="outline" size="sm" className="min-h-11 md:min-h-8" onClick={reconnect}>
+          <Button variant="outline" size="sm" className={touchButton} onClick={reconnect}>
             Retry
           </Button>
-          <Button variant="outline" size="sm" className="min-h-11 md:min-h-8" onClick={() => switchTo(null)}>
+          <Button variant="outline" size="sm" className={touchButton} onClick={() => switchTo(null)}>
             Switch back
           </Button>
         </div>
@@ -266,8 +263,10 @@ function Grip({ base, switchTo, retry: reconnect }: { base: string | null; switc
           aria-label="Chat list"
           tabIndex={-1}
           ref={sidebar}
-          className={`${route.kind === 'home' ? 'flex' : 'hidden'} min-h-0 min-w-0 flex-1 flex-col md:flex md:w-88 md:max-w-88 md:flex-none md:border-r`}
+          className={`${route.kind === 'home' ? 'flex' : 'hidden'} relative min-h-0 min-w-0 flex-1 flex-col md:flex md:max-w-[45vw] md:flex-none md:border-r`}
+          style={wide ? { width: sidebarWidth.width } : undefined}
         >
+          <ResizeHandle column={sidebarWidth} edge="right" label="Resize the chat list" />
           {data ? (
             <>
               <ScrollArea className="min-h-0 flex-1 [&_[data-slot=scroll-area-viewport]>div]:block!">

@@ -1,4 +1,4 @@
-import { useId, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 
 import {
   AlertDialog,
@@ -21,7 +21,7 @@ import { durationText } from '../../../src/quota/usage.js'
 import { api } from '../api.js'
 import { useDetail } from '../state.js'
 import type { AppState, Engine, RunSummary, Worktree } from '../types.js'
-import { EngineMark, ErrorBanner, engines, folderName, isEngine, useAction } from './common.js'
+import { EngineMark, ErrorBanner, engines, folderName, isEngine, Time, touchButton, useAction } from './common.js'
 import { FolderPicker } from './folder-picker.js'
 import { ResponsiveDialog } from './responsive-dialog.js'
 
@@ -447,6 +447,12 @@ export function RenameDialog({
   const id = useId()
   const [value, setValue] = useState(current)
   const next = value.trim()
+  const field = useRef<HTMLInputElement>(null)
+  // The dialog focuses its title when it opens; then the name is selected, ready to type over.
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => field.current?.select())
+    return () => cancelAnimationFrame(frame)
+  }, [])
   return (
     <ResponsiveDialog
       title={title}
@@ -476,7 +482,7 @@ export function RenameDialog({
         }}
       >
         <Label htmlFor={`${id}-name`}>Name</Label>
-        <Input id={`${id}-name`} value={value} maxLength={200} autoFocus onChange={event => setValue(event.target.value)} />
+        <Input id={`${id}-name`} ref={field} value={value} maxLength={200} onChange={event => setValue(event.target.value)} />
         <ErrorBanner text={action.error} />
       </form>
     </ResponsiveDialog>
@@ -533,7 +539,7 @@ export function WorktreesDialog({ close, offline }: { close: () => void; offline
                     variant="outline"
                     size="sm"
                     type="button"
-                    className="min-h-11 md:min-h-8"
+                    className={touchButton}
                     disabled={offline}
                     onClick={() => setConfirm(tree)}
                   >
@@ -623,9 +629,7 @@ export function SettingsDialog({
                         <span> {event.from && event.to ? `${event.from} → ${event.to}` : (event.to ?? event.from)}</span>
                       )}
                     </div>
-                    <time className="text-xs text-muted-foreground" dateTime={event.at}>
-                      {new Date(event.at).toLocaleString()}
-                    </time>
+                    <Time className="text-xs text-muted-foreground" at={event.at} full />
                     {event.detail && <p>{event.detail}</p>}
                   </li>
                 ))}
