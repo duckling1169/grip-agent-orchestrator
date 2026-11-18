@@ -183,7 +183,7 @@ A **chat** is one orchestrator conversation. Every run belongs to the chat that 
 **Subagents within the turn.** A worker may use its own engine's subagents, such as Claude's `Agent` tool, for parts of its job. They must finish before the worker's turn ends:
 
 - **Why it is safe:** a subagent that finishes inside the turn works in the worker's folder or worktree, stops when the worker is stopped, and its result reaches the chat through the worker's result.
-- **What is not allowed:** subagents or background jobs left running when the turn ends. Claw ends the session's process with the turn, so they die and nobody sees their results.
+- **What is not allowed:** subagents or background jobs left running when the turn ends. Grip stops the worker's Claw session when each turn ends, and the next turn resumes the conversation in a new session, so they die. Even if they kept running, nobody would see their results: Claw's plain sessions have no event stream (§7.3), so Grip learns only the reply to each turn. Once Claw has session events, Grip could keep sessions open between turns and let subagents run across them.
 - **How workers are told:** Claude workers get `WORKER_PROMPT` as an appended system prompt, which says so. Codex and agy have no system prompt that Grip can add to, so their briefs carry no extra rule (§18).
 - **What Grip does not do:** the app does not show subagents. The worker appears as one run that works for longer.
 

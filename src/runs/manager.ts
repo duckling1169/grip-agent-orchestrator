@@ -36,8 +36,9 @@ export const GRIP_MCP_NAME = 'grip'
 export const GRIP_TOOLS = `mcp__${GRIP_MCP_NAME}`
 
 /**
- * Workers may use their engine's own subagents, but only ones that finish within the turn: Claw
- * ends the session's process with the turn, so anything left running dies unseen (DESIGN §5.1).
+ * Workers may use their engine's own subagents, but only ones that finish within the turn: Grip
+ * stops the Claw session when the turn ends (see runTurn), so anything left running dies unseen
+ * (DESIGN §5.1).
  * Claude is the only engine with a system prompt Grip can add to.
  */
 export const WORKER_PROMPT =
