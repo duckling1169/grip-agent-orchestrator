@@ -4,7 +4,7 @@ Grip lets you see and control the coding agents your orchestrator runs (Claude C
 
 It does not run agents itself. [Claw Orchestrator](https://github.com/Enderfga/claw-orchestrator) does that. Grip is a thin layer around one Claw server. It gives orchestrators a small MCP tool set, gives your devices a web app behind Tailscale identity, and adds the few pieces Claw lacks: worktrees for every engine, a review handoff, quota windows, push notifications and safety limits.
 
-Status: agreed on 2026-11-17, chats (§5.1) added the same day. Build steps 1 to 12 (§17) are done; what's next is at the end of §17, and open questions are in §18.
+Status: agreed on 2026-11-17, chats (§5.1) added the same day. Build steps 1 to 13 (§17) are done; what's next is at the end of §17, and open questions are in §18.
 
 ---
 
@@ -12,7 +12,7 @@ Status: agreed on 2026-11-17, chats (§5.1) added the same day. Build steps 1 to
 
 1. **See what orchestrated workers are doing, from anywhere.** For each run: engine, model, folder, worktree and branch, what it is doing now, how long it has run, its result and its diff.
 2. **Control them from anywhere:** start, stop, message, view output, and stop everything.
-3. **Any model leads, any model works.** Vendors' own orchestrators keep to their own models; Grip doesn't. Claude (Opus 5.5) orchestrates today. If GPT 7.8 or DeepSeek is the best orchestrator tomorrow, it uses the same Grip tools, in an outside MCP host or as a chat in Grip's app, and hands work to any engine Claw can run. Nothing is tied to one vendor's plugin system.
+2. **Any model leads, any model works.** Vendors' own orchestrators keep to their own models; Grip doesn't. Claude (Opus 5.5) orchestrates today. If GPT 7.8 or DeepSeek is the best orchestrator tomorrow, it uses the same Grip tools, in an outside MCP host or as a chat in Grip's app, and hands work to any engine Claw can run. Nothing is tied to one vendor's plugin system.
 4. **Show quota windows** (5-hour, weekly and the others) for every subscription, read through each provider's own documented interface.
 5. **Avoid juggling.** An orchestrator delegates several jobs and then waits for whichever finishes next. It never polls each worker.
 6. **The chat comes first.** You start a conversation with one model, and it hands work to the others, across vendors, to spread work and quota over your subscriptions. The app is built around that chat and the workers it manages (§5.1).
@@ -172,7 +172,7 @@ A **chat** is one orchestrator conversation. Every run belongs to the chat that 
 
 **Chats in Claude Code** (or another MCP host). These are the chats you start yourself, with Grip's MCP added.
 
-- **Telling chats apart:** Grip treats each MCP session as one chat. If Grip restarts, a chat that reconnects shows up as a new chat. Its runs are kept and stay listed under the old one.
+- **Telling chats apart:** Grip treats each MCP session as one chat. Every run it returns carries its `chatId`. When the session ends, as when Grip restarts, the conversation opens a new one and passes that id as `chat_id` on `delegate` and `wait_any`, which puts the new session back in its old chat. A session tied to a Grip chat by its token can't name another chat, and no session can take over a Grip chat.
 - **Name:** the orchestrator passes `chatTitle` on `delegate`; Grip's MCP instructions ask it to. Without one, the chat is named "Claude Code chat in `<folder>`".
 - **What the app shows:** Grip can't show the conversation itself, because reading transcripts is ruled out (§1). Instead the chat view is a thread of what Grip saw: each brief, each message the chat sent a worker, each result it read, and each worker's status. You reply to the chat in its own host. You can still step in on any of its workers.
 
@@ -484,25 +484,25 @@ Wake-on-LAN is not planned. A sleeping principal shows as offline.
 10. Web Push.
 11. `grip install` on Windows, plus `status`, `stop-all`, `uninstall` and the going-offline push.
 12. Switch over: Grip runs from the logon task and is Claude Code's only orchestrator MCP. `clawo-mcp`, `codex-plugin-cc`, the agy connector and alethe are removed.
+13. Chats survive a Grip restart: a new MCP session rejoins its chat through `chat_id` (§5.1).
 
 **Next.** The aim is any model leading and any model working, local or in the cloud, with Grip as the daily driver. In this order:
 
-1. **Chats survive a Grip restart.** Today a reconnecting Claude Code chat shows up as a new chat (§5.1).
-2. **Find out how each engine can lead.** Claw passes an MCP config to Claude sessions only (§5.1). For Codex, agy and an ACP engine, find an official way to give a chat Grip's tools: the engine's own per-session config, or an upstream Claw change.
-3. **Any model leads, any model works.**
+1. **Find out how each engine can lead.** Claw passes an MCP config to Claude sessions only (§5.1). For Codex, agy and an ACP engine, find an official way to give a chat Grip's tools: the engine's own per-session config, or an upstream Claw change.
+2. **Any model leads, any model works.**
    - The app offers every engine that can lead as a chat's orchestrator.
    - Claw already runs `grok`, `opencode`, ACP agents (`-e acp --acp-agent`, with presets such as `dsh` for DeepSeek and `kimi-code`) and `custom` engines. Grip narrows this to three in `Engine` and `ClawEngine`. Pass the others through: `delegate` takes the engine and an optional ACP preset.
    - Extra engines are listed in `config.json`, for example `"workers": ["acp:dsh"]`. The health gate checks their sign-in, and `grip status` and the app say when one is broken. Each is signed in once on the PC.
    - No quota or model list for them, so they show "not tracked".
-4. **Use it for real, then review what the app can't do.**
+3. **Use it for real, then review what the app can't do.**
    - A few days of daily use, settling §18 on the way: protected paths per engine, the `mcp__grip` deny, background jobs after a turn, one MCP session per Claude Code conversation, a real sleep and shutdown push.
    - Scenario tests (§16): one user intent each, such as "run a council" or "send this to the engine with quota left". A scripted orchestrator does it through Grip's MCP tools against fake Claw. An intent that can't be written as a test is a missing feature.
    - Compare what the API supports with what the app exposes.
    - Fix the top gaps from all three.
-5. **Look-and-feel review** of the whole app, once the functions settle.
-6. **Councils.** First a skill that tells the orchestrator how to run one with the existing tools: the same question to several models, rounds where each sees the others' answers, until they agree. In Grip, only a way to group a council's workers in the app. Build more once the format is known.
-7. **Cloud workers.** Start hosted agents (Codex cloud, Claude Code on the web, Jules) through their official interfaces, so work goes on while the PC is off. They work from GitHub, so only pushed code. Grip stores the vendor's task id, lists them with local workers and fetches their branch for review.
-8. **Lightweight handoff** (§5.2): a button that opens the chat's folder or copies `claude --resume <id>`.
+4. **Look-and-feel review** of the whole app, once the functions settle.
+5. **Councils.** First a skill that tells the orchestrator how to run one with the existing tools: the same question to several models, rounds where each sees the others' answers, until they agree. In Grip, only a way to group a council's workers in the app. Build more once the format is known.
+6. **Cloud workers.** Start hosted agents (Codex cloud, Claude Code on the web, Jules) through their official interfaces, so work goes on while the PC is off. They work from GitHub, so only pushed code. Grip stores the vendor's task id, lists them with local workers and fetches their branch for review.
+7. **Lightweight handoff** (§5.2): a button that opens the chat's folder or copies `claude --resume <id>`.
 
 **Alongside, early:** open an issue on Claw about session events (§7.3), for live activity in the app and in `list` and `result`, so the orchestrator can see a stuck worker too. Nothing else waits on it.
 

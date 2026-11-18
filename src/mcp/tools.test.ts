@@ -77,6 +77,36 @@ it('creates one chat for parallel first delegations and reuses it for a later ti
   expect(chats.get(first.chatId)?.title).toBe('Updated title')
 })
 
+it('rejoins a chat named by chat_id after the session that made it is gone', async () => {
+  const { folder, runs, chats, connect } = await setup()
+  const before = await connect({ chats, host: 'test-orchestrator' })
+  const delegate = (client: Awaited<ReturnType<typeof connect>>, args: Record<string, unknown> = {}) =>
+    client.callTool({ name: 'delegate', arguments: { folder, engine: 'codex', brief_text: 'Brief', ...args } }).then(json)
+  const { chatId } = await delegate(before, { chat_title: 'Kept' })
+  expect(before.getInstructions()).toContain('chat_id')
+
+  // Grip restarted: the conversation opens a new session, which has no chat until it names one.
+  const after = await connect({ chats, host: 'test-orchestrator' })
+  const waitAny = vi.spyOn(runs, 'waitAny')
+  await after.callTool({ name: 'wait_any', arguments: { timeout_sec: 0, chat_id: chatId } })
+  expect(waitAny.mock.calls[0]?.[0]).toMatchObject({ chatId })
+  expect((await delegate(after)).chatId).toBe(chatId)
+  expect(chats.list()).toHaveLength(1)
+
+  // A chat Grip runs belongs to its own token, so another session can't take it over.
+  const hosted = await chats.startChat({ folder, engine: 'claude' })
+  const refused = await after.callTool({
+    name: 'delegate',
+    arguments: { folder, engine: 'codex', brief_text: 'Brief', chat_id: hosted.id },
+  })
+  expect(refused.isError).toBe(true)
+
+  // A deleted chat is forgotten; the next delegation starts a new one.
+  const fresh = await connect({ chats, host: 'test-orchestrator' })
+  await chats.delete(chatId)
+  expect((await delegate(fresh, { chat_id: chatId })).chatId).not.toBe(chatId)
+})
+
 it('keeps a chat waiting until all MCP sessions stop waiting', async () => {
   const { folder, runs, chats, connect } = await setup()
   const chat = await chats.externalChat({ folder })

@@ -21,6 +21,11 @@ const WAIT_MAX_SEC = 600
  */
 const WAIT_CAP_SEC = 240
 
+const CHAT_ID = z
+  .string()
+  .optional()
+  .describe('Your chat: the chatId from an earlier result in this conversation. Keeps your work in the same chat if Grip restarted.')
+
 export type McpCaller = { chatId?: string; host?: string; chats?: McpChats }
 
 /** Each agent's models, as the app's pickers show them. */
@@ -98,11 +103,28 @@ export function createGripMcpServer(
       instructions:
         'Use delegate to start workers asynchronously. Call models first and pass a model to delegate, so the run records which one works. Give your chat a short descriptive chat_title on the first delegation. ' +
         'Use wait_any to review completed workers in your chat. To pick up work from another chat, find the runs with list and pass ' +
-        'their IDs as run_ids to wait_any, or read a specific run with result.',
+        'their IDs as run_ids to wait_any, or read a specific run with result. ' +
+        'Once a result has given you a chatId, pass it as chat_id to delegate and wait_any, so your work stays in the same chat if Grip restarts.',
     },
   )
 
   let creatingChat: Promise<string> | undefined
+  // A Grip chat's session is tied to its chat by its token; only other sessions may name theirs.
+  const tokenChat = caller.chatId
+
+  /**
+   * Rejoin the chat this conversation had before its MCP session ended, as when Grip restarts
+   * (design §5.1). The orchestrator names it with a `chatId` from an earlier result.
+   */
+  function rejoin(chatId: string | undefined): void {
+    const { chats } = caller
+    if (!chatId || !chats || tokenChat) return
+    const chat = chats.get(chatId)
+    // A deleted chat is not an error: the next delegation starts a new one.
+    if (!chat) return
+    if (chat.kind !== 'external') throw new Error(`chat ${chatId} is a chat Grip runs, not yours`)
+    caller.chatId = chatId
+  }
 
   async function chatForDelegation(folder: string, title?: string): Promise<string | undefined> {
     const { chats } = caller
@@ -155,10 +177,12 @@ export function createGripMcpServer(
           ),
         title: z.string().optional().describe("Short name for this run and its branch. Defaults to the brief's first line."),
         chat_title: z.string().optional().describe('Short title for this chat in Grip'),
+        chat_id: CHAT_ID,
       },
     },
     args =>
       guarded(async () => {
+        rejoin(args.chat_id)
         if (args.model && models) await checkModel(models, args.engine as Run['engine'], args.model)
         const folder = args.folder ?? (args.retry_of ? manager.list().find(run => run.id === args.retry_of)?.folder : undefined)
         if (!folder) throw new Error('a folder is required')
@@ -245,11 +269,13 @@ export function createGripMcpServer(
       inputSchema: {
         timeout_sec: z.number().int().min(0).max(WAIT_MAX_SEC).optional().describe(`Default ${WAIT_DEFAULT_SEC}, at most ${WAIT_MAX_SEC}`),
         run_ids: z.array(z.string()).optional().describe('Only wait for these runs'),
+        chat_id: CHAT_ID,
       },
       annotations: { destructiveHint: false },
     },
     (args, extra) =>
       guarded(async () => {
+        rejoin(args.chat_id)
         const { chats, chatId } = caller
         if (extra.signal.aborted || (chats && !chatId && !args.run_ids)) return null
         const details = await whileWaiting(chats, chatId, () =>
