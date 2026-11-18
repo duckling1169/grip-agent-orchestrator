@@ -14,6 +14,7 @@ import {
   ChatStatus,
   CopyButton,
   EngineMark,
+  engineNames,
   ErrorBanner,
   focusRing,
   folderName,
@@ -214,6 +215,8 @@ export function ChatWorkspace({
     )
 
   const external = chat.kind === 'external'
+  // The agent leading a chat Grip runs; an external chat's leader lives in its MCP host.
+  const leader = engineNames[chat.engine ?? 'claude']
   const canStop = !external && chat.status !== 'stopped'
   return (
     <>
@@ -272,13 +275,13 @@ export function ChatWorkspace({
                   </ol>
                 ) : (
                   <p className="py-4 text-sm wrap-anywhere text-muted-foreground">
-                    {external ? 'No messages yet.' : `Claude is ready in ${chat.folder ?? 'this folder'}. Send a message to start.`}
+                    {external ? 'No messages yet.' : `${leader} is ready in ${chat.folder ?? 'this folder'}. Send a message to start.`}
                   </p>
                 ))}
               {chat.status === 'working' && (
                 <p className="flex items-center gap-2 text-sm text-muted-foreground" role="status">
-                  <StatusDot status={chat.waiting ? 'waiting' : 'working'} engine={chat.engine} />
-                  {chat.waiting ? 'Claude is waiting for its workers.' : 'Claude is working on its reply.'}
+                  <StatusDot status={chat.waiting ? 'waiting' : 'working'} engine={chat.engine ?? 'claude'} />
+                  {chat.waiting ? `${leader} is waiting for its workers.` : `${leader} is working on its reply.`}
                 </p>
               )}
               <ErrorBanner text={chat.error} />
@@ -290,12 +293,12 @@ export function ChatWorkspace({
             </footer>
           ) : (
             <Composer
-              name="Message Claude"
+              name={`Message ${leader}`}
               queued={chat.status === 'working'}
               blocked={offline}
               settings={
                 <TurnSettings
-                  engine="claude"
+                  engine={chat.engine ?? 'claude'}
                   model={chat.model}
                   effort={chat.effort}
                   disabled={offline}

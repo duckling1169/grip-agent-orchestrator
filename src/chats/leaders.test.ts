@@ -6,7 +6,8 @@ import { expect, it } from 'vitest'
 
 import type { SpawnPiped } from '../exec.js'
 import { fakeAcpAgent } from '../testing/fake-acp-agent.js'
-import { ACP_LEADERS, mcpRemoteBridge, probeLeader } from './leaders.js'
+import { ACP_LEADERS, LeaderCatalog, mcpRemoteBridge, probeLeader } from './leaders.js'
+import type { LeaderCheck } from './leaders.js'
 
 it('runs Codex through the pinned codex-acp with Node, and agy through its own acp command', () => {
   expect(ACP_LEADERS.codex()).toMatchObject({ command: process.execPath, env: { NO_BROWSER: '1' } })
@@ -66,4 +67,22 @@ it('says why a leader is unavailable', async () => {
     available: false,
     reason: 'no answer within 0.03 s',
   })
+})
+
+it('offers Claude always and each ACP leader by its check, checking again after a failure', async () => {
+  let agy: LeaderCheck = { available: false, reason: 'agy is not installed' }
+  const probed: string[] = []
+  const catalog = new LeaderCatalog(async engine => {
+    probed.push(engine)
+    return engine === 'agy' ? agy : { available: true }
+  })
+  await expect(catalog.list()).resolves.toEqual([
+    { engine: 'claude', available: true },
+    { engine: 'codex', available: true },
+    { engine: 'agy', available: false, reason: 'agy is not installed' },
+  ])
+  agy = { available: true }
+  await expect(catalog.list()).resolves.toContainEqual({ engine: 'agy', available: true })
+  await catalog.list()
+  expect(probed).toEqual(['codex', 'agy', 'codex', 'agy'])
 })

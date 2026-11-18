@@ -7,6 +7,7 @@ import { errorText } from '../errors.js'
 import { spawnPiped } from '../exec.js'
 import type { Exec, SpawnPiped } from '../exec.js'
 import type { Engine } from '../runs/store.js'
+import { DEFAULT_SETTINGS, minutes } from '../settings.js'
 import { AcpChatTurns } from './acp-turns.js'
 import type { AcpCommand, StdioBridge } from './acp-turns.js'
 import type { ChatTurns } from './turns.js'
@@ -88,5 +89,37 @@ export async function probeLeader(agent: AcpCommand, spawn: SpawnPiped = spawnPi
   } finally {
     if (timer) clearTimeout(timer)
     child.kill()
+  }
+}
+
+/** Whether an agent can lead a chat here, for the app's picker. */
+export type EngineLeader = { engine: Engine } & LeaderCheck
+
+/**
+ * Leader checks, kept for `cacheMs` (settings.modelListRefreshMinutes). Claude leads through Claw,
+ * so it is always offered. A failed check is tried again on the next ask.
+ */
+export class LeaderCatalog {
+  private cached: { at: number; value: Promise<EngineLeader[]> } | null = null
+
+  constructor(
+    private readonly probe: (engine: keyof typeof ACP_LEADERS) => Promise<LeaderCheck> = engine => probeLeader(ACP_LEADERS[engine]()),
+    private readonly now: () => number = Date.now,
+    private readonly cacheMs: number = minutes(DEFAULT_SETTINGS.modelListRefreshMinutes),
+  ) {}
+
+  list(): Promise<EngineLeader[]> {
+    if (this.cached && this.now() - this.cached.at < this.cacheMs) return this.cached.value
+    const engines = Object.keys(ACP_LEADERS) as (keyof typeof ACP_LEADERS)[]
+    const value = Promise.all(engines.map(async engine => ({ engine, ...(await this.probe(engine)) }))).then((acp): EngineLeader[] => [
+      { engine: 'claude', available: true },
+      ...acp,
+    ])
+    const entry = { at: this.now(), value }
+    this.cached = entry
+    void value.then(list => {
+      if (list.some(l => !l.available) && this.cached === entry) this.cached = null
+    })
+    return value
   }
 }

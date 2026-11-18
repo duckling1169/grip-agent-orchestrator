@@ -15,7 +15,9 @@ import { RunManager } from '../src/runs/manager.js'
 import type { Engine } from '../src/runs/store.js'
 import { RunStore } from '../src/runs/store.js'
 import { FakeClaw } from '../src/testing/fake-claw.js'
+import { acpLeaders } from '../src/chats/leaders.js'
 import { CLAUDE_MODELS } from '../src/models.js'
+import { fakeAcpAgent } from '../src/testing/fake-acp-agent.js'
 import type { Machine } from '../src/web/machines.js'
 import { startWebHttp } from '../src/web/server.js'
 
@@ -76,6 +78,8 @@ async function startPreview(name: Name, seed: (s: Seed) => Promise<void>, used: 
     claw,
     secret: 'preview-only',
     mcpUrl: () => 'http://127.0.0.1:18797/mcp',
+    // Codex and agy lead through an in-process fake ACP agent, so no agent starts.
+    leaders: acpLeaders({ spawn: fakeAcpAgent({ http: true, loadSession: true, reply: 'A preview reply over ACP.' }).spawn }),
   })
   const usage = (provider: ToolId) => async () => ({
     provider,
@@ -130,6 +134,13 @@ async function startPreview(name: Name, seed: (s: Seed) => Promise<void>, used: 
           models: [{ id: 'gemini-preview-high', label: 'Gemini Preview (High)', efforts: [], defaultEffort: null, isDefault: false }],
           error: null,
         },
+      ],
+    },
+    leaders: {
+      list: async () => [
+        { engine: 'claude', available: true },
+        { engine: 'codex', available: true },
+        { engine: 'agy', available: false, reason: 'agy is not installed' },
       ],
     },
   })

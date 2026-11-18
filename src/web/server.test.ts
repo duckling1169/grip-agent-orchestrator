@@ -101,6 +101,12 @@ async function setup(withStatic = false) {
     host: 'windows-pc',
     staticDir,
     models: { list: async () => [{ engine: 'codex', models: [], error: null }] },
+    leaders: {
+      list: async () => [
+        { engine: 'claude', available: true },
+        { engine: 'agy', available: false, reason: 'agy is not installed' },
+      ],
+    },
     trustedOrigin: origin => tailnetOrigin(origin, '.tail.ts.net'),
     localToken: LOCAL_TOKEN,
   })
@@ -300,6 +306,7 @@ describe('web API chats', () => {
   it('lists models and browses folders', async () => {
     const t = await setup()
     expect((await t.api('GET', '/api/models')).body).toEqual([{ engine: 'codex', models: [], error: null }])
+    expect((await t.api('GET', '/api/leaders')).body).toContainEqual({ engine: 'agy', available: false, reason: 'agy is not installed' })
     const roots = await t.api('GET', '/api/folders')
     expect(roots.body.path).toBeNull()
     expect(roots.body.folders[0].name).toBe('Home')

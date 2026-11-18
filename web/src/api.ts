@@ -3,6 +3,7 @@ import type {
   ChatDetail,
   ChatRecord,
   Engine,
+  EngineLeader,
   EngineModels,
   FolderListing,
   MachineList,
@@ -58,6 +59,7 @@ export const api = {
   run: (id: string, signal: AbortSignal) => request<RunDetail>(runPath(id), { signal }),
   worktrees: (signal: AbortSignal) => request<Worktree[]>('/api/worktrees', { signal }),
   models: (signal: AbortSignal) => request<EngineModels[]>('/api/models', { signal }),
+  leaders: (signal: AbortSignal) => request<EngineLeader[]>('/api/leaders', { signal }),
   folders: (path: string | null, signal: AbortSignal) =>
     request<FolderListing>(path ? `/api/folders?path=${encodeURIComponent(path)}` : '/api/folders', { signal }),
   startChat: (input: WorkerOptions & { folder: string; message?: string }) => write<ChatRecord>('/api/chats', input),

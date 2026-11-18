@@ -513,7 +513,7 @@ Wake-on-LAN is not planned. A sleeping principal shows as offline.
      1. Done: `ChatTurns` runs a turn through Claw (Claude, as now) or ACP.
      2. Done: the ACP turn runner (`src/chats/acp-turns.ts`), tested against a fake ACP agent.
      3. Done: presets for agy (`agy acp`) and Codex (`codex-acp` 2.7.0, with its own pinned Codex sharing your `~/.codex` login), the `mcp-remote` bridge and a leader check that only sends `initialize`. ACP agents from `config.json` come with the workers below, which need the same wider engine list.
-     4. The app offers every available leader when you start a chat.
+     4. Done: the app offers every leader that passes the check (`GET /api/leaders`, kept as long as the model lists) when you start a chat, says why the others cannot lead, and names the chat's leader in its screen.
      5. On the PC: one agy-led chat and one Codex-led chat each delegate to a worker and review it.
    - **Workers through Claw.** Claw already runs `grok`, `opencode`, ACP agents (`-e acp --acp-agent`, with presets such as `dsh` for DeepSeek and `kimi-code`) and `custom` engines. Grip narrows this to three in `Engine` and `ClawEngine`. Pass the others through:
      - `delegate` takes the engine and an optional ACP preset.

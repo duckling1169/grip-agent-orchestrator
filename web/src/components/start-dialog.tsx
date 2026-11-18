@@ -8,11 +8,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea'
 
 import { api } from '../api.js'
+import { useDetail } from '../state.js'
 import type { AppState, Engine, RunSummary } from '../types.js'
 import { EngineMark, engines, ErrorBanner, isEngine, useAction } from './common.js'
 import { FolderPicker } from './folder-picker.js'
 import { ModelFields } from './model-fields.js'
 import { ResponsiveDialog } from './responsive-dialog.js'
+
+const readLeaders = (_: string, signal: AbortSignal) => api.leaders(signal)
+const skipLeaders = async () => null
 
 type StartMode = { kind: 'chat' | 'worker' } | { kind: 'retry'; run: RunSummary }
 
@@ -93,6 +97,8 @@ export function StartDialog({
   const [brief, setBrief] = useState('')
   const action = useAction()
   const isChat = mode.kind === 'chat'
+  // Only a chat asks which agents can lead; the check starts each agent briefly.
+  const leaders = useDetail(isChat ? 'leaders' : 'none', isChat ? readLeaders : skipLeaders)
   const isRetry = mode.kind === 'retry'
   const title = isChat ? 'Start a chat' : isRetry ? 'Retry with another agent' : 'Start one worker'
   const folders = [
@@ -171,7 +177,9 @@ export function StartDialog({
             }}
           >
             {engines.map(option => {
-              const unavailable = isChat && option !== 'claude'
+              const leader = isChat ? leaders.data?.find(item => item.engine === option) : undefined
+              const unavailable = isChat && option !== 'claude' && !leader?.available
+              const why = leader && !leader.available ? leader.reason : leaders.error ? "Couldn't check" : 'Checking…'
               const current = mode.kind === 'retry' && option === mode.run.engine
               const quota = state?.quota.providers.find(provider => provider.provider === option)
               const windows = quota?.windows.filter(
@@ -187,7 +195,7 @@ export function StartDialog({
                   <RadioGroupItem id={`${id}-${option}`} value={option} disabled={unavailable || current} />
                   <EngineMark engine={option} labelled />
                   <span className="ml-auto text-right text-xs font-normal text-muted-foreground">
-                    {unavailable ? 'Worker only' : current ? 'Original agent' : left === null ? 'Quota unknown' : `${left}% left`}
+                    {unavailable ? why : current ? 'Original agent' : left === null ? 'Quota unknown' : `${left}% left`}
                   </span>
                 </Label>
               )

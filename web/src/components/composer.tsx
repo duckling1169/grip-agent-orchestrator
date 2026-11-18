@@ -105,7 +105,7 @@ export function Composer({
         <ErrorBanner text={action.error} />
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
           <span className="min-w-0 flex-1 text-xs text-muted-foreground" role="status">
-            {notice || (queued ? 'Messages queue while Claude is working.' : '')}
+            {notice || (queued ? 'Messages queue while the chat is working.' : '')}
           </span>
           {settings}
         </div>

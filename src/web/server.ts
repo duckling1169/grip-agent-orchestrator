@@ -6,6 +6,7 @@ import { hostname } from 'node:os'
 
 import { z } from 'zod'
 
+import { LeaderCatalog } from '../chats/leaders.js'
 import type { ChatManager } from '../chats/manager.js'
 import type { Chat, ChatStore } from '../chats/store.js'
 import type { ClawHistoryEntry } from '../claw/state.js'
@@ -58,6 +59,8 @@ export type WebOptions = {
   staticDir?: string
   /** Each agent's models for the app's pickers. */
   models?: Pick<ModelCatalog, 'list'>
+  /** Which agents can lead a chat here, for the app's picker. */
+  leaders?: Pick<LeaderCatalog, 'list'>
   /** Tailnet machines for the app's machine switcher. */
   machines?: () => Promise<MachineList>
   /**
@@ -131,6 +134,7 @@ function parse<T>(schema: z.ZodType<T>, body: unknown): T {
 export async function startWebHttp(options: WebOptions): Promise<{ server: Server; port: number; close: () => Promise<void> }> {
   const { manager, store, chats, chatStore, quota, worktrees, claw } = options
   const models = options.models ?? new ModelCatalog()
+  const leaders = options.leaders ?? new LeaderCatalog()
   const host = options.host ?? hostname()
   const streams = new Set<ServerResponse>()
   const suffix = options.trustedOrigin ? null : await tailnetSuffix()
@@ -234,6 +238,7 @@ export async function startWebHttp(options: WebOptions): Promise<{ server: Serve
 
     if (method === 'GET' && path === '/api/state') return state(login)
     if (method === 'GET' && path === '/api/models') return models.list()
+    if (method === 'GET' && path === '/api/leaders') return leaders.list()
     if (method === 'GET' && path === '/api/machines') return (options.machines ?? listMachines)()
     if (method === 'GET' && path === '/api/folders') {
       const at = new URL(req.url ?? '/', 'http://127.0.0.1').searchParams.get('path')
