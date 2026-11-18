@@ -1,4 +1,4 @@
-import { ArrowUpRight } from 'lucide-react'
+import { ArrowUpRight, LoaderCircle } from 'lucide-react'
 import { useLayoutEffect, useRef, type ReactNode } from 'react'
 
 import { Badge } from '@/components/ui/badge'
@@ -285,12 +285,18 @@ export function ChatWorkspace({
                   <Markdown text={chat.liveOutput} />
                 </div>
               )}
-              {chat.status === 'working' && (
-                <p className="flex items-center gap-2 text-sm text-muted-foreground" role="status">
-                  <StatusDot status={chat.waiting ? 'waiting' : 'working'} engine={chat.engine ?? 'claude'} />
-                  {chat.waiting ? `${leader} is waiting for its workers.` : `${leader} is working on its reply.`}
-                </p>
-              )}
+              {chat.status === 'working' &&
+                (chat.waiting ? (
+                  <p className="flex items-center gap-2 text-sm text-muted-foreground" role="status">
+                    <StatusDot status="waiting" engine={chat.engine ?? 'claude'} />
+                    {leader} is waiting for its workers.
+                  </p>
+                ) : (
+                  <p className="text-muted-foreground" role="status">
+                    <LoaderCircle className="size-4 motion-safe:animate-spin" aria-hidden="true" />
+                    <span className="sr-only">{leader} is working on its reply.</span>
+                  </p>
+                ))}
               <ErrorBanner text={chat.error} />
             </div>
           </ScrollArea>

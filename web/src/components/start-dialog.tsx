@@ -91,7 +91,7 @@ export function StartDialog({
   started: (kind: 'chat' | 'run', id: string, note?: string) => void
 }) {
   const id = useId()
-  const [engine, setEngine] = useState<Engine>(mode.kind === 'retry' && mode.run.engine === 'claude' ? 'codex' : 'claude')
+  const [engine, setEngine] = useState<Engine>(mode.kind === 'retry' ? mode.run.engine : 'claude')
   const [model, setModel] = useState('')
   const [effort, setEffort] = useState('')
   const [briefKind, setBriefKind] = useState<BriefKind>('text')
@@ -106,7 +106,7 @@ export function StartDialog({
     ? engines.filter(option => installed.data?.some(info => info.engine === option && info.installed))
     : engines.slice(0, 3)
   const isRetry = mode.kind === 'retry'
-  const title = isChat ? 'Start a chat' : isRetry ? 'Retry with another agent' : 'Start one worker'
+  const title = isChat ? 'Start a chat' : isRetry ? 'Retry worker' : 'Start one worker'
   const folders = [
     ...new Set(
       [
@@ -198,10 +198,10 @@ export function StartDialog({
                   htmlFor={`${id}-${option}`}
                   className="min-h-11 cursor-pointer gap-3 rounded-md border px-3 py-2 has-[[data-state=checked]]:bg-muted has-[:disabled]:cursor-default"
                 >
-                  <RadioGroupItem id={`${id}-${option}`} value={option} disabled={unavailable || current} />
+                  <RadioGroupItem id={`${id}-${option}`} value={option} disabled={unavailable} />
                   <EngineMark engine={option} labelled />
                   <span className="ml-auto text-right text-xs font-normal text-muted-foreground">
-                    {unavailable ? why : current ? 'Original agent' : left === null ? 'Quota unknown' : `${left}% left`}
+                    {unavailable ? why : `${current ? 'Original agent · ' : ''}${left === null ? 'Quota unknown' : `${left}% left`}`}
                   </span>
                 </Label>
               )

@@ -1,4 +1,6 @@
 import { Button } from '@/components/ui/button'
+import { RefreshCw } from 'lucide-react'
+import { useEffect } from 'react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 
 import { agoText, durationText, minutesBetween } from '../../../src/quota/usage.js'
@@ -10,6 +12,8 @@ import { CopyButton, ErrorBanner, folderName, Markdown, runActivity, StatusDot, 
 import { Composer, TurnSettings } from './composer.js'
 import { AgentLine, DetailsColumn, Fact, Facts, WIDE, WorkerSection } from './details.js'
 import { contentWidth, LoadNotice, pathText, scrollFrame, textLink, WorkspaceHeader } from './workspace-layout.js'
+
+const DETAIL_REFRESH_MS = 30_000
 
 function Diff({ diff }: { diff: NonNullable<RunDetail['diff']> }) {
   const sections = diff.patch.split(/(?=^diff --git )/m).filter(Boolean)
@@ -44,7 +48,11 @@ function Diff({ diff }: { diff: NonNullable<RunDetail['diff']> }) {
       })}
       {diff.untrackedFiles.length > 0 && <p className="text-sm text-muted-foreground">New files: {diff.untrackedFiles.join(', ')}</p>}
       {diff.truncated && <p className="text-sm text-muted-foreground">Grip shortened this patch.</p>}
-      {!sections.length && !diff.untrackedFiles.length && <p className="text-sm text-muted-foreground">No changes.</p>}
+      {!sections.length && !diff.untrackedFiles.length && (
+        <p className="text-sm text-muted-foreground">
+          {diff.stat ? 'No text changes to show. The changed files are binary.' : 'No changes.'}
+        </p>
+      )}
     </WorkerSection>
   )
 }
@@ -80,13 +88,30 @@ function RunOutput({ run, now }: { run: RunDetail; now: number }) {
           <p className="text-sm text-muted-foreground">No turns recorded yet.</p>
         )}
       </WorkerSection>
-      {run.diff && <Diff diff={run.diff} />}
+      {run.diff ? (
+        <Diff diff={run.diff} />
+      ) : (
+        run.worktree && (
+          <WorkerSection title="Diff">
+            <p className="text-sm text-muted-foreground">Couldn't read the diff from the worker's folder.</p>
+          </WorkerSection>
+        )
+      )}
     </>
   )
 }
 
 /** What the worker changed so far, beside its output on wide screens. */
-function RunGit({ run, now }: { run: RunDetail; now: number }) {
+function RunGit({ run, now, checkedAt, refresh }: { run: RunDetail; now: number; checkedAt?: number; refresh: () => void }) {
+  const checked = (
+    <p className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+      Checked {checkedAt ? agoText(new Date(checkedAt).toISOString(), now) : 'just now'}
+      <Button type="button" variant="ghost" size="sm" onClick={refresh}>
+        <RefreshCw aria-hidden="true" />
+        Refresh
+      </Button>
+    </p>
+  )
   return (
     <>
       {run.overlaps.length > 0 && (
@@ -119,6 +144,7 @@ function RunGit({ run, now }: { run: RunDetail; now: number }) {
               </Fact>
             )}
           </Facts>
+          {checked}
           {run.git.changedFiles.length > 0 && (
             <ul className="grid gap-1">
               {run.git.changedFiles.map(file => (
@@ -128,6 +154,12 @@ function RunGit({ run, now }: { run: RunDetail; now: number }) {
               ))}
             </ul>
           )}
+        </WorkerSection>
+      )}
+      {!run.git && run.worktree && (
+        <WorkerSection title="Git">
+          <p className="text-sm text-muted-foreground">Couldn't read git in the worker's folder.</p>
+          {checked}
         </WorkerSection>
       )}
     </>
@@ -156,6 +188,14 @@ export function RunWorkspace({
   const detail = useDetail(id, api.run, live)
   const wide = useMediaQuery(WIDE)
   const copy = useCopy()
+  // Git facts aren't pushed over SSE, so a working run's details are fetched again every 30 s.
+  const working = live?.status === 'running'
+  const { refresh } = detail
+  useEffect(() => {
+    if (!working) return
+    const timer = setInterval(refresh, DETAIL_REFRESH_MS)
+    return () => clearInterval(timer)
+  }, [working, refresh])
   const run = live ?? (detail.data && { ...detail.data, turns: detail.data.turns.length })
   if (!run)
     return (
@@ -209,7 +249,7 @@ export function RunWorkspace({
           )}
         </Facts>
       </WorkerSection>
-      {detail.data && <RunGit run={detail.data} now={now} />}
+      {detail.data && <RunGit run={detail.data} now={now} checkedAt={detail.at} refresh={detail.refresh} />}
     </>
   )
   return (
@@ -241,7 +281,7 @@ export function RunWorkspace({
               </Button>
             ) : (
               <Button className={touchButton} variant="outline" size="sm" type="button" disabled={offline} onClick={() => retry(run)}>
-                Retry with another agent
+                Retry worker
               </Button>
             )}
           </>

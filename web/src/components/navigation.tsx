@@ -179,7 +179,7 @@ export function NeedsAttention({
                   Continue
                 </Button>
                 <Button className={touchButton} type="button" variant="outline" size="sm" disabled={offline} onClick={() => retry(run)}>
-                  Retry with another agent
+                  Retry worker
                 </Button>
               </div>
             </li>

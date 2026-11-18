@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useState } from 'react'
 
 import { api, errorText } from './api.js'
 import { apiUrl } from './machine.js'
@@ -187,13 +187,14 @@ export function useLiveState(base: string | null) {
 
 /** Keep the last detail on a live refresh and never render a reply for a different selection. */
 export function useDetail<T>(key: string, read: (key: string, signal: AbortSignal) => Promise<T>, revision?: unknown) {
-  const [response, setResponse] = useState<{ key: string; data: T | null; error?: string }>()
+  const [response, setResponse] = useState<{ key: string; data: T | null; error?: string; at?: number }>()
   const [generation, setGeneration] = useState(0)
+  const refresh = useCallback(() => setGeneration(n => n + 1), [])
   useLayoutEffect(() => {
     const controller = new AbortController()
     void read(key, controller.signal).then(
       data => {
-        if (!controller.signal.aborted) setResponse({ key, data })
+        if (!controller.signal.aborted) setResponse({ key, data, at: Date.now() })
       },
       error => {
         if (!controller.signal.aborted)
@@ -206,6 +207,8 @@ export function useDetail<T>(key: string, read: (key: string, signal: AbortSigna
   return {
     data: response?.key === key ? response.data : null,
     error: response?.key === key ? response.error : undefined,
-    refresh: () => setGeneration(n => n + 1),
+    /** When the shown data was fetched. */
+    at: response?.key === key ? response.at : undefined,
+    refresh,
   }
 }

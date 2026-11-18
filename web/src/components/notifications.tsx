@@ -157,8 +157,10 @@ export function NotificationSettings() {
             action.perform(async () => {
               setTested(undefined)
               const result = await pushApi.test()
-              const reached = result.devices === 1 ? 'your device' : `${result.sent} of ${result.devices} devices`
-              setTested(`Test sent to ${reached}.`)
+              if (result.sent > 0) {
+                const reached = result.devices === 1 ? 'your device' : `${result.sent} of ${result.devices} devices`
+                setTested(`Test sent to ${reached}.`)
+              }
               if (result.errors.length) throw new Error(`A push service refused it: ${result.errors.join('; ')}`)
             })
           }
