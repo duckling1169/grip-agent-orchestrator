@@ -4,3 +4,5 @@ dist/
 .DS_Store
 .taste-skill/
 web/shots/
+.agents/
+skills-lock.json

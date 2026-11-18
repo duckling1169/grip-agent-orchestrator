@@ -1,27 +1,24 @@
 # Grip
 
-Grip coordinates coding agents and makes their runs visible to devices on your tailnet. See [DESIGN.md](DESIGN.md) for the design and build status.
+Delegate from any orchestrator model to Claude Code, Codex and Antigravity workers, and watch and steer them from any device on your tailnet. Grip runs on [Claw Orchestrator](https://github.com/Enderfga/claw-orchestrator). [DESIGN.md](DESIGN.md) has the design and what's next.
 
-Requires Node 22.12 or newer. Install dependencies with `npm ci`, then run `npm run build` to compile the daemon and build the React 19 web app into `web/dist`.
+## Set up (Windows)
 
-Run Grip with `npm run dev -- serve` in a normal logged-on terminal. Open its Tailscale Serve HTTPS address to use the app; direct loopback access has no Tailscale identity and is refused. The same identity check protects the HTML, assets, API and event stream. See CLAUDE.md for the machine setup and manual-test home directory.
-
-The app uses Tailwind CSS v4 and shadcn/ui, follows the system theme, and provides a machine switcher for other Grip hosts on your tailnet. Switching shows that machine's chats, workers and quota in the same app; each machine needs its own `grip serve` and `tailscale serve`. It shows chats and their workers, live status, quota, conversation history, worker output/diffs, and worktree cleanup. It supports starting, messaging, stopping and retrying workers, plus Claude-hosted chats. Codex and Antigravity can run as workers; hosting their orchestrator chats inside Grip still needs upstream Claw support. Native-app handoff and Web Push are follow-up work.
-
-For an isolated interface preview:
+Needs Node 22.12+, Tailscale signed in, and Claude Code, Codex and agy each signed in once.
 
 ```text
-npm run web:build
-npm run web:preview
+npm ci
+npm run build
+node dist/src/cli.js install
 ```
 
-Open the printed loopback URL. The preview uses temporary data and a fake Claw; it does not launch models or read your Grip state. Stop it with Ctrl+C. Its identity-injecting proxy is for local development only. For hot reload, keep that preview running and launch `npm run web:dev` in a second terminal; Vite proxies API calls to the isolated preview.
+`install` adds what's missing (Claw, the Codex CLI, `tailscale serve`) and registers a logon task that runs Grip whenever you're logged on. It ends by printing the MCP config for your orchestrator. Open `https://<this machine>.<tailnet>.ts.net` on any of your devices; on iPhone, add it to the Home Screen for notifications.
 
-Run `npm run format:check`, `npm run typecheck`, `npm test`, and `npm run build` before delivering changes. Tests use source files only, so running a build first does not duplicate compiled tests. Browser screenshots in `web/shots` and design-tool state in `.taste-skill` are ignored.
+Other commands: `status`, `stop-all`, `uninstall`, `serve` (run in a terminal instead of the task) and `mcp-config`.
 
 ## Settings
 
-`~/.grip/config.json` holds the Tailscale logins that may use the web app and, optionally, Grip's timings. Restart Grip after editing it. Leave out any setting to keep its default:
+`~/.grip/config.json` lists the Tailscale logins allowed in (install fills in yours) and, optionally, timings. Restart Grip after editing it. The defaults are in `src/settings.ts`:
 
 ```json
 {
@@ -30,10 +27,17 @@ Run `npm run format:check`, `npm run typecheck`, `npm test`, and `npm run build`
     "quotaRefreshMinutes": 5,
     "modelListRefreshMinutes": 60,
     "clawUpdateCheckHours": 24,
-    "turnTimeoutMinutes": 120,
-    "mcpSessionIdleDays": 7
+    "turnTimeoutMinutes": 4320,
+    "mcpSessionIdleDays": 7,
+    "pushExpiryHours": 24
   }
 }
 ```
 
-The quota timer reads Claude too, with a one-line Haiku turn each time. Set `quotaRefreshMinutes` to 0 to turn the timer off. The defaults live in `src/settings.ts`.
+The quota timer reads Claude with a one-line Haiku turn each time. Set `quotaRefreshMinutes` to 0 to turn it off.
+
+## Develop
+
+- `npm run format:check`, `npm run typecheck` and `npm test` must pass. Tests never call real models.
+- `npm run web:preview` runs the app on loopback with a fake Claw and throwaway data. Add `npm run web:dev` in a second terminal for hot reload.
+- [CLAUDE.md](CLAUDE.md) has the layout and the rules for agents working here.

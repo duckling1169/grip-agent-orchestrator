@@ -19,8 +19,15 @@ Grip lets any orchestrator model delegate to coding agents (Claude Code, Codex, 
 - `src/settings.ts`: every tunable timing (quota timer, model list refresh, Claw update checks, turn timeout, MCP session idle) with its default. `~/.grip/config.json` overrides them under `settings`. Add new timings here, not as constants in the module that uses them.
 - `src/models.ts`: each agent's models for the app's pickers. Codex through app-server `model/list`, agy through `agy models`, Claude from a fixed list because Claude Code has no list command.
 - `src/push/`: Web Push (DESIGN §13). `web-push.ts` sends through the `web-push` library; `notifier.ts` keeps keys and devices in `push.json` and turns run and Claw events into notifications.
-- `src/power/`: keep-awake while runs work (a PowerShell helper holds `SetThreadExecutionState` on Windows, `caffeinate` on macOS) and the never-elevated check.
-- `src/daemon.ts`, `src/cli.ts`: `grip serve` and `grip mcp-config`.
+- `src/power/`:
+  - keep-awake while runs work: a PowerShell helper holds `SetThreadExecutionState` on Windows, `caffeinate` on macOS
+  - the sleep and shutdown watcher (`SystemEvents` through PowerShell) for the going-offline push
+  - the never-elevated check
+- `src/install/`: `grip install`, `uninstall`, `status` and `stop-all` (DESIGN §15):
+  - the `schtasks` logon task, run through `conhost --headless`
+  - `tailscale serve`, set only when nothing serves the HTTPS root
+  - the local API client, which uses the MCP token as a bearer
+- `src/daemon.ts`, `src/cli.ts`, `src/log.ts`: `grip serve` (it logs to `~/.grip/logs/grip.log`) and the other commands.
 - `src/testing/`: fakes for tests.
 - `scripts/`: manual smoke and end-to-end scripts against real Claw.
 
@@ -31,6 +38,7 @@ Grip lets any orchestrator model delegate to coding agents (Claude Code, Codex, 
 - `npm run build`: compile the daemon and build the web app. Node 22.12+ is required by the frontend toolchain. `npm run typecheck` checks both backend and frontend; `npm test` explicitly excludes compiled test copies.
 - `npm run web:preview`: isolated loopback preview at port 18799 with fake Claw and temporary data; never use this identity-injecting development proxy in the daemon. `npm run web:dev` starts Vite with the preview as its API proxy.
 - `npm run dev -- serve`: run Grip. `npm run dev -- mcp-config`: print the orchestrator setup.
+- `npm run build`, then `node dist/src/cli.js install`: register the logon task. Its definition records this Node and this `cli.js`, so rebuild after changes and restart the task with `schtasks /End /TN Grip` and then `schtasks /Run /TN Grip`, when no runs are working.
 - `npm run smoke:supervisor`: supervisor against real Claw. `npx tsx scripts/mcp-e2e.ts <repo>`: delegate to every engine through a running `grip serve`.
 
 ## Rules
@@ -46,7 +54,7 @@ Grip lets any orchestrator model delegate to coding agents (Claude Code, Codex, 
 
 ## Running on the principal (Windows PC)
 
-- **Run Grip and Claw from a normal logged-on terminal.** Under SSH (a network logon) or as a Windows service, agy and Codex can't reach their logins and Codex's sandbox won't start.
+- **Run Grip and Claw from the `Grip` logon task or a normal logged-on terminal.** Under SSH (a network logon) or as a Windows service, agy and Codex can't reach their logins and Codex's sandbox won't start.
 - **For manual tests, set `GRIP_HOME=C:\Users\you\claw-trial\grip-home`** so `~/.grip` stays clean. `C:\Users\you\claw-trial\sandbox` is a throwaway repo for real runs.
 - **Prerequisites already installed:** Claw 7.23.4 and the Codex CLI (`@openai/codex`) are installed globally with npm. The Codex desktop app's bundled `codex.exe` is not a usable CLI.
 - **Claw facts Grip relies on:**

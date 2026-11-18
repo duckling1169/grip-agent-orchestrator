@@ -4,7 +4,7 @@ Grip lets you see and control the coding agents your orchestrator runs (Claude C
 
 It does not run agents itself. [Claw Orchestrator](https://github.com/Enderfga/claw-orchestrator) does that. Grip is a thin layer around one Claw server. It gives orchestrators a small MCP tool set, gives your devices a web app behind Tailscale identity, and adds the few pieces Claw lacks: worktrees for every engine, a review handoff, quota windows, push notifications and safety limits.
 
-Status: design, agreed in a grilling session on 2026-11-17. Chats (§5.1) were added on 2026-11-17 after the web app design pass. Build steps 1 to 9 (§17) are implemented under that original scope; steps 7 to 9 remain uncommitted. The user subsequently clarified native-app continuity as a desired capability (§5.2), explicitly not a blocker for the web UI. Other real-host integration questions remain in §18.
+Status: agreed on 2026-11-17, chats (§5.1) added the same day. Build steps 1 to 11 (§17) are built; what's next is at the end of §17, and open questions are in §18.
 
 ---
 
@@ -129,6 +129,8 @@ Everything lives under `~/.grip/` on the principal and is never exported or sync
 - `claw.json`: installed version, last-good version, update history.
 - `push.json`: VAPID keys and the devices that turned notifications on, each with its muted events. Readable only by your user.
 - `claw-token`: Claw's bearer token, readable only by your user.
+- `mcp-token`: the orchestrator's MCP token, also the key for `grip status` and `grip stop-all` (§15).
+- `logs/`: `grip.log` and Claw's `claw.log`.
 
 ## 5. Orchestrator interface (MCP)
 
@@ -193,19 +195,17 @@ Delegation from a worker through Grip (nested runs, a run tree, depth and fan-ou
 
 **Storage:** `chats.jsonl` holds chat events (created, named, turn started or ended, stopped), and each run event carries its `chatId`. A Grip chat's turns are stored like run turns.
 
-### 5.2 Native-app continuity — desired enhancement, not a release blocker
+### 5.2 Continuing in the native apps (wanted, not blocking)
 
-The user intends to use Grip for all their agents and orchestration and would like to continue agents in their respective native apps. They explicitly clarified that this is not strictly a blocker. An idle handoff (start Claude agent A in Grip, then continue the same saved conversation in Claude Desktop after Claw releases it) is a valid useful path. This applies to Grip-started workers as well as parent chats; it does not by itself require monitoring arbitrary sessions started outside Grip. Exact native app surfaces can be confirmed when implementing each adapter.
+You should be able to pick up a Grip chat or worker in its engine's own app, as the same conversation. Start with an **idle handoff:** once a turn ends and Claw has let go of the session, open it in the native app. Seeing a running turn there, or both sides sending turns, are separate and harder problems. Grip stores each run's native conversation id already, but has no handoff action yet.
 
-The current Claw-backed path saves native conversation IDs after turns; it has no native-app handoff action yet. Keep the native ID, workspace/worktree, and user/profile identity, and verify that opening the native app continues that exact saved conversation. An idle handoff, visibility during a running turn, and synchronized control are separate capabilities; do not conflate them. Control must be coordinated so Grip and the native app do not independently submit turns to the same conversation. Also verify that a native continuation preserves the MCP configuration and chat/worker role constraints it needs. Native messages are not automatically reflected in Grip's own event log merely because the engine's saved history is shared.
+What the docs say (2026-11-17, not yet tried on the PC):
 
-Initial official-documentation findings (2026-11-17; not real-host test results):
+- **Claude:** [Desktop resumes saved CLI conversations](https://code.claude.com/docs/en/desktop#coming-from-the-cli) but won't take over an active one, and [VS Code resumes print-mode sessions](https://code.claude.com/docs/en/vs-code#resume-past-conversations). Try `claude --desktop --resume <session-id>` first. Check that the chat's MCP config and worker limits come along.
+- **Codex:** [`/app` opens a saved CLI chat in the desktop app](https://learn.chatgpt.com/docs/developer-commands#continue-in-the-desktop-app-with-app). Claw uses app-server, whose `thread/list` leaves out `appServer` threads unless asked, so the desktop app may not list Grip's threads. A conversation open in two apps is read-only in one of them.
+- **Antigravity:** headless mode gives a conversation id and CLI resume. [Import](https://antigravity.google/docs/cli/commands/resume/) goes from the app to the CLI and clones, so there's no known path the other way.
 
-- **Codex:** [`/app` opens the same saved CLI chat in the desktop app](https://learn.chatgpt.com/docs/developer-commands#continue-in-the-desktop-app-with-app). Claw uses `codex app-server` rather than the interactive CLI. The [app-server API](https://learn.chatgpt.com/docs/app-server) supports stored thread IDs/read/resume, but `thread/list` defaults to interactive sources (`cli`, `vscode`), excluding `appServer` unless explicitly included. Automatic desktop discovery and live viewing of Claw-created threads remain unverified. The [changelog](https://learn.chatgpt.com/docs/changelog) also documents read-only behavior when a conversation is open in another app; do not assume simultaneous control.
-- **Claude:** [Desktop can resume saved CLI conversations](https://code.claude.com/docs/en/desktop#coming-from-the-cli), but refuses takeover of an active CLI/background session. The [VS Code extension explicitly supports saved print-mode/SDK sessions](https://code.claude.com/docs/en/vs-code#resume-past-conversations). [Remote Control](https://code.claude.com/docs/en/remote-control) provides a separate live connection mode; this is not evidence that an arbitrary Claw `claude -p` session is attached to it. Native discovery, supported handoff, and persistence of per-chat MCP configuration must be tested with the selected app.
-- **Antigravity:** [Headless mode](https://antigravity.google/docs/cli/headless/) exposes a conversation ID and CLI resume. The documented [App-to-CLI import](https://antigravity.google/docs/cli/commands/resume/) clones a conversation. [Remote agents](https://antigravity.google/docs/remote-agents) have cross-surface continuity, but that is a different execution model from Grip's local headless workers. A supported local headless-to-native-app path remains unverified.
-
-Follow-up enhancement: verify these paths against the installed native apps using official interfaces, starting with Claude's documented idle handoff (`claude --desktop --resume <session-id>`). Add native-open/handoff actions per engine where verified, identifying any needed Claw adapter changes or upstream support. Keep capability explicit per engine; do not promise uniform live support before checks pass. Continue the web UI in parallel; native interoperability is not a gate. Do not use private app databases, transcript scraping, or UI automation as a substitute for a supported integration.
+Add a handoff action per engine only once it works on the PC. Messages sent in the native app don't show in Grip. No private app databases, transcript scraping or UI automation.
 
 ## 6. Runs
 
@@ -250,7 +250,7 @@ If the principal sleeps, reboots or Claw crashes, Grip marks the affected runs `
 ### 7.2 Global
 
 - The principal's name, whether it's online, the Claw version (and any rolled-back update).
-- **Quota strip:** one bar per provider for its tightest window, with reset times and the `verdict()` line ("Codex is running low (18% left)").
+- **Quota:** each provider's windows, as the footer table in §12.
 - Worktree disk use.
 
 ### 7.3 Current activity
@@ -267,13 +267,12 @@ Grip has its own TypeScript quota module. The parsers are ported from alethe-orc
 |---|---|---|---|
 | Codex | app-server `account/rateLimits/read` RPC, plus the `account/rateLimits/updated` notification (confirmed in the 0.169.1 schema) | `primary`/`secondary` by `window_minutes` (300 → 5h, 10080 → week) | None, it's an account read. `pingCodex` goes away |
 | agy | `agy -p /usage --output-format json` (built-in command through official headless mode) | `groups[].buckets[]`: `remaining_fraction`, `reset_time` (5h, week, argon, 3p windows) | Negligible |
-| Claude | `rate_limit_event` in stream-json / Agent SDK output: `rate_limit_info.unifiedWindows.{five_hour, seven_day, seven_day_opus}` (`utilization`, `resetsAt`) | 5h, week, opus | None when read from worker turns. Otherwise a small on-demand probe |
+| Claude | `rate_limit_event` from a one-line Haiku probe in stream-json: `rate_limit_info.unifiedWindows.{five_hour, seven_day, seven_day_opus}` (`utilization`, `resetsAt`). Claw doesn't pass it on from worker turns (§18) | 5h, week, opus | One tiny turn per read |
 
 **Not used:** private usage endpoints, OAuth tokens read from credential files, or Codex rollout-file tailing.
 
 **Refresh triggers:**
-- Codex's `rateLimits/updated` notification
-- after any worker turn
+- after each Codex or agy turn
 - the refresh button in the app
 - a timer that reads every provider, every 5 minutes by default (`settings.quotaRefreshMinutes` in `~/.grip/config.json`, 0 for off)
 
@@ -286,7 +285,7 @@ The output type stays `ProviderUsage` / `UsageWindow` from `agent-usage/types`, 
 ### 9.1 Who can reach Grip
 
 1. **Network:** a Tailscale ACL grant lets only your user's devices reach the principal's Grip port. Grip is never exposed on the LAN and never through Funnel.
-2. **Identity:** Grip listens on `127.0.0.1` only. `tailscale serve` terminates HTTPS and adds `Tailscale-User-Login`. Grip accepts a request only if that login is in `config.json` (today `duckling1169@`). A request without the header, meaning a local process calling the loopback port directly, is refused for everything except `GET /health` and the MCP endpoint, whose own guard is described below. Identity is never taken from anything the browser sends.
+2. **Identity:** Grip listens on `127.0.0.1` only. `tailscale serve` terminates HTTPS and adds `Tailscale-User-Login`. Grip accepts a request only if that login is in `config.json` (today `duckling1169@`). A request without the header, meaning a local process calling the loopback port directly, is refused for everything except `GET /health`. The one exception is `grip status` and `grip stop-all`, which send the MCP token (§15). Identity is never taken from anything the browser sends.
 3. **MCP endpoint:** loopback only and never published through `tailscale serve`. A per-install token is passed in the orchestrator's MCP config, so arbitrary local processes can't use it.
 4. **Claw:** loopback only. Its full-control token lives only in Grip's process memory and `~/.grip/claw-token`. The browser never sees it, and Grip never offers a pass-through to Claw's API.
 5. **To verify during the build:** whether a Tailscale Service host must be tagged, and whether identity headers still arrive through a Service. Fallback: resolve the caller with `tailscale whois` through Tailscale's local API.
@@ -311,7 +310,7 @@ These are set once in Grip's code (`PERMISSION_MODE`), not per run. Nobody can a
 ### 9.3 Accepted risks
 
 - **Exfiltration.** Workers have network access. A worker that reads hostile content (a web page, an issue) could be tricked into sending code out. Protected paths cover credentials but not your code. An egress policy would be heavy infrastructure, so it's left out.
-- **Principal unreachable.** If Tailscale on the principal logs out or breaks, Grip and its workers can't be reached from any device. Workers keep running. This is known and accepted behavior. SSH over the tailnet stays as an emergency path, and Grip never modifies SSH or Tailscale config.
+- **Principal unreachable.** If Tailscale on the principal logs out or breaks, Grip and its workers can't be reached from any device. Workers keep running. This is known and accepted behavior. SSH over the tailnet stays as an emergency path. Grip never changes SSH or Tailscale config while it runs; `grip install` adds a `tailscale serve` mapping only where none exists (§15).
 - **agy terms** (§3.3).
 - **Claw's pace of change** (§10).
 
@@ -416,8 +415,10 @@ The agreed screens are in the design canvas (claude.ai artifact `JktKuQYLVZ7S8Fv
 - **Built so far:**
   - a run finished, or failed
   - a Claw update rolled back
+  - the principal going to sleep, shutting down, or signing you out (Windows)
 
-  Stopping a run yourself sends nothing. Runs marked failed when Grip recovers after a restart send nothing either. An admin request comes with the admin flow (§9.2). The principal going offline comes with `grip install`, which can tell a shutdown or sleep from a restart.
+  Stopping a run yourself sends nothing. Runs marked failed when Grip recovers after a restart send nothing either. Stopping or restarting Grip itself sends nothing. An admin request comes with the admin flow (§9.2).
+- **Going offline:** Node can't see Windows power events, so a PowerShell helper (`src/power/power-events.ts`) listens to .NET's `SystemEvents` for sleep and session end. It tells Grip, and holds Windows back until Grip has sent the notification, for at most about 4 seconds, while the network is still up.
 - **Sending:** `src/push/web-push.ts` sends through the `web-push` library, which encrypts each payload for the device and signs the request with Grip's VAPID key. Grip sends no `Topic` header, because Apple refuses it (`BadWebPushTopic`); the notification's tag replaces an earlier one about the same run on the device instead. A device the push service reports as gone (404 or 410) is dropped.
 - **Devices:** you turn notifications on in Settings on each device, and each device mutes events for itself. A device belongs to the login that added it, and gets nothing once that login is no longer allowed. The app always calls the machine that served it, because its service worker holds the subscription and only that Grip has the matching key.
 - **iPhone and iPad:** Web Push works only in the app added to the Home Screen, and Settings says so in a Safari tab. Permission is asked only after a tap.
@@ -444,6 +445,21 @@ Wake-on-LAN is not planned. A sleeping principal shows as offline.
   - `grip claim`: make this machine the principal
   - `grip status`: Grip, Claw and Tailscale health, plus the active runs
   - `grip stop-all`: the same as the app button, from a shell
+- **How it works today (Windows):**
+  - **Where it runs from:** `grip install` runs from the built CLI (`node dist/src/cli.js install`, or `grip install` after a global install). The task starts that same Node and CLI, so a checkout works as well as a global install.
+  - **What install does:**
+    - installs the Codex CLI if it's missing, and Claw within its range if it isn't there
+    - writes `config.json` with this machine's Tailscale owner, plus the MCP token and VAPID keys
+    - runs `tailscale serve --bg 18798` only when nothing serves this machine's HTTPS root. If something else is there, install leaves it alone and says so, so Grip never replaces Tailscale config you set up
+    - registers the `Grip` task with `schtasks`: at your logon, only while you're logged on, with normal rights, no time limit, running on battery too, and a restart if it fails. It runs through `conhost --headless`, so no console window shows
+    - starts the task, unless a Grip already answers (one in a terminal). In that case the task waits for your next logon
+    - prints the MCP config and the switch-over steps below
+  - **Running it again** is safe: each step checks first.
+  - **The log:** Grip logs to `~/.grip/logs/grip.log`, because the task has no console. The log moves to `grip.log.1` past 5 MB.
+  - **`grip status` and `grip stop-all`** call the local web API with the MCP token as a bearer. The token counts only on a request with no Tailscale identity, so a device never gets in with it.
+  - **`grip uninstall`** stops and removes the task. It keeps Grip's data, Claw and `tailscale serve`.
+  - **`grip claim`** waits for the macOS principal (§17).
+  - **Another data folder:** `--home <folder>` (or `GRIP_HOME`) uses a different folder, and install passes it on to the task.
 - **Orchestrator setup:** add Grip's MCP server to the orchestrator's host only (Claude Code), never to Codex's or agy's own config, so workers of those engines don't get it (§5.1). Remove `clawo-mcp`, `codex-plugin-cc` delegation and the agy connector from the orchestrator's config. Turn off alethe's auto-delegation.
 
 ## 16. Testing
@@ -465,16 +481,26 @@ Wake-on-LAN is not planned. A sleeping principal shows as offline.
 8. Chats (§5.1): chat store, MCP sessions tied to chats, `chatTitle`, Grip-hosted Claude chats with their own MCP config, idle-chat notes, `mcp__grip` denied to Claude workers, your worker messages in `result`.
 9. The web app (§12), built to the agreed screens. Native-app handoff (§5.2) can be added incrementally and does not block this step.
 10. Web Push.
-11. `grip install` on Windows. Switch the orchestrator over from `codex-plugin-cc`, the agy connector and alethe delegation.
+11. `grip install` on Windows, plus `status`, `stop-all`, `uninstall` and the going-offline push.
 
-**After that,** roughly in this order:
-1. The upstream Claw PR for session events, then live activity.
-2. The Tailscale Service name for a stable URL.
-3. macOS `grip install` and `grip claim` (full principal switching), plus macOS keep-awake.
-4. Dev-server preview links on runs.
-5. The admin-request flow (§9.2).
-6. Councils and fan-out as Grip tools.
-7. Claude channels push into the orchestrator session.
+**Next,** in this order:
+1. **Switch over.** Move Grip onto the logon task, add its MCP to Claude Code, and remove `clawo-mcp`, `codex-plugin-cc` delegation, the agy connector and alethe's auto-delegation.
+2. **Use it for real and settle §18 on the PC:**
+   - do protected paths hold for each engine
+   - does the `mcp__grip` deny block every Grip tool
+   - do Codex or agy leave background jobs running after a turn
+   - does one Claude Code conversation get one MCP session
+   - test a real sleep and shutdown push
+3. **Chats that survive a Grip restart.** Today a reconnecting Claude Code chat shows up as a new chat (§5.1).
+4. **Idle handoff to Claude Desktop** (§5.2), then Codex if it works.
+5. The upstream Claw PR for session events, then live activity (§7.3).
+6. The Tailscale Service name for a stable URL.
+7. macOS `grip install` and `grip claim` (full principal switching), plus macOS keep-awake.
+8. Later, unordered:
+   - dev-server preview links on runs
+   - the admin-request flow (§9.2)
+   - councils and fan-out as Grip tools
+   - Claude channels pushing into the orchestrator session
 
 ## 18. Open questions to verify during the build
 
