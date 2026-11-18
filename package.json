@@ -1,0 +1,27 @@
+{
+  "name": "grip-agent-orchestrator",
+  "version": "0.0.0",
+  "private": true,
+  "description": "See and control orchestrated coding agents from any device on your tailnet, on top of Claw Orchestrator.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "smoke:supervisor": "tsx scripts/supervisor-smoke.ts"
+  },
+  "dependencies": {
+    "semver": "^7.6.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/semver": "^7.5.8",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.1.0"
+  }
+}
