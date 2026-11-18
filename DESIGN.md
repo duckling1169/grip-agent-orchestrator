@@ -168,7 +168,27 @@ A **chat** is one orchestrator conversation. Every run belongs to the chat that 
 - **Waiting on workers:** while its turn sits in `wait_any`, the app says it is waiting on its workers. If the chat is idle when one of its workers finishes, Grip sends it a one-line note, so it reviews without you. That costs a turn of its own quota, by design.
 - **Live view:** Claw plain sessions have no event stream (§7.3), so the chat shows "working on its reply" until the turn ends, then the reply.
 - **Stop:** stops its turn and every worker it manages.
-- **Which models:** only Claude can host a chat today, because Claw passes `--mcp-config` to Claude sessions only. Any model leading a chat is a core goal (§1), so the next steps find an official way to give Codex, agy and ACP engines Grip's tools (§17). Until then the app offers them as unavailable.
+- **Which models:** only Claude can host a chat today, because Claw passes `--mcp-config` to Claude sessions only. Other leaders run through ACP (below). Until that is built, the app offers them as unavailable.
+
+**Leaders through ACP (planned).** Each leader needs Grip's tools for its own session only. Checked on the PC (2026-11-18):
+
+- **Codex** takes a per-thread config override (`mcp_servers.grip`), but Claw puts only the effort in the thread config.
+- **agy** refuses `mcpServers` in `--settings`. `agy mcp add` writes a global file, which would give Grip to agy workers too. `agy acp` takes MCP servers in ACP's `session/new`, stdio only.
+- **Claw's ACP engine** always sends `mcpServers: []`.
+
+So leaders other than Claude don't run through Claw. Grip runs them as ACP sessions itself, with the official client SDK (`@agentclientprotocol/sdk`). Workers stay on Claw.
+
+- **One path for every leader:**
+  - agy through `agy acp`
+  - Codex through `@agentclientprotocol/codex-acp`, the open-source adapter from the ACP project, pinned as a dependency
+  - Kimi, DeepSeek (`dsh`) and other ACP agents through their own `acp` commands, listed in `config.json`
+  - Claude stays on Claw until the ACP path has proved itself, then may move to `@agentclientprotocol/claude-agent-acp`
+- **Grip's MCP for the session:** passed in `session/new`. It goes as HTTP when the agent advertises `mcpCapabilities.http`, and otherwise through a pinned stdio bridge (`mcp-remote` or `supergateway`) that adds the chat's token from an environment variable.
+- **A turn** is the same as on Claw: start the agent, then `session/load` with the stored session id, or `session/new`. Then set the model, `session/prompt`, collect the reply, and close the process when the turn ends. Stop sends `session/cancel`.
+- **Permissions:** Grip answers `session/request_permission` with allow, the same as Claude chats' permission mode. The protected-path refusal on the chat's folder still applies.
+- **Grip's chat prompt** goes in as an appended system prompt where the agent supports one (agy advertises it). Otherwise it is prepended to the first message. Only Claude's own subagent tool can be denied; other leaders are only told.
+- **Availability:** a leader counts as available when its command starts and answers `initialize`, which costs no model turn. The app greys out the rest with the reason.
+- **Tests:** a fake ACP agent built on the SDK's agent side, so no test calls a real model.
 
 **Chats in Claude Code** (or another MCP host). These are the chats you start yourself, with Grip's MCP added.
 
@@ -488,21 +508,26 @@ Wake-on-LAN is not planned. A sleeping principal shows as offline.
 
 **Next.** The aim is any model leading and any model working, local or in the cloud, with Grip as the daily driver. In this order:
 
-1. **Find out how each engine can lead.** Claw passes an MCP config to Claude sessions only (§5.1). For Codex, agy and an ACP engine, find an official way to give a chat Grip's tools: the engine's own per-session config, or an upstream Claw change.
-2. **Any model leads, any model works.**
-   - The app offers every engine that can lead as a chat's orchestrator.
-   - Claw already runs `grok`, `opencode`, ACP agents (`-e acp --acp-agent`, with presets such as `dsh` for DeepSeek and `kimi-code`) and `custom` engines. Grip narrows this to three in `Engine` and `ClawEngine`. Pass the others through: `delegate` takes the engine and an optional ACP preset.
-   - Extra engines are listed in `config.json`, for example `"workers": ["acp:dsh"]`. The health gate checks their sign-in, and `grip status` and the app say when one is broken. Each is signed in once on the PC.
-   - No quota or model list for them, so they show "not tracked".
-3. **Use it for real, then review what the app can't do.**
+1. **Any model leads, any model works.**
+   - **Leaders through ACP** (§5.1), in this order:
+     1. Put a seam in `ChatManager` so a turn runs through either Claw (Claude, as now) or ACP, with no change in behaviour.
+     2. The ACP turn runner, tested against a fake ACP agent.
+     3. Leader presets: agy, Codex through `codex-acp`, and ACP agents from `config.json`, plus the stdio bridge.
+     4. The app offers every available leader when you start a chat.
+     5. On the PC: one agy-led chat and one Codex-led chat each delegate to a worker and review it.
+   - **Workers through Claw.** Claw already runs `grok`, `opencode`, ACP agents (`-e acp --acp-agent`, with presets such as `dsh` for DeepSeek and `kimi-code`) and `custom` engines. Grip narrows this to three in `Engine` and `ClawEngine`. Pass the others through:
+     - `delegate` takes the engine and an optional ACP preset.
+     - Extra engines are listed in `config.json`, for example `"workers": ["acp:dsh"]`. The health gate checks their sign-in, and `grip status` and the app say when one is broken. Each is signed in once on the PC.
+     - No quota or model list for them, so they show "not tracked".
+2. **Use it for real, then review what the app can't do.**
    - A few days of daily use, settling §18 on the way: protected paths per engine, the `mcp__grip` deny, background jobs after a turn, one MCP session per Claude Code conversation, a real sleep and shutdown push.
    - Scenario tests (§16): one user intent each, such as "run a council" or "send this to the engine with quota left". A scripted orchestrator does it through Grip's MCP tools against fake Claw. An intent that can't be written as a test is a missing feature.
    - Compare what the API supports with what the app exposes.
    - Fix the top gaps from all three.
-4. **Look-and-feel review** of the whole app, once the functions settle.
-5. **Councils.** First a skill that tells the orchestrator how to run one with the existing tools: the same question to several models, rounds where each sees the others' answers, until they agree. In Grip, only a way to group a council's workers in the app. Build more once the format is known.
-6. **Cloud workers.** Start hosted agents (Codex cloud, Claude Code on the web, Jules) through their official interfaces, so work goes on while the PC is off. They work from GitHub, so only pushed code. Grip stores the vendor's task id, lists them with local workers and fetches their branch for review.
-7. **Lightweight handoff** (§5.2): a button that opens the chat's folder or copies `claude --resume <id>`.
+3. **Look-and-feel review** of the whole app, once the functions settle.
+4. **Councils.** First a skill that tells the orchestrator how to run one with the existing tools: the same question to several models, rounds where each sees the others' answers, until they agree. In Grip, only a way to group a council's workers in the app. Build more once the format is known.
+5. **Cloud workers.** Start hosted agents (Codex cloud, Claude Code on the web, Jules) through their official interfaces, so work goes on while the PC is off. They work from GitHub, so only pushed code. Grip stores the vendor's task id, lists them with local workers and fetches their branch for review.
+6. **Lightweight handoff** (§5.2): a button that opens the chat's folder or copies `claude --resume <id>`.
 
 **Alongside, early:** open an issue on Claw about session events (§7.3), for live activity in the app and in `list` and `result`, so the orchestrator can see a stuck worker too. Nothing else waits on it.
 
