@@ -4,7 +4,7 @@ Grip lets you see and control the coding agents your orchestrator runs (Claude C
 
 It does not run agents itself. [Claw Orchestrator](https://github.com/Enderfga/claw-orchestrator) does that. Grip is a thin layer around one Claw server. It gives orchestrators a small MCP tool set, gives your devices a web app behind Tailscale identity, and adds the few pieces Claw lacks: worktrees for every engine, a review handoff, quota windows, push notifications and safety limits.
 
-Status: agreed on 2026-11-17, chats (§5.1) added the same day. Build steps 1 to 11 (§17) are built; what's next is at the end of §17, and open questions are in §18.
+Status: agreed on 2026-11-17, chats (§5.1) added the same day. Build steps 1 to 12 (§17) are done; what's next is at the end of §17, and open questions are in §18.
 
 ---
 
@@ -12,13 +12,13 @@ Status: agreed on 2026-11-17, chats (§5.1) added the same day. Build steps 1 to
 
 1. **See what orchestrated workers are doing, from anywhere.** For each run: engine, model, folder, worktree and branch, what it is doing now, how long it has run, its result and its diff.
 2. **Control them from anywhere:** start, stop, message, view output, and stop everything.
-3. **Any model can orchestrate.** Claude (Opus 5.5) orchestrates today. If GPT 7.8 is the best orchestrator tomorrow, it uses the same Grip tools. Nothing is tied to one vendor's plugin system.
+3. **Any model leads, any model works.** Vendors' own orchestrators keep to their own models; Grip doesn't. Claude (Opus 5.5) orchestrates today. If GPT 7.8 or DeepSeek is the best orchestrator tomorrow, it uses the same Grip tools, in an outside MCP host or as a chat in Grip's app, and hands work to any engine Claw can run. Nothing is tied to one vendor's plugin system.
 4. **Show quota windows** (5-hour, weekly and the others) for every subscription, read through each provider's own documented interface.
 5. **Avoid juggling.** An orchestrator delegates several jobs and then waits for whichever finishes next. It never polls each worker.
 6. **The chat comes first.** You start a conversation with one model, and it hands work to the others, across vendors, to spread work and quota over your subscriptions. The app is built around that chat and the workers it manages (§5.1).
 7. **No hacks.** Every integration uses an official interface: Codex app-server, agy headless mode, Claude stream-json, Tailscale identity, OS power APIs. No process-table scraping, no transcript scraping, no PTY screen-reading.
-8. **Little infrastructure.** One daemon on one machine, no cloud services, no database server, no accounts.
-9. **Native-app continuity.** Grip is the user's main place to start agents and orchestration, across engines. The user would like to continue Grip-started agents as the same conversations in their native apps. An idle handoff is useful; simultaneous live access is a separate capability. Verify native paths per engine (§5.2), but do not block the web UI on uniform support.
+8. **Little infrastructure.** One daemon on one machine, no cloud services of Grip's own, no database server, no accounts. Cloud workers (§17) run on the vendors' machines under your accounts with them.
+9. **Native-app continuity.** Grip is your main place to start agents and orchestration, across engines. You can pick a Grip-started conversation up at your desk with the engine's own resume command (§5.2). Simultaneous live access is a separate capability.
 
 ## 2. Non-goals
 
@@ -168,7 +168,7 @@ A **chat** is one orchestrator conversation. Every run belongs to the chat that 
 - **Waiting on workers:** while its turn sits in `wait_any`, the app says it is waiting on its workers. If the chat is idle when one of its workers finishes, Grip sends it a one-line note, so it reviews without you. That costs a turn of its own quota, by design.
 - **Live view:** Claw plain sessions have no event stream (§7.3), so the chat shows "working on its reply" until the turn ends, then the reply.
 - **Stop:** stops its turn and every worker it manages.
-- **Which models:** only Claude can host a chat today, because Claw passes `--mcp-config` to Claude sessions only. Codex and agy chats need Claw to pass an MCP config to those engines too, which is an upstream change (§10). Until then the app offers them as unavailable.
+- **Which models:** only Claude can host a chat today, because Claw passes `--mcp-config` to Claude sessions only. Any model leading a chat is a core goal (§1), so the next steps find an official way to give Codex, agy and ACP engines Grip's tools (§17). Until then the app offers them as unavailable.
 
 **Chats in Claude Code** (or another MCP host). These are the chats you start yourself, with Grip's MCP added.
 
@@ -197,7 +197,7 @@ Delegation from a worker through Grip (nested runs, a run tree, depth and fan-ou
 
 ### 5.2 Continuing in the native apps (wanted, not blocking)
 
-You should be able to pick up a Grip chat or worker in its engine's own app, as the same conversation. Start with an **idle handoff:** once a turn ends and Claw has let go of the session, open it in the native app. Seeing a running turn there, or both sides sending turns, are separate and harder problems. Grip stores each run's native conversation id already, but has no handoff action yet.
+You should be able to pick up a Grip chat or worker at your desk. **Start light:** a button that opens the chat's folder or copies the engine's resume command, such as `claude --resume <id>`, which continues the real conversation with its history. The Desktop apps list only the sessions they started, so a full handoff into them comes later, and only if real use asks for it. Seeing a running turn there, or both sides sending turns, are separate and harder problems. Grip stores each run's native conversation id already.
 
 What the docs say (2026-11-17, not yet tried on the PC):
 
@@ -256,7 +256,7 @@ If the principal sleeps, reboots or Claw crashes, Grip marks the affected runs `
 ### 7.3 Current activity
 
 - **Until Claw changes:** activity is turn-level (turn N running for M minutes) plus git facts (files changing, last edit). That is everything Claw's HTTP API exposes for plain sessions today.
-- **Later:** an upstream PR to Claw adds per-session SSE (`/session/<name>/events`), modelled on its workflow events. Claw's engine adapters already parse each engine's tool events internally. When that ships, the activity line becomes live tool-by-tool events and nothing else changes.
+- **Later:** ask Claw's maintainer in an issue first, then a PR that adds per-session SSE (`/session/<name>/events`), modelled on its workflow events. Claw's engine adapters already parse each engine's tool events internally. When that ships, the activity line becomes live tool-by-tool events and nothing else changes.
 - **Ruled out:** parsing engine transcript files or watching process trees.
 
 ## 8. Quota windows
@@ -467,6 +467,7 @@ Wake-on-LAN is not planned. A sleeping principal shows as offline.
 - **The test suite never calls real models.** A Claw `custom` engine preset runs a fake CLI that emits Claude-style stream-json (tool events, results, a `rate_limit_event`). It's used for `delegate` → `wait_any`, stop, message, retry and the update health gate.
 - **Unit tests** for the copied `logic.ts` pieces (bring over the existing `logic.test.ts` cases), the quota parsers (fixtures from real Codex RPC, agy `/usage` and Claude `rate_limit_event` payloads), worktree naming and protected-path checks.
 - **Auth tests:** missing header, wrong login, loopback without a header, MCP without its token.
+- **Scenario tests:** one user intent each ("run a council", "stop everything"), done by a scripted orchestrator through Grip's MCP tools against fake Claw. They check that Grip's tools are enough for the task, not how well a model uses them.
 - **A manual smoke test** on the PC, run as a logon task: one tiny task per real engine, the same as the trial in §3.2.
 
 ## 17. Build order
@@ -482,25 +483,40 @@ Wake-on-LAN is not planned. A sleeping principal shows as offline.
 9. The web app (§12), built to the agreed screens. Native-app handoff (§5.2) can be added incrementally and does not block this step.
 10. Web Push.
 11. `grip install` on Windows, plus `status`, `stop-all`, `uninstall` and the going-offline push.
+12. Switch over: Grip runs from the logon task and is Claude Code's only orchestrator MCP. `clawo-mcp`, `codex-plugin-cc`, the agy connector and alethe are removed.
 
-**Next,** in this order:
-1. **Switch over.** Move Grip onto the logon task, add its MCP to Claude Code, and remove `clawo-mcp`, `codex-plugin-cc` delegation, the agy connector and alethe's auto-delegation.
-2. **Use it for real and settle §18 on the PC:**
-   - do protected paths hold for each engine
-   - does the `mcp__grip` deny block every Grip tool
-   - do Codex or agy leave background jobs running after a turn
-   - does one Claude Code conversation get one MCP session
-   - test a real sleep and shutdown push
-3. **Chats that survive a Grip restart.** Today a reconnecting Claude Code chat shows up as a new chat (§5.1).
-4. **Idle handoff to Claude Desktop** (§5.2), then Codex if it works.
-5. The upstream Claw PR for session events, then live activity (§7.3).
-6. The Tailscale Service name for a stable URL.
-7. macOS `grip install` and `grip claim` (full principal switching), plus macOS keep-awake.
-8. Later, unordered:
-   - dev-server preview links on runs
-   - the admin-request flow (§9.2)
-   - councils and fan-out as Grip tools
-   - Claude channels pushing into the orchestrator session
+**Next.** The aim is any model leading and any model working, local or in the cloud, with Grip as the daily driver. In this order:
+
+1. **Chats survive a Grip restart.** Today a reconnecting Claude Code chat shows up as a new chat (§5.1).
+2. **Find out how each engine can lead.** Claw passes an MCP config to Claude sessions only (§5.1). For Codex, agy and an ACP engine, find an official way to give a chat Grip's tools: the engine's own per-session config, or an upstream Claw change.
+3. **Any model leads, any model works.**
+   - The app offers every engine that can lead as a chat's orchestrator.
+   - Claw already runs `grok`, `opencode`, ACP agents (`-e acp --acp-agent`, with presets such as `dsh` for DeepSeek and `kimi-code`) and `custom` engines. Grip narrows this to three in `Engine` and `ClawEngine`. Pass the others through: `delegate` takes the engine and an optional ACP preset.
+   - Extra engines are listed in `config.json`, for example `"workers": ["acp:dsh"]`. The health gate checks their sign-in, and `grip status` and the app say when one is broken. Each is signed in once on the PC.
+   - No quota or model list for them, so they show "not tracked".
+4. **Use it for real, then review what the app can't do.**
+   - A few days of daily use, settling §18 on the way: protected paths per engine, the `mcp__grip` deny, background jobs after a turn, one MCP session per Claude Code conversation, a real sleep and shutdown push.
+   - Scenario tests (§16): one user intent each, such as "run a council" or "send this to the engine with quota left". A scripted orchestrator does it through Grip's MCP tools against fake Claw. An intent that can't be written as a test is a missing feature.
+   - Compare what the API supports with what the app exposes.
+   - Fix the top gaps from all three.
+5. **Look-and-feel review** of the whole app, once the functions settle.
+6. **Councils.** First a skill that tells the orchestrator how to run one with the existing tools: the same question to several models, rounds where each sees the others' answers, until they agree. In Grip, only a way to group a council's workers in the app. Build more once the format is known.
+7. **Cloud workers.** Start hosted agents (Codex cloud, Claude Code on the web, Jules) through their official interfaces, so work goes on while the PC is off. They work from GitHub, so only pushed code. Grip stores the vendor's task id, lists them with local workers and fetches their branch for review.
+8. **Lightweight handoff** (§5.2): a button that opens the chat's folder or copies `claude --resume <id>`.
+
+**Alongside, early:** open an issue on Claw about session events (§7.3), for live activity in the app and in `list` and `result`, so the orchestrator can see a stuck worker too. Nothing else waits on it.
+
+**Later, unordered:**
+
+- the Tailscale Service name for a stable URL
+- macOS `grip install`, `grip claim` (full principal switching) and keep-awake
+- quota per model group, so one model's own bucket (agy's Argon) does not mark the whole engine as out
+- evals: a real model given an intent and Grip's tools, to compare how well each model orchestrates; run on purpose, never in `npm test`
+- local models (Ollama, LM Studio) as workers, through Claw's ACP or `custom` engine
+- dev-server preview links on runs
+- the admin-request flow (§9.2)
+- Claude channels pushing into the orchestrator session
+- a product name
 
 ## 18. Open questions to verify during the build
 
