@@ -12,6 +12,7 @@ import { DEFAULT_MCP_PORT, startMcpHttp } from './mcp/http.js'
 import { gripPaths } from './paths.js'
 import { assertNotElevated } from './power/elevation.js'
 import { KeepAwake } from './power/keep-awake.js'
+import { PushNotifier } from './push/notifier.js'
 import { Quota } from './quota/quota.js'
 import { CliQuotaReaders } from './quota/readers.js'
 import type { QuotaReaders } from './quota/readers.js'
@@ -112,6 +113,16 @@ export async function startDaemon(options: DaemonOptions = {}) {
   const recoveredChats = await chats.recover()
   if (recoveredChats.length) log(`marked ${recoveredChats.length} interrupted chat(s) as failed`)
 
+  // Watch only from here on, so runs marked failed on recovery do not each send a notification.
+  const push = await PushNotifier.open({
+    path: paths.push,
+    allowedLogins: config.allowedLogins,
+    expirySeconds: config.settings.pushExpiryHours * 60 * 60,
+    log,
+  })
+  push.watchRuns(store)
+  push.watchClaw(supervisor)
+
   // One catalog for the orchestrator's models tool and the app's pickers.
   const models = new ModelCatalog(undefined, undefined, minutes(config.settings.modelListRefreshMinutes))
   const mcp = await startMcpHttp({
@@ -137,6 +148,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
     keepAwake: () => ({ supported: keepAwake.supported, holding: keepAwake.holding }),
     port: options.webPort ?? DEFAULT_WEB_PORT,
     models,
+    push,
   })
   log(`web API on http://127.0.0.1:${web.port} (publish it with tailscale serve)`)
   if (config.allowedLogins.length === 0)

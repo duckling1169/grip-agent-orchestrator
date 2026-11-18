@@ -16,6 +16,8 @@ import type { Quota, QuotaSnapshot } from '../quota/quota.js'
 import { TOOLS } from '../quota/usage.js'
 import type { ToolId } from '../quota/usage.js'
 import type { RunManager } from '../runs/manager.js'
+import { PUSH_EVENTS } from '../push/notifier.js'
+import type { PushNotifier } from '../push/notifier.js'
 import { present, summarize } from '../runs/present.js'
 import { ENGINES } from '../runs/store.js'
 import type { Engine, Run, RunStore } from '../runs/store.js'
@@ -62,6 +64,8 @@ export type WebOptions = {
    * tailnet (`https://<name>.<tailnet>.ts.net`), read from Tailscale once at start.
    */
   trustedOrigin?: (origin: string) => boolean
+  /** Web Push to devices that turned notifications on (DESIGN §13). */
+  push?: Pick<PushNotifier, 'publicKey' | 'device' | 'subscribe' | 'setMuted' | 'unsubscribe' | 'test'>
 }
 
 class HttpError extends Error {
@@ -96,6 +100,13 @@ const ChatBody = z.object({
 const RetryBody = z.object({ engine: engine.optional(), model: z.string().optional(), effort: z.string().optional() })
 const RefreshBody = z.object({ providers: z.array(provider).optional() })
 const RemoveWorktreeBody = z.object({ path: z.string().min(1) })
+const pushEvent = z.enum(PUSH_EVENTS)
+const PushDeviceBody = z.object({ endpoint: z.string().url() })
+const PushSubscribeBody = z.object({
+  subscription: z.object({ endpoint: z.string().url(), keys: z.object({ p256dh: z.string().min(1), auth: z.string().min(1) }) }),
+  muted: z.array(pushEvent).optional(),
+})
+const PushMutedBody = z.object({ endpoint: z.string().url(), muted: z.array(pushEvent) })
 
 function parse<T>(schema: z.ZodType<T>, body: unknown): T {
   const result = schema.safeParse(body ?? {})
@@ -187,6 +198,26 @@ export async function startWebHttp(options: WebOptions): Promise<{ server: Serve
     return worktrees.remove(run.repo.root, run.repo.worktree, run.repo.base)
   }
 
+  /** Notifications for the device calling: it names itself by its push endpoint. */
+  async function pushRoute(req: IncomingMessage, method: string, path: string, login: string): Promise<unknown> {
+    const push = options.push
+    if (method === 'GET' && path === '/api/push') return push ? { publicKey: push.publicKey, events: PUSH_EVENTS } : null
+    if (!push) throw new HttpError(404, 'Notifications are not set up on this Grip')
+    if (method === 'POST' && path === '/api/push/device') return push.device(parse(PushDeviceBody, await readJsonBody(req)).endpoint, login)
+    if (method === 'DELETE' && path === '/api/push/device')
+      return push.unsubscribe(parse(PushDeviceBody, await readJsonBody(req)).endpoint, login)
+    if (method === 'POST' && path === '/api/push/subscribe') {
+      const body = parse(PushSubscribeBody, await readJsonBody(req))
+      return push.subscribe(login, body.subscription, body.muted)
+    }
+    if (method === 'POST' && path === '/api/push/muted') {
+      const body = parse(PushMutedBody, await readJsonBody(req))
+      return push.setMuted(body.endpoint, login, body.muted)
+    }
+    if (method === 'POST' && path === '/api/push/test') return push.test(login)
+    throw new HttpError(404, `no route ${method} ${path}`)
+  }
+
   async function route(req: IncomingMessage, res: ServerResponse, login: string, path: string): Promise<unknown> {
     const method = req.method ?? 'GET'
     const runMatch = /^\/api\/runs\/([\w-]+)(?:\/(message|stop|retry|settings|rename))?$/.exec(path)
@@ -213,6 +244,7 @@ export async function startWebHttp(options: WebOptions): Promise<{ server: Serve
       const body = parse(RefreshBody, await readJsonBody(req))
       return quota.refresh(body.providers ?? undefined)
     }
+    if (path === '/api/push' || path.startsWith('/api/push/')) return pushRoute(req, method, path, login)
     if (method === 'GET' && path === '/api/worktrees') return listWorktrees()
     if (method === 'DELETE' && path === '/api/worktrees') return removeWorktree(parse(RemoveWorktreeBody, await readJsonBody(req)).path)
 

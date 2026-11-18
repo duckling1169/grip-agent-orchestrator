@@ -29,8 +29,25 @@ async function request<T>(path: string, init?: RequestInit, local = false): Prom
   return response.json()
 }
 
-function write<T>(path: string, body: unknown = {}, method: 'POST' | 'DELETE' = 'POST'): Promise<T> {
-  return request<T>(path, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+function write<T>(path: string, body: unknown = {}, method: 'POST' | 'DELETE' = 'POST', local = false): Promise<T> {
+  return request<T>(path, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }, local)
+}
+
+export type PushEvent = 'run-done' | 'run-failed' | 'claw-rolled-back'
+export type PushDevice = { muted: PushEvent[] }
+
+/**
+ * Notifications always go through the machine that served the page: its service worker holds the
+ * subscription, and only its Grip has the key the subscription was made for.
+ */
+export const pushApi = {
+  info: () => request<{ publicKey: string; events: PushEvent[] } | null>('/api/push', undefined, true),
+  device: (endpoint: string) => write<PushDevice | null>('/api/push/device', { endpoint }, 'POST', true),
+  subscribe: (subscription: PushSubscriptionJSON) => write<PushDevice>('/api/push/subscribe', { subscription }, 'POST', true),
+  setMuted: (endpoint: string, muted: PushEvent[]) => write<PushDevice>('/api/push/muted', { endpoint, muted }, 'POST', true),
+  /** A test to every device you turned notifications on, not just this one. */
+  test: () => write<{ devices: number; sent: number; errors: string[] }>('/api/push/test', {}, 'POST', true),
+  unsubscribe: (endpoint: string) => write<null>('/api/push/device', { endpoint }, 'DELETE', true),
 }
 
 export const api = {

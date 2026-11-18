@@ -14,6 +14,8 @@ export type Settings = {
   turnTimeoutMinutes: number
   /** Forget an MCP session (a Claude Code chat) idle this long. It then reconnects as a new chat. */
   mcpSessionIdleDays: number
+  /** How long a push service keeps trying to deliver a notification to a device that is off or out of signal. */
+  pushExpiryHours: number
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -22,6 +24,7 @@ export const DEFAULT_SETTINGS: Settings = {
   clawUpdateCheckHours: 24,
   turnTimeoutMinutes: 3 * 24 * 60,
   mcpSessionIdleDays: 7,
+  pushExpiryHours: 24,
 }
 
 /** Defaults with the config file's values over them. Unknown keys and bad values are refused. */

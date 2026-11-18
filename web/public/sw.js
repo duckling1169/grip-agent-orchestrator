@@ -61,3 +61,37 @@ function offlinePage() {
     { status: 503, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } },
   )
 }
+
+// Web Push (DESIGN §13): a title and a line, never code or output. A message with the same tag
+// replaces the last one, so a worker shows one notification however many times it finishes.
+self.addEventListener('push', event => {
+  let message = {}
+  try {
+    message = event.data ? event.data.json() : {}
+  } catch {
+    // An unreadable message still shows, so the push is never silent.
+  }
+  event.waitUntil(
+    self.registration.showNotification(message.title || 'Grip', {
+      body: message.body || 'Something changed in Grip.',
+      tag: message.tag || 'grip',
+      icon: '/icons/grip-192.png',
+      badge: '/icons/grip-192.png',
+      data: { url: message.url || '/' },
+    }),
+  )
+})
+
+// Open the app where the notification points, reusing a window that is already open.
+self.addEventListener('notificationclick', event => {
+  event.notification.close()
+  const target = new URL(event.notification.data?.url || '/', self.location.origin)
+  if (target.origin !== self.location.origin) return
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(windows => {
+      const open = windows.find(client => new URL(client.url).origin === target.origin)
+      if (open) return open.focus().then(client => (client ?? open).navigate(target.href))
+      return self.clients.openWindow(target.href)
+    }),
+  )
+})

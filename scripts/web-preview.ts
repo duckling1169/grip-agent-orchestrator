@@ -8,6 +8,7 @@ import { join, relative, sep } from 'node:path'
 import { ChatManager } from '../src/chats/manager.js'
 import { ChatStore } from '../src/chats/store.js'
 import { Worktrees } from '../src/git/worktrees.js'
+import { PushNotifier } from '../src/push/notifier.js'
 import { Quota } from '../src/quota/quota.js'
 import type { ToolId } from '../src/quota/usage.js'
 import { RunManager } from '../src/runs/manager.js'
@@ -93,7 +94,15 @@ async function startPreview(name: Name, seed: (s: Seed) => Promise<void>, used: 
     readers: { claude: usage('claude'), codex: usage('codex'), agy: usage('agy') },
   })
   await quota.refresh(['claude', 'codex', 'agy'])
+  // Notifications are recorded, never sent: the preview reaches no push service.
+  const push = await PushNotifier.open({
+    path: join(home, 'push.json'),
+    allowedLogins: [login],
+    sender: async (_subscription, payload) => (console.log(`[preview] push ${payload}`), { ok: true }),
+  })
+  push.watchRuns(store)
   const web = await startWebHttp({
+    push,
     manager,
     store,
     chats,

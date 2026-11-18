@@ -19,6 +19,7 @@ import { api } from '../api.js'
 import { useDetail } from '../state.js'
 import type { AppState, Worktree } from '../types.js'
 import { ErrorBanner, folderName, Time, touchButton, useAction } from './common.js'
+import { NotificationSettings } from './notifications.js'
 import { ResponsiveDialog } from './responsive-dialog.js'
 
 export function ConfirmDialog({
@@ -313,7 +314,7 @@ export function SettingsDialog({
             <Separator />
             <section className="grid gap-2">
               <h3 className="font-medium">Notifications</h3>
-              <p className="text-muted-foreground">Web Push will be available in a later update.</p>
+              <NotificationSettings />
             </section>
           </>
         )}

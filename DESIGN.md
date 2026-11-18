@@ -127,7 +127,7 @@ Everything lives under `~/.grip/` on the principal and is never exported or sync
 - `chats.jsonl` and `chats/<id>/`: chat events, and each Grip chat's MCP config and turns (§5.1).
 - `runs.jsonl`: an append-only log of run events (created, started, turn ended, finished, failed, stopped, viewed). Grip rebuilds run state from it on start. Claw's ledger remains the record for tokens and cost.
 - `claw.json`: installed version, last-good version, update history.
-- `push.json`: Web Push subscriptions and VAPID keys.
+- `push.json`: VAPID keys and the devices that turned notifications on, each with its muted events. Readable only by your user.
 - `claw-token`: Claw's bearer token, readable only by your user.
 
 ## 5. Orchestrator interface (MCP)
@@ -410,6 +410,18 @@ The agreed screens are in the design canvas (claude.ai artifact `JktKuQYLVZ7S8Fv
   - the principal going offline (sleep or shutdown)
 
   Each can be muted. There are no per-turn or progress pushes.
+
+**How it works today:**
+
+- **Built so far:**
+  - a run finished, or failed
+  - a Claw update rolled back
+
+  Stopping a run yourself sends nothing. Runs marked failed when Grip recovers after a restart send nothing either. An admin request comes with the admin flow (§9.2). The principal going offline comes with `grip install`, which can tell a shutdown or sleep from a restart.
+- **Sending:** `src/push/web-push.ts` sends through the `web-push` library, which encrypts each payload for the device and signs the request with Grip's VAPID key. Grip sends no `Topic` header, because Apple refuses it (`BadWebPushTopic`); the notification's tag replaces an earlier one about the same run on the device instead. A device the push service reports as gone (404 or 410) is dropped.
+- **Devices:** you turn notifications on in Settings on each device, and each device mutes events for itself. A device belongs to the login that added it, and gets nothing once that login is no longer allowed. The app always calls the machine that served it, because its service worker holds the subscription and only that Grip has the matching key.
+- **iPhone and iPad:** Web Push works only in the app added to the Home Screen, and Settings says so in a Safari tab. Permission is asked only after a tap.
+- **Tapping a notification** opens the run it is about.
 
 ## 14. Keep-awake
 

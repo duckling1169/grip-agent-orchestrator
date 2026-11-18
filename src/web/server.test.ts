@@ -11,6 +11,7 @@ import { ChatManager } from '../chats/manager.js'
 import { ChatStore } from '../chats/store.js'
 import type { ClawHistoryEntry } from '../claw/state.js'
 import { Worktrees } from '../git/worktrees.js'
+import { PushNotifier } from '../push/notifier.js'
 import { Quota } from '../quota/quota.js'
 import type { QuotaReaders } from '../quota/readers.js'
 import { RunManager } from '../runs/manager.js'
@@ -78,7 +79,14 @@ async function setup(withStatic = false) {
   }
   const quota = await Quota.open({ path: join(base, 'home', 'quota.json'), readers })
   const clawStatus = new FakeClawStatus()
+  const pushed: { endpoint: string; payload: string }[] = []
+  const push = await PushNotifier.open({
+    path: join(base, 'home', 'push.json'),
+    allowedLogins: [LOGIN],
+    sender: async (subscription, payload) => (pushed.push({ endpoint: subscription.endpoint, payload }), { ok: true }),
+  })
   const web = await startWebHttp({
+    push,
     manager,
     store,
     chats,
@@ -107,7 +115,7 @@ async function setup(withStatic = false) {
     })
     return { status: res.status, body: (await res.json()) as any }
   }
-  return { base, repo, plain, store, chats, chatStore, claw, manager, quota, clawStatus, url, api }
+  return { base, repo, plain, store, chats, chatStore, claw, manager, quota, clawStatus, url, api, push, pushed }
 }
 
 describe('web API identity', () => {
@@ -391,6 +399,38 @@ describe('web API quota and worktrees', () => {
     expect(removed.body).toEqual({ branchDeleted: true, branch: run.branch })
     await expect(stat(run.worktree)).rejects.toThrow()
     expect((await t.api('DELETE', '/api/worktrees', { path: t.repo })).status).toBe(404)
+  })
+})
+
+describe('web API notifications', () => {
+  const subscription = { endpoint: 'https://web.push.apple.com/device-1', keys: { p256dh: 'p', auth: 'a' } }
+
+  it('turns notifications on for a device, mutes events, tests and turns them off', async () => {
+    const t = await setup()
+    expect((await t.api('GET', '/api/push')).body).toEqual({
+      publicKey: t.push.publicKey,
+      events: ['run-done', 'run-failed', 'claw-rolled-back'],
+    })
+    const device = { endpoint: subscription.endpoint }
+    expect((await t.api('POST', '/api/push/device', device)).body).toBeNull()
+
+    expect((await t.api('POST', '/api/push/subscribe', { subscription })).body).toEqual({ muted: [] })
+    expect((await t.api('POST', '/api/push/muted', { ...device, muted: ['run-done'] })).body).toEqual({ muted: ['run-done'] })
+    expect((await t.api('POST', '/api/push/device', device)).body).toEqual({ muted: ['run-done'] })
+
+    expect((await t.api('POST', '/api/push/test')).body).toEqual({ devices: 1, sent: 1, errors: [] })
+    expect(JSON.parse(t.pushed[0]!.payload)).toMatchObject({ title: 'Grip', body: 'Notifications work on this device.' })
+
+    expect((await t.api('DELETE', '/api/push/device', device)).status).toBe(200)
+    expect((await t.api('POST', '/api/push/device', device)).body).toBeNull()
+  })
+
+  it('rejects an unknown event, a bad subscription and settings for a device that is not on', async () => {
+    const t = await setup()
+    expect((await t.api('POST', '/api/push/subscribe', { subscription, muted: ['everything'] })).status).toBe(400)
+    expect((await t.api('POST', '/api/push/subscribe', { subscription: { endpoint: 'nope', keys: {} } })).status).toBe(400)
+    const off = await t.api('POST', '/api/push/muted', { endpoint: subscription.endpoint, muted: [] })
+    expect(off).toEqual({ status: 400, body: { error: 'Notifications are not on for this device' } })
   })
 })
 
