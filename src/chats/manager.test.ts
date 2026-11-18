@@ -7,8 +7,11 @@ import { afterEach, expect, it } from 'vitest'
 import { Worktrees } from '../git/worktrees.js'
 import { RunManager } from '../runs/manager.js'
 import { RunStore } from '../runs/store.js'
+import { fakeAcpAgent } from '../testing/fake-acp-agent.js'
 import { FakeClaw } from '../testing/fake-claw.js'
+import { AcpChatTurns } from './acp-turns.js'
 import { ChatManager } from './manager.js'
+import type { ChatTurns } from './turns.js'
 import { ChatStore } from './store.js'
 import { chatOfToken } from './token.js'
 
@@ -16,7 +19,13 @@ const dirs: string[] = []
 afterEach(async () => {
   for (const dir of dirs.splice(0)) await rm(dir, { recursive: true, force: true })
 })
-async function setup(options: { clawReady?: () => Promise<void>; killWorkers?: () => Promise<void> } = {}) {
+async function setup(
+  options: {
+    clawReady?: () => Promise<void>
+    killWorkers?: () => Promise<void>
+    leaders?: Partial<Record<'codex' | 'agy', ChatTurns>>
+  } = {},
+) {
   const dir = await realpath(await mkdtemp(join(tmpdir(), 'grip-chat-')))
   dirs.push(dir)
   const chats = await ChatStore.open(join(dir, 'home'))
@@ -140,10 +149,29 @@ it('stops the chat and its running workers', async () => {
   expect(t.runStore.get(run.id)?.status).toBe('stopped')
 })
 
-it('refuses non-Claude hosts and names external chats', async () => {
+it('runs a chat led over ACP and resumes its conversation on the next turn', async () => {
+  const fake = fakeAcpAgent({ http: true, loadSession: true, reply: 'Delegated it.' })
+  const t = await setup({ leaders: { agy: new AcpChatTurns({ command: 'agy', args: ['acp'] }, { spawn: fake.spawn }) } })
+  const turnsEnded: string[] = []
+  t.manager['o'].onTurnEnded = engine => turnsEnded.push(engine)
+  const chat = await t.manager.startChat({ folder: t.dir, engine: 'agy', message: 'Plan the work' })
+  await until(() => t.chats.get(chat.id)?.status === 'idle')
+  expect(t.chats.get(chat.id)).toMatchObject({ engine: 'agy', engineSessionId: 'fake-1', error: null })
+  const header = fake.log.newSessions[0]?.mcpServers[0]
+  expect(header && 'headers' in header && chatOfToken('secret', header.headers[0]!.value.slice('Bearer '.length))).toBe(chat.id)
+  expect(t.claw.starts).toHaveLength(0)
+  expect(turnsEnded).toEqual(['agy'])
+
+  await t.manager.message(chat.id, 'Next')
+  await until(() => t.chats.get(chat.id)?.turns === 2 && t.chats.get(chat.id)?.status === 'idle')
+  expect(fake.log.loads).toEqual([expect.objectContaining({ sessionId: 'fake-1' })])
+  expect((await t.manager.timeline(chat.id)).filter(e => e.kind === 'reply')).toHaveLength(2)
+})
+
+it('refuses an engine with no leader and names external chats', async () => {
   const t = await setup()
   await expect(t.manager.startChat({ folder: t.dir, engine: 'codex', message: 'Hello' })).rejects.toThrow(
-    'Only Claude can host a chat today',
+    "codex can't lead a chat on this machine yet.",
   )
   const chat = await t.manager.externalChat({ host: 'claude-code', folder: t.dir })
   expect(chat).toMatchObject({ kind: 'external', title: `Claude Code chat in ${basename(t.dir)}` })

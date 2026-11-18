@@ -1,14 +1,15 @@
-import { realpath, stat, writeFile } from 'node:fs/promises'
+import { realpath, stat } from 'node:fs/promises'
 import { errorText } from '../errors.js'
-import { basename, join, resolve } from 'node:path'
+import { basename, resolve } from 'node:path'
 
-import { GRIP_TOOLS, PERMISSION_MODE } from '../runs/manager.js'
 import type { ClawApi, RunManager } from '../runs/manager.js'
 import { protectedFolderOf } from '../runs/protected.js'
 import type { Engine, RunStore } from '../runs/store.js'
 import type { Chat, ChatSender, ChatStore } from './store.js'
 import { buildTimeline } from './timeline.js'
 import { chatToken } from './token.js'
+import { ClawChatTurns } from './turns.js'
+import type { ChatTurns, TurnResult } from './turns.js'
 import { DEFAULT_SETTINGS, minutes } from '../settings.js'
 
 /** A chat's title: the first line of its first message. */
@@ -22,16 +23,6 @@ const titleOf = (message: string) =>
 /** A chat started without a message keeps this title until its first one. */
 const newChatTitle = (folder: string) => `New chat in ${basename(folder) || folder}`
 
-/**
- * A hosted chat's turn ends when Claude replies, and Grip then stops the session, so a subagent or
- * plugin job Claude starts itself dies with it and the app never sees it. Hosted chats therefore
- * cannot use Claude's own Agent tool, and are told to hand work off through Grip instead.
- */
-export const HOSTED_CHAT_DISALLOWED = ['Agent', 'Task']
-export const HOSTED_CHAT_PROMPT =
-  'You are running inside Grip. To hand work to another agent (Claude, Codex or Antigravity), use the ' +
-  "Grip MCP tools (delegate, then wait_any or result). Do not start subagents or background jobs yourself: they stop when your turn ends and the user can't see them. Do the work yourself only when it is small."
-
 type Options = {
   chats: ChatStore
   runs: RunManager
@@ -39,6 +30,8 @@ type Options = {
   claw: ClawApi
   secret: string
   mcpUrl: () => string
+  /** How each engine leads a chat. Claude leads through Claw unless this says otherwise. */
+  leaders?: Partial<Record<Engine, ChatTurns>>
   turnTimeoutMs?: number
   clawReady?: () => Promise<void>
   killWorkers?: () => Promise<void>
@@ -52,8 +45,10 @@ export class ChatManager {
   private readonly stopping = new Set<string>()
   private readonly queued = new Map<string, string[]>()
   private readonly notified = new Set<string>()
+  private readonly leaders: Partial<Record<Engine, ChatTurns>>
 
   constructor(private readonly o: Options) {
+    this.leaders = { claude: new ClawChatTurns(o.claw, o.clawReady), ...o.leaders }
     o.runStore.on('change', run => {
       if (run.chatId && (run.status === 'done' || run.status === 'failed') && !run.viewed)
         void this.noteWorkers(run.chatId).catch(() => undefined)
@@ -62,7 +57,7 @@ export class ChatManager {
 
   /** A new Grip chat in a folder. With a message its first turn starts at once; without, it waits for one. */
   async startChat(input: { folder: string; engine: Engine; model?: string; effort?: string; message?: string }): Promise<Chat> {
-    if (input.engine !== 'claude') throw new Error('Only Claude can host a chat today: Claw passes an MCP config to Claude sessions only.')
+    if (!this.leaders[input.engine]) throw new Error(`${input.engine} can't lead a chat on this machine yet.`)
     const message = input.message?.trim() ? input.message : null
     const folder = await realpath(resolve(input.folder)).catch(() => {
       throw new Error(`folder not found: ${input.folder}`)
@@ -72,14 +67,6 @@ export class ChatManager {
     if (guarded) throw new Error(`refusing to run a chat in ${folder}: it is inside protected folder ${guarded}`)
     const title = message ? titleOf(message) : newChatTitle(folder)
     const chat = await this.o.chats.create({ kind: 'grip', title, folder, engine: input.engine, model: input.model, effort: input.effort })
-    await writeFile(
-      join(this.o.chats.chatDir(chat.id), 'mcp.json'),
-      JSON.stringify({
-        mcpServers: {
-          grip: { type: 'http', url: this.o.mcpUrl(), headers: { Authorization: `Bearer ${chatToken(this.o.secret, chat.id)}` } },
-        },
-      }),
-    )
     return message ? this.beginTurn(chat, message, 'user') : chat
   }
 
@@ -107,7 +94,7 @@ export class ChatManager {
       await this.starting.get(id)?.catch(() => undefined)
       chat = await this.o.chats.markStopped(id)
       this.o.onActivityChange?.()
-      if (chat.session) await this.o.claw.stopSession(chat.session).catch(() => undefined)
+      await this.leaderOf(chat)?.stop(chat)
     } else if (chat.status !== 'stopped') chat = await this.o.chats.markStopped(id)
     await Promise.all(this.o.runStore.list({ chatId: id, status: 'running' }).map(run => this.o.runs.stop(run.id)))
     return chat
@@ -135,21 +122,20 @@ export class ChatManager {
       stopped.push(await this.o.chats.markStopped(chat.id))
     }
     if (stopped.length) this.o.onActivityChange?.()
-    const active = chats.filter(chat => chat.session && (chat.status === 'working' || this.busy.has(chat.id)))
-    const results = await Promise.all(active.map(chat => this.stopWithin(chat.session!, options.graceMs ?? 5000)))
+    const active = chats.filter(chat => chat.status === 'working' || this.busy.has(chat.id))
+    const results = await Promise.all(active.map(chat => this.stopWithin(chat, options.graceMs ?? 5000)))
     const killed = results.includes(false) && options.kill !== false && !!this.o.killWorkers
     if (killed) await this.o.killWorkers!()
     return { stopped, killed }
   }
 
-  private async stopWithin(session: string, graceMs: number): Promise<boolean> {
+  private async stopWithin(chat: Chat, graceMs: number): Promise<boolean> {
+    const leader = this.leaderOf(chat)
+    if (!leader) return true
     let timer: ReturnType<typeof setTimeout> | undefined
     try {
       return await Promise.race([
-        this.o.claw.stopSession(session).then(
-          () => true,
-          () => false,
-        ),
+        leader.stop(chat).catch(() => false),
         new Promise<boolean>(resolve => {
           timer = setTimeout(() => resolve(false), graceMs)
         }),
@@ -161,9 +147,7 @@ export class ChatManager {
 
   async recover(reason = 'grip restarted'): Promise<Chat[]> {
     const interrupted = await this.o.chats.interruptWorking(reason)
-    const sessions = await this.o.claw.listSessions().catch(() => [])
-    for (const session of sessions)
-      if (session.name.startsWith('grip-c-')) await this.o.claw.stopSession(session.name).catch(() => undefined)
+    for (const leader of new Set(Object.values(this.leaders))) await leader.recover().catch(() => undefined)
     return interrupted
   }
 
@@ -193,6 +177,10 @@ export class ChatManager {
     return buildTimeline(this.must(id), this.o.chats, this.o.runStore)
   }
 
+  private leaderOf(chat: Chat): ChatTurns | undefined {
+    return chat.engine ? this.leaders[chat.engine] : undefined
+  }
+
   private must(id: string): Chat {
     const chat = this.o.chats.get(id)
     if (!chat) throw new Error(`unknown chat ${id}`)
@@ -218,7 +206,7 @@ export class ChatManager {
       .finally(() => {
         this.busy.delete(chat.id)
         this.o.onActivityChange?.()
-        this.o.onTurnEnded?.('claude')
+        if (chat.engine) this.o.onTurnEnded?.(chat.engine)
         void this.afterTurn(chat.id).catch(() => undefined)
       })
       .catch(() => undefined)
@@ -226,37 +214,20 @@ export class ChatManager {
   }
 
   private async runTurn(chat: Chat, turn: number, message: string): Promise<void> {
-    const session = chat.session!
-    let result: { output: string; error: string | null; sessionId: string | null }
+    let result: TurnResult
     try {
-      await this.o.clawReady?.()
-      if (this.stopping.has(chat.id)) throw new Error('stopped before the turn began')
-      await this.o.claw.startSession({
-        name: session,
-        cwd: chat.folder!,
-        engine: 'claude',
-        permissionMode: PERMISSION_MODE.claude,
-        ...(chat.model ? { model: chat.model } : {}),
-        ...(chat.effort ? { effort: chat.effort } : {}),
-        ...(chat.engineSessionId ? { resumeSessionId: chat.engineSessionId } : {}),
-        mcpConfig: join(this.o.chats.chatDir(chat.id), 'mcp.json'),
-        allowedTools: [GRIP_TOOLS],
-        disallowedTools: HOSTED_CHAT_DISALLOWED,
-        appendSystemPrompt: HOSTED_CHAT_PROMPT,
-      })
-      if (this.stopping.has(chat.id)) throw new Error('stopped before the turn began')
-      const sent = await this.o.claw.sendMessage(session, message, {
+      const leader = this.leaderOf(chat)
+      if (!leader) throw new Error(`${chat.engine} can't lead a chat on this machine`)
+      result = await leader.run({
+        chat,
+        message,
+        mcp: { url: this.o.mcpUrl(), token: chatToken(this.o.secret, chat.id) },
+        chatDir: this.o.chats.chatDir(chat.id),
         timeoutMs: this.o.turnTimeoutMs ?? minutes(DEFAULT_SETTINGS.turnTimeoutMinutes),
-        ...(chat.effort ? { effort: chat.effort } : {}),
+        stopped: () => this.stopping.has(chat.id),
       })
-      const denied = sent.permissionDenials?.length
-        ? `\n\n[grip] ${sent.permissionDenials.length} tool call(s) were denied: ${sent.permissionDenials.map(d => d.toolName).join(', ')}`
-        : ''
-      result = { output: sent.output + denied, error: sent.error ?? null, sessionId: sent.sessionId ?? null }
     } catch (error) {
       result = { output: '', error: errorText(error), sessionId: null }
-    } finally {
-      await this.o.claw.stopSession(session).catch(() => undefined)
     }
     if (this.stopping.has(chat.id)) await this.o.chats.saveOutput(chat.id, turn, result.output)
     else await this.o.chats.endTurn(chat.id, turn, result, () => !this.stopping.has(chat.id))

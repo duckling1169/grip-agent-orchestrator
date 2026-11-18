@@ -510,8 +510,8 @@ Wake-on-LAN is not planned. A sleeping principal shows as offline.
 
 1. **Any model leads, any model works.**
    - **Leaders through ACP** (§5.1), in this order:
-     1. Put a seam in `ChatManager` so a turn runs through either Claw (Claude, as now) or ACP, with no change in behaviour.
-     2. The ACP turn runner, tested against a fake ACP agent.
+     1. Done: `ChatTurns` runs a turn through Claw (Claude, as now) or ACP.
+     2. Done: the ACP turn runner (`src/chats/acp-turns.ts`), tested against a fake ACP agent.
      3. Leader presets: agy, Codex through `codex-acp`, and ACP agents from `config.json`, plus the stdio bridge.
      4. The app offers every available leader when you start a chat.
      5. On the PC: one agy-led chat and one Codex-led chat each delegate to a worker and review it.

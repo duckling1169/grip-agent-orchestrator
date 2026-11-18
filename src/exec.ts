@@ -52,11 +52,20 @@ export const exec: Exec = (command, args, options = {}) =>
   })
 
 /** Start a long-lived command with piped stdio, for line protocols like Codex's app-server. Never through a shell. */
-export type SpawnPiped = (command: string, args: readonly string[], options?: { cwd?: string }) => ChildProcessWithoutNullStreams
+export type SpawnPiped = (
+  command: string,
+  args: readonly string[],
+  options?: { cwd?: string; env?: Record<string, string> },
+) => ChildProcessWithoutNullStreams
 
 export const spawnPiped: SpawnPiped = (command, args, options = {}) => {
   const [file, argv] = resolveCommand(command, args)
-  return spawn(file, argv, { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'], ...(options.cwd ? { cwd: options.cwd } : {}) })
+  return spawn(file, argv, {
+    windowsHide: true,
+    stdio: ['pipe', 'pipe', 'pipe'],
+    ...(options.cwd ? { cwd: options.cwd } : {}),
+    ...(options.env ? { env: { ...process.env, ...options.env } } : {}),
+  })
 }
 
 /** Like `exec`, but a non-zero exit is an error carrying stderr's last line. */
