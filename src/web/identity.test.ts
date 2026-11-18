@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest'
 
 import { loadConfig } from '../config.js'
 import { DEFAULT_SETTINGS } from '../settings.js'
-import { crossSiteWrite, identify } from './identity.js'
+import { crossSiteWrite, identify, tailnetOrigin } from './identity.js'
 
 describe('identify', () => {
   const allowed = ['duckling1169@github']
@@ -45,6 +45,36 @@ describe('crossSiteWrite', () => {
     expect(crossSiteWrite('DELETE', { host: json.host })).toMatch(/application\/json/)
     expect(crossSiteWrite('POST', { ...json, origin: 'https://evil.example' })).toMatch(/may not write/)
     expect(crossSiteWrite('POST', { ...json, origin: 'null' })).toMatch(/may not write/)
+  })
+
+  it('allows a trusted origin, still only as JSON', () => {
+    const trusted = (origin: string) => tailnetOrigin(origin, '.tail.ts.net')
+    expect(crossSiteWrite('POST', { ...json, origin: 'https://linux-box.tail.ts.net' }, trusted)).toBeNull()
+    expect(
+      crossSiteWrite('POST', { host: json.host, 'content-type': 'text/plain', origin: 'https://linux-box.tail.ts.net' }, trusted),
+    ).toMatch(/application\/json/)
+    expect(crossSiteWrite('POST', { ...json, origin: 'null' }, () => true)).toMatch(/may not write/)
+  })
+})
+
+describe('tailnetOrigin', () => {
+  const suffix = '.tail.ts.net'
+
+  it('accepts https machines on this tailnet', () => {
+    expect(tailnetOrigin('https://linux-box.tail.ts.net', suffix)).toBe(true)
+    expect(tailnetOrigin('https://pc2.tail.ts.net', suffix)).toBe(true)
+  })
+
+  it('refuses other tailnets, http, ports, nested names and no suffix', () => {
+    expect(tailnetOrigin('https://linux-box.other.ts.net', suffix)).toBe(false)
+    expect(tailnetOrigin('http://linux-box.tail.ts.net', suffix)).toBe(false)
+    expect(tailnetOrigin('https://linux-box.tail.ts.net:8443', suffix)).toBe(false)
+    expect(tailnetOrigin('https://a.linux-box.tail.ts.net', suffix)).toBe(false)
+    expect(tailnetOrigin('https://tail.ts.net', suffix)).toBe(false)
+    expect(tailnetOrigin('https://eviltail.ts.net', suffix)).toBe(false)
+    expect(tailnetOrigin('https://linux-box.tail.ts.net/path', suffix)).toBe(false)
+    expect(tailnetOrigin('null', suffix)).toBe(false)
+    expect(tailnetOrigin('https://linux-box.tail.ts.net', null)).toBe(false)
   })
 })
 

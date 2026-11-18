@@ -16,6 +16,7 @@ import type { QuotaReaders } from '../quota/readers.js'
 import { RunManager } from '../runs/manager.js'
 import { RunStore } from '../runs/store.js'
 import { FakeClaw } from '../testing/fake-claw.js'
+import { tailnetOrigin } from './identity.js'
 import { startWebHttp } from './server.js'
 
 const LOGIN = 'duckling1169@github'
@@ -91,6 +92,7 @@ async function setup(withStatic = false) {
     host: 'windows-pc',
     staticDir,
     models: { list: async () => [{ engine: 'codex', models: [], error: null }] },
+    trustedOrigin: origin => tailnetOrigin(origin, '.tail.ts.net'),
   })
   cleanups.push(() => web.close())
   cleanups.push(() => chats.stopAll())
@@ -148,6 +150,49 @@ describe('web API identity', () => {
     expect(form.status).toBe(403)
     const foreign = await t.api('POST', '/api/stop-all', {}, { Origin: 'https://evil.example' })
     expect(foreign.status).toBe(403)
+  })
+})
+
+describe('web API from another Grip machine', () => {
+  const other = 'https://linux-box.tail.ts.net'
+
+  it('answers the preflight only for tailnet Grip origins', async () => {
+    const t = await setup()
+    const ok = await fetch(`${t.url}/api/stop-all`, { method: 'OPTIONS', headers: { Origin: other } })
+    expect(ok.status).toBe(204)
+    expect(ok.headers.get('access-control-allow-origin')).toBe(other)
+    expect(ok.headers.get('access-control-allow-methods')).toBe('GET, POST, DELETE')
+    expect(ok.headers.get('access-control-allow-headers')).toBe('Content-Type')
+    const evil = await fetch(`${t.url}/api/stop-all`, { method: 'OPTIONS', headers: { Origin: 'https://evil.example' } })
+    expect(evil.status).toBe(403)
+    expect(evil.headers.get('access-control-allow-origin')).toBeNull()
+  })
+
+  it('lets that origin read and write, still behind identity', async () => {
+    const t = await setup()
+    const read = await fetch(`${t.url}/api/state`, { headers: { Origin: other, 'Tailscale-User-Login': LOGIN } })
+    expect(read.status).toBe(200)
+    expect(read.headers.get('access-control-allow-origin')).toBe(other)
+    expect(read.headers.get('vary')).toBe('Origin')
+    const anonymous = await fetch(`${t.url}/api/state`, { headers: { Origin: other } })
+    expect(anonymous.status).toBe(401)
+    expect(anonymous.headers.get('access-control-allow-origin')).toBe(other)
+    expect((await t.api('POST', '/api/stop-all', {}, { Origin: other })).status).toBe(200)
+    const foreign = await fetch(`${t.url}/api/state`, { headers: { Origin: 'https://evil.example', 'Tailscale-User-Login': LOGIN } })
+    expect(foreign.headers.get('access-control-allow-origin')).toBeNull()
+  })
+
+  it('sends the CORS header on the event stream and on health', async () => {
+    const t = await setup()
+    const health = await fetch(`${t.url}/health`, { headers: { Origin: other } })
+    expect(health.headers.get('access-control-allow-origin')).toBe(other)
+    const controller = new AbortController()
+    const events = await fetch(`${t.url}/api/events`, {
+      headers: { Origin: other, 'Tailscale-User-Login': LOGIN },
+      signal: controller.signal,
+    })
+    expect(events.headers.get('access-control-allow-origin')).toBe(other)
+    controller.abort()
   })
 })
 

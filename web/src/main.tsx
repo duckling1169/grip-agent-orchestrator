@@ -12,7 +12,7 @@ applyTheme()
 theme.addEventListener('change', applyTheme)
 createRoot(document.getElementById('app')!).render(<App />)
 
-// Cache no authenticated data or chat content. The worker only supplies a disconnected page.
+// The worker caches the app shell only, never API data or chat content (see public/sw.js).
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {
   void navigator.serviceWorker.register('/sw.js').catch(() => undefined)
 }

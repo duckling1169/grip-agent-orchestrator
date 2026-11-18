@@ -120,6 +120,7 @@ export function ChatRow({ chat, children, deleted }: { chat: ChatSummary; childr
           close={() => {
             setConfirming(false)
             setOffset(0)
+            suppressClick.current = false
           }}
           confirm={async () => {
             await api.deleteChat(chat.id)

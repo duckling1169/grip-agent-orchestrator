@@ -73,6 +73,22 @@ export async function listMachines(options: MachineOptions = {}): Promise<Machin
   return { machines: machines.sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name)) }
 }
 
+/**
+ * This tailnet's DNS suffix, such as `.example-tailnet.ts.net`, from this machine's own name. Null
+ * when Tailscale can't be read, so no other machine's app is trusted.
+ */
+export async function tailnetSuffix(exec: Exec = defaultExec): Promise<string | null> {
+  try {
+    const out = await exec('tailscale', ['status', '--json'], { timeoutMs: 15_000 })
+    if (out.code !== 0) return null
+    const name = ((JSON.parse(out.stdout) as Status).Self?.DNSName ?? '').replace(/.$/, '').toLowerCase()
+    const dot = name.indexOf('.')
+    return dot > 0 && name.indexOf('.', dot + 1) > 0 ? name.slice(dot) : null
+  } catch {
+    return null
+  }
+}
+
 /** Grip's `/health` names the app, so another web server on port 443 is not mistaken for it. */
 async function probeGrip(url: string): Promise<boolean> {
   const res = await fetch(new URL('health', url), { signal: AbortSignal.timeout(3000) })

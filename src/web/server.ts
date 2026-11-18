@@ -20,9 +20,9 @@ import { present, summarize } from '../runs/present.js'
 import { ENGINES } from '../runs/store.js'
 import type { Engine, Run, RunStore } from '../runs/store.js'
 import { listFolders } from './folders.js'
-import { listMachines } from './machines.js'
+import { listMachines, tailnetSuffix } from './machines.js'
 import type { MachineList } from './machines.js'
-import { crossSiteWrite, identify } from './identity.js'
+import { crossSiteWrite, identify, tailnetOrigin } from './identity.js'
 import { serveStatic } from './static.js'
 
 export const DEFAULT_WEB_PORT = 18798
@@ -57,6 +57,11 @@ export type WebOptions = {
   models?: Pick<ModelCatalog, 'list'>
   /** Tailnet machines for the app's machine switcher. */
   machines?: () => Promise<MachineList>
+  /**
+   * Which other origins' apps may call this Grip. Defaults to the other Grip machines on this
+   * tailnet (`https://<name>.<tailnet>.ts.net`), read from Tailscale once at start.
+   */
+  trustedOrigin?: (origin: string) => boolean
 }
 
 class HttpError extends Error {
@@ -106,6 +111,8 @@ export async function startWebHttp(options: WebOptions): Promise<{ server: Serve
   const models = options.models ?? new ModelCatalog()
   const host = options.host ?? hostname()
   const streams = new Set<ServerResponse>()
+  const suffix = options.trustedOrigin ? null : await tailnetSuffix()
+  const trusted = options.trustedOrigin ?? ((origin: string) => tailnetOrigin(origin, suffix))
 
   const clawState = () => ({
     status: claw.status,
@@ -287,10 +294,28 @@ export async function startWebHttp(options: WebOptions): Promise<{ server: Serve
 
   async function handle(req: IncomingMessage, res: ServerResponse) {
     const path = new URL(req.url ?? '/', 'http://127.0.0.1').pathname
+    const api = path === '/health' || path === '/api' || path.startsWith('/api/')
+    // Another machine's Grip app may call this one (DESIGN §12); any other site gets no CORS headers.
+    const origin = req.headers.origin
+    const cors = api && typeof origin === 'string' && trusted(origin)
+    if (cors) {
+      res.setHeader('Access-Control-Allow-Origin', origin)
+      res.setHeader('Vary', 'Origin')
+    }
+    if (req.method === 'OPTIONS') {
+      // A preflight carries no identity, so it says nothing beyond whether the origin may ask.
+      if (!cors) return sendJson(res, 403, { error: 'Origin may not call Grip' })
+      res.writeHead(204, {
+        'Access-Control-Allow-Methods': 'GET, POST, DELETE',
+        'Access-Control-Allow-Headers': 'Content-Type',
+        'Access-Control-Max-Age': '600',
+      })
+      return void res.end()
+    }
     if (req.method === 'GET' && path === '/health') return sendJson(res, 200, { ok: true, app: 'grip' })
     const who = identify(req.headers, options.allowedLogins)
     if (!who.ok) return sendJson(res, who.status, { error: who.error })
-    const refused = crossSiteWrite(req.method ?? 'GET', req.headers)
+    const refused = crossSiteWrite(req.method ?? 'GET', req.headers, cors ? trusted : undefined)
     if (refused) return sendJson(res, 403, { error: refused })
     if ((req.method === 'GET' || req.method === 'HEAD') && path !== '/api' && !path.startsWith('/api/'))
       return serveStatic(req, res, options.staticDir)

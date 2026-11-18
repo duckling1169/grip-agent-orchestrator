@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest'
 
-import { listMachines } from './machines.js'
+import { listMachines, tailnetSuffix } from './machines.js'
 
 const status = {
   Self: {
@@ -36,6 +36,13 @@ it('lists this machine first, then machines running Grip, asking only online com
     ['old-pc', 'unknown', null],
   ])
   expect(list.machines[0]).toMatchObject({ self: true, online: true, ips: ['100.1.1.1', 'fd7a::1'], os: 'windows' })
+})
+
+it('reads the tailnet suffix, or none when Tailscale cannot be read', async () => {
+  const ok = async () => ({ code: 0, stdout: JSON.stringify(status), stderr: '' })
+  expect(await tailnetSuffix(ok)).toBe('.tail.ts.net')
+  expect(await tailnetSuffix(async () => ({ code: 1, stdout: '', stderr: 'not running' }))).toBeNull()
+  expect(await tailnetSuffix(async () => ({ code: 0, stdout: '{}', stderr: '' }))).toBeNull()
 })
 
 it('says why when Tailscale cannot be read', async () => {
