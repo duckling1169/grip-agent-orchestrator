@@ -1,5 +1,7 @@
 import { join } from 'node:path'
 
+import { ChatManager } from './chats/manager.js'
+import { ChatStore } from './chats/store.js'
 import { createClawSupervisor } from './claw/index.js'
 import { loadConfig } from './config.js'
 import type { ClawEngine } from './claw/index.js'
@@ -48,6 +50,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
   if (config.trustedOwner) log(`trusting ${config.trustedOwner}, the Tailscale account this machine is signed in to`)
   const keepAwake = new KeepAwake({ ...(options.testing ? { command: null } : {}), log })
   const store = await RunStore.open(paths.home)
+  const chatStore = await ChatStore.open(paths.home)
   const quota = await Quota.open({ path: paths.quota, readers: options.quotaReaders ?? new CliQuotaReaders() })
 
   const { supervisor, client } = await createClawSupervisor({
@@ -55,7 +58,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
     ...(options.clawPort ? { port: options.clawPort } : {}),
     ...(options.engines ? { engines: options.engines } : {}),
     env: { OPENCLAW_SERVE_MAX_SESSIONS: CLAW_MAX_SESSIONS },
-    isIdle: async () => store.running().length === 0,
+    isIdle: async () => store.running().length === 0 && chatStore.working().length === 0,
   })
   supervisor.on('status', s => log(`claw ${s}${supervisor.version ? ` (${supervisor.version})` : ''}`))
   supervisor.on('rolled-back', e => log(`claw ${e.attempted} failed checks (${e.reason}); back on ${e.to}`))
@@ -63,30 +66,55 @@ export async function startDaemon(options: DaemonOptions = {}) {
   supervisor.on('error', e => log(`claw update check failed: ${e.message}`))
 
   const worktrees = new Worktrees()
+  const activityChanged = () => {
+    const runs = store.running().length
+    const chats = chatStore.working().length
+    log(`${runs} run${runs === 1 ? '' : 's'} and ${chats} chat${chats === 1 ? '' : 's'} working`)
+    keepAwake.set(runs + chats)
+  }
+  let restarting: Promise<void> | undefined
+  // Chats and workers can both hit their stop deadline; one restart kills the whole tree.
+  const killWorkers = () => (restarting ??= supervisor.restart().finally(() => (restarting = undefined)))
   const manager = new RunManager({
     store,
     worktrees,
     claw: client,
     clawReady: () => supervisor.whenReady(),
-    onActivityChange: n => {
-      log(`${n} run${n === 1 ? '' : 's'} working`)
-      keepAwake.set(n)
-    },
+    onActivityChange: activityChanged,
     onTurnEnded: engine => quota.afterTurn(engine),
     // Restarting Claw takes every engine process it started with it.
-    killWorkers: () => supervisor.restart(),
+    killWorkers,
   })
 
+  const mcpToken = await loadOrCreateToken(join(paths.home, 'mcp-token'))
+  let mcpPort = options.mcpPort ?? DEFAULT_MCP_PORT
   await supervisor.start()
   const recovered = await manager.recover()
   if (recovered.length) log(`marked ${recovered.length} interrupted run(s) as failed`)
 
-  const mcpToken = await loadOrCreateToken(join(paths.home, 'mcp-token'))
-  const mcp = await startMcpHttp({ manager, quota, token: mcpToken, port: options.mcpPort ?? DEFAULT_MCP_PORT })
+  const chats = new ChatManager({
+    chats: chatStore,
+    runs: manager,
+    runStore: store,
+    claw: client,
+    secret: mcpToken,
+    mcpUrl: () => `http://127.0.0.1:${mcpPort}/mcp`,
+    clawReady: () => supervisor.whenReady(),
+    killWorkers,
+    onActivityChange: activityChanged,
+    onTurnEnded: engine => quota.afterTurn(engine),
+  })
+  const recoveredChats = await chats.recover()
+  if (recoveredChats.length) log(`marked ${recoveredChats.length} interrupted chat(s) as failed`)
+
+  const mcp = await startMcpHttp({ manager, quota, chats, token: mcpToken, port: mcpPort })
+  mcpPort = mcp.port
   log(`orchestrator MCP on http://127.0.0.1:${mcp.port}/mcp`)
   const web = await startWebHttp({
     manager,
     store,
+    chats,
+    chatStore,
     quota,
     worktrees,
     claw: supervisor,
@@ -104,12 +132,12 @@ export async function startDaemon(options: DaemonOptions = {}) {
   const stop = () =>
     (stopping ??= (async () => {
       log('stopping')
-      await Promise.all([mcp.close(), web.close()])
       // Claw stops next with its whole process tree, so there is no need to kill workers here.
-      await manager.stopAll({ kill: false })
+      // Suppress chat wakeups before stopping workers, while closing long-lived HTTP requests.
+      await Promise.all([chats.stopAll({ kill: false }), manager.stopAll({ kill: false }), mcp.close(), web.close()])
       await supervisor.stop()
       keepAwake.release()
     })())
 
-  return { manager, store, quota, supervisor, mcpPort: mcp.port, webPort: web.port, stop }
+  return { manager, store, chats, chatStore, quota, supervisor, mcpPort: mcp.port, webPort: web.port, stop }
 }

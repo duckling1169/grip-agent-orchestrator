@@ -6,7 +6,7 @@ import { overlappingFiles } from '../git/worktrees.js'
 import type { GitFacts, Worktrees, WorktreeDiff } from '../git/worktrees.js'
 import { resolveBrief } from './briefs.js'
 import { protectedFolderOf } from './protected.js'
-import type { Engine, Run, RunStatus, RunStore } from './store.js'
+import type { Engine, Reader, Run, RunStatus, RunStore } from './store.js'
 
 /** The part of Claw's API runs need; the tests stand a fake in for it. */
 export interface ClawApi {
@@ -18,6 +18,13 @@ export interface ClawApi {
 
 export const CLAW_ENGINE: Record<Engine, ClawEngine> = { claude: 'claude', codex: 'codex-app', agy: 'agy' }
 
+/**
+ * Grip's MCP server as an orchestrator's config names it. Claude workers start with its tools
+ * denied, so a worker that loads Grip from your user config still can't delegate: only chats do.
+ */
+export const GRIP_MCP_NAME = 'grip'
+export const GRIP_TOOLS = `mcp__${GRIP_MCP_NAME}`
+
 export type DelegateInput = {
   folder: string
   engine: Engine
@@ -26,6 +33,8 @@ export type DelegateInput = {
   effort?: string
   /** A run this one retries from scratch, on any engine. */
   retryOf?: string
+  /** The chat delegating it (design §5.1). */
+  chatId?: string
 }
 
 export type RunDetails = {
@@ -117,16 +126,20 @@ export class RunManager {
       ...(input.model ? { model: input.model } : {}),
       ...(input.effort ? { effort: input.effort } : {}),
       ...(input.retryOf ? { retryOf: input.retryOf } : {}),
+      ...(input.chatId ? { chatId: input.chatId } : {}),
     })
     return this.beginTurn(run, brief.message)
   }
 
-  /** A follow-up for a run that has finished a turn; it resumes the same conversation. */
-  async message(id: string, text: string): Promise<Run> {
+  /**
+   * A follow-up for a run that has finished a turn; it resumes the same conversation. `fromUser`
+   * marks a message you sent from the app, so the run's chat sees it came from you.
+   */
+  async message(id: string, text: string, options: { fromUser?: boolean } = {}): Promise<Run> {
     const run = this.mustGet(id)
     if (this.inFlight.has(id) || run.status === 'running') throw new Error(`run ${id} is still working; wait for it or stop it first`)
     if (!text.trim()) throw new Error('message is empty')
-    return this.beginTurn(run, text)
+    return this.beginTurn(run, text, options.fromUser ?? false)
   }
 
   /** Stop a run's current turn. Its worktree and history stay. */
@@ -168,14 +181,18 @@ export class RunManager {
     return { stopped, killed }
   }
 
-  list(filter: { status?: RunStatus; folder?: string } = {}): Run[] {
+  list(filter: { status?: RunStatus; folder?: string; chatId?: string | null } = {}): Run[] {
     return this.store.list(filter)
   }
 
-  /** Everything known about a run. Reading it this way marks it viewed when `markViewed` is set. */
-  async details(id: string, options: { diff?: boolean; markViewed?: boolean } = {}): Promise<RunDetails> {
+  /**
+   * Everything known about a run. `markViewed` marks it read by whoever is reading: its
+   * orchestrator (`true` or `'orchestrator'`) or you in the app (`'app'`).
+   */
+  async details(id: string, options: { diff?: boolean; markViewed?: boolean | Reader } = {}): Promise<RunDetails> {
     let run = this.mustGet(id)
-    if (options.markViewed && run.status !== 'running') run = await this.store.markViewed(id)
+    const reader: Reader | null = options.markViewed === true ? 'orchestrator' : options.markViewed || null
+    if (reader && run.status !== 'running') run = await this.store.markViewed(id, reader)
     const turns = []
     for (let n = 1; n <= run.turns; n++) turns.push({ turn: n, ...(await this.store.turn(id, n)) })
     let facts: GitFacts | null = null
@@ -194,7 +211,7 @@ export class RunManager {
   }
 
   /** The next finished run nobody has read, with its result; null if none lands in time. */
-  async waitAny(options: { timeoutMs: number; ids?: string[]; signal?: AbortSignal }): Promise<RunDetails | null> {
+  async waitAny(options: { timeoutMs: number; ids?: string[]; chatId?: string | null; signal?: AbortSignal }): Promise<RunDetails | null> {
     const run = await this.store.waitAny(options)
     return run ? this.details(run.id, { diff: true, markViewed: true }) : null
   }
@@ -227,8 +244,8 @@ export class RunManager {
   }
 
   /** Record the turn, then run it in the background; the caller gets the run at once. */
-  private async beginTurn(run: Run, message: string): Promise<Run> {
-    const turn = await this.store.startTurn(run.id, message)
+  private async beginTurn(run: Run, message: string, fromUser = false): Promise<Run> {
+    const turn = await this.store.startTurn(run.id, message, { fromUser })
     this.stopping.delete(run.id)
     const work = this.runTurn(run, turn, message).finally(() => {
       this.inFlight.delete(run.id)
@@ -252,6 +269,7 @@ export class RunManager {
         ...(run.model ? { model: run.model } : {}),
         ...(run.effort ? { effort: run.effort } : {}),
         ...(run.engineSessionId ? { resumeSessionId: run.engineSessionId } : {}),
+        ...(run.engine === 'claude' ? { disallowedTools: [GRIP_TOOLS] } : {}),
       })
       // A stop that landed while the session was starting must not let the turn begin.
       if (this.stopping.has(run.id)) throw new Error('stopped before the turn began')

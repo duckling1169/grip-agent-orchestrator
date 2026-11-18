@@ -1,7 +1,9 @@
 import { randomBytes } from 'node:crypto'
 import { EventEmitter } from 'node:events'
-import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+
+import { JsonlAppender, readJsonl } from '../jsonl.js'
 
 /** The engines a run can use, as Grip names them. Claw calls Codex's `codex-app`. */
 export type Engine = 'claude' | 'codex' | 'agy'
@@ -30,28 +32,37 @@ export type Run = {
   /** The engine's own conversation id, so a later message resumes the same conversation. */
   engineSessionId: string | null
   retryOf: string | null
+  /** The chat that delegated this run, or null when it was started from the app (design §5.1). */
+  chatId: string | null
   status: RunStatus
   error: string | null
-  /** Turns that have ended. */
+  /** Turns that have started, including a stopped or interrupted attempt. */
   turns: number
-  /** Cleared when the run finishes; set once its result is read in the app or by an orchestrator. */
+  /** Turns whose message you sent yourself from the app, rather than the run's chat. */
+  fromUser: number[]
+  /** Cleared when the run finishes; set once an orchestrator reads its result. `wait_any` follows this. */
   viewed: boolean
+  /** Cleared when the run finishes; set once you open it in the app. The app's "new" mark follows this. */
+  seen: boolean
   createdAt: string
   updatedAt: string
   finishedAt: string | null
 }
 
 export type NewRun = Pick<Run, 'title' | 'engine' | 'folder' | 'cwd' | 'repo' | 'brief'> &
-  Partial<Pick<Run, 'model' | 'effort' | 'retryOf'>>
+  Partial<Pick<Run, 'model' | 'effort' | 'retryOf' | 'chatId'>>
+
+/** Who reads a run: its orchestrator (through `result` or `wait_any`) or you, in the app. */
+export type Reader = 'orchestrator' | 'app'
 
 /** One line of `runs.jsonl`. The log is the record; run state is rebuilt from it on load. */
-type RunEvent =
+export type RunEvent =
   | { t: 'created'; at: string; run: Run }
-  | { t: 'turn-started'; at: string; id: string; turn: number }
+  | { t: 'turn-started'; at: string; id: string; turn: number; fromUser?: true }
   | { t: 'turn-ended'; at: string; id: string; turn: number; error: string | null; sessionId?: string }
   | { t: 'stopped'; at: string; id: string }
   | { t: 'interrupted'; at: string; id: string; reason: string }
-  | { t: 'viewed'; at: string; id: string }
+  | { t: 'viewed'; at: string; id: string; by?: 'app' }
 
 export type RunStoreEvents = { change: [Run] }
 
@@ -67,8 +78,9 @@ export class RunStore extends EventEmitter<RunStoreEvents> {
   private readonly runs = new Map<string, Run>()
   private readonly createdSeq = new Map<string, number>()
   private readonly finishedSeq = new Map<string, number>()
+  private readonly events = new Map<string, RunEvent[]>()
   private seq = 0
-  private writes: Promise<void> = Promise.resolve()
+  private readonly log: JsonlAppender
 
   private constructor(
     private readonly dir: string,
@@ -76,26 +88,14 @@ export class RunStore extends EventEmitter<RunStoreEvents> {
   ) {
     super()
     this.setMaxListeners(0)
+    this.log = new JsonlAppender(this.logPath)
   }
 
   /** Open (or create) the store in `dir` and replay its log. */
   static async open(dir: string, now: () => Date = () => new Date()): Promise<RunStore> {
     await mkdir(join(dir, 'runs'), { recursive: true })
     const store = new RunStore(dir, now)
-    let text = ''
-    try {
-      text = await readFile(store.logPath, 'utf8')
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-    }
-    for (const line of text.split('\n')) {
-      if (!line.trim()) continue
-      try {
-        store.apply(JSON.parse(line) as RunEvent)
-      } catch {
-        // A line cut short by a crash mid-write; everything before it still counts.
-      }
-    }
+    for (const event of await readJsonl<RunEvent>(store.logPath)) store.apply(event)
     return store
   }
 
@@ -115,19 +115,29 @@ export class RunStore extends EventEmitter<RunStoreEvents> {
     // Log position orders runs: timestamps tie within a millisecond, the log never does.
     const seq = ++this.seq
     if (e.t === 'created') {
-      this.runs.set(e.run.id, { ...e.run })
+      // Runs logged before chats existed have no chat and no app-side read mark.
+      this.runs.set(e.run.id, {
+        ...e.run,
+        chatId: e.run.chatId ?? null,
+        fromUser: e.run.fromUser ?? [],
+        seen: e.run.seen ?? e.run.viewed,
+      })
       this.createdSeq.set(e.run.id, seq)
+      this.events.set(e.run.id, [e])
       return this.runs.get(e.run.id)
     }
     const run = this.runs.get(e.id)
     if (!run) return undefined
+    this.events.get(e.id)?.push(e)
     if (e.t === 'turn-ended' || e.t === 'interrupted') this.finishedSeq.set(e.id, seq)
     run.updatedAt = e.at
     switch (e.t) {
       case 'turn-started':
         run.status = 'running'
+        run.turns = Math.max(run.turns, e.turn)
         run.error = null
         run.finishedAt = null
+        if (e.fromUser) run.fromUser = [...run.fromUser, e.turn]
         break
       case 'turn-ended':
         run.turns = Math.max(run.turns, e.turn)
@@ -135,6 +145,7 @@ export class RunStore extends EventEmitter<RunStoreEvents> {
         run.error = e.error
         run.finishedAt = e.at
         run.viewed = false
+        run.seen = false
         if (e.sessionId) run.engineSessionId = e.sessionId
         break
       case 'stopped':
@@ -146,9 +157,11 @@ export class RunStore extends EventEmitter<RunStoreEvents> {
         run.error = e.reason
         run.finishedAt = e.at
         run.viewed = false
+        run.seen = false
         break
       case 'viewed':
-        run.viewed = true
+        if (e.by === 'app') run.seen = true
+        else run.viewed = true
         break
     }
     return run
@@ -158,11 +171,7 @@ export class RunStore extends EventEmitter<RunStoreEvents> {
   private async record(e: RunEvent): Promise<Run> {
     const run = this.apply(e)
     if (!run) throw new Error(`unknown run ${'id' in e ? e.id : e.run.id}`)
-    const line = `${JSON.stringify(e)}\n`
-    const write = this.writes.then(() => appendFile(this.logPath, line))
-    // One failed write must not block every later one.
-    this.writes = write.catch(() => undefined)
-    await write
+    await this.log.append(e)
     const copy = structuredClone(run)
     this.emit('change', copy)
     return copy
@@ -191,10 +200,13 @@ export class RunStore extends EventEmitter<RunStoreEvents> {
       session: `grip-${id}`,
       engineSessionId: null,
       retryOf: input.retryOf ?? null,
+      chatId: input.chatId ?? null,
       status: 'running',
       error: null,
       turns: 0,
+      fromUser: [],
       viewed: true,
+      seen: true,
       createdAt: at,
       updatedAt: at,
       finishedAt: null,
@@ -204,10 +216,10 @@ export class RunStore extends EventEmitter<RunStoreEvents> {
   }
 
   /** A message is going to the worker. Returns the turn number. */
-  async startTurn(id: string, message: string): Promise<number> {
+  async startTurn(id: string, message: string, options: { fromUser?: boolean } = {}): Promise<number> {
     const turn = this.must(id).turns + 1
     await writeFile(join(this.runDir(id), `turn-${turn}.in.md`), message)
-    await this.record({ t: 'turn-started', at: this.stamp(), id, turn })
+    await this.record({ t: 'turn-started', at: this.stamp(), id, turn, ...(options.fromUser ? { fromUser: true as const } : {}) })
     return turn
   }
 
@@ -235,9 +247,16 @@ export class RunStore extends EventEmitter<RunStoreEvents> {
     return this.record({ t: 'stopped', at: this.stamp(), id })
   }
 
-  async markViewed(id: string): Promise<Run> {
-    if (this.must(id).viewed) return structuredClone(this.must(id))
-    return this.record({ t: 'viewed', at: this.stamp(), id })
+  /** Mark a run read by its orchestrator (the default) or by you in the app. */
+  async markViewed(id: string, by: Reader = 'orchestrator'): Promise<Run> {
+    const run = this.must(id)
+    if (by === 'app' ? run.seen : run.viewed) return structuredClone(run)
+    return this.record({ t: 'viewed', at: this.stamp(), id, ...(by === 'app' ? { by: 'app' as const } : {}) })
+  }
+
+  /** Every event of one run, oldest first: the raw material of a chat's thread. */
+  history(id: string): RunEvent[] {
+    return structuredClone(this.events.get(id) ?? [])
   }
 
   /**
@@ -256,10 +275,15 @@ export class RunStore extends EventEmitter<RunStoreEvents> {
     return run ? structuredClone(run) : null
   }
 
-  /** Runs newest first, optionally only one status or one folder. */
-  list(filter: { status?: RunStatus; folder?: string } = {}): Run[] {
+  /** Runs newest first, optionally only one status, one folder or one chat (null: runs with no chat). */
+  list(filter: { status?: RunStatus; folder?: string; chatId?: string | null } = {}): Run[] {
     return [...this.runs.values()]
-      .filter(r => (!filter.status || r.status === filter.status) && (!filter.folder || r.folder === filter.folder))
+      .filter(
+        r =>
+          (!filter.status || r.status === filter.status) &&
+          (!filter.folder || r.folder === filter.folder) &&
+          (filter.chatId === undefined || r.chatId === filter.chatId),
+      )
       .sort((a, b) => (this.createdSeq.get(b.id) ?? 0) - (this.createdSeq.get(a.id) ?? 0))
       .map(r => structuredClone(r))
   }
@@ -280,9 +304,12 @@ export class RunStore extends EventEmitter<RunStoreEvents> {
   /**
    * The oldest finished run nobody has read yet, waiting up to `timeoutMs` for one. This is the
    * orchestrator's handoff: delegate several, then take results one at a time as they land.
+   * With `chatId`, only that chat's runs count (null: runs with no chat), unless `ids` names
+   * runs outright, so one chat never takes another's results.
    */
-  waitAny(options: { timeoutMs: number; ids?: readonly string[]; signal?: AbortSignal }): Promise<Run | null> {
-    const wanted = (r: Run) => REPORTABLE.includes(r.status) && !r.viewed && (!options.ids || options.ids.includes(r.id))
+  waitAny(options: { timeoutMs: number; ids?: readonly string[]; chatId?: string | null; signal?: AbortSignal }): Promise<Run | null> {
+    const mine = (r: Run) => (options.ids ? options.ids.includes(r.id) : options.chatId === undefined || r.chatId === options.chatId)
+    const wanted = (r: Run) => REPORTABLE.includes(r.status) && !r.viewed && mine(r)
     const ready = [...this.runs.values()]
       .filter(wanted)
       .sort((a, b) => (this.finishedSeq.get(a.id) ?? 0) - (this.finishedSeq.get(b.id) ?? 0))[0]

@@ -7,6 +7,9 @@ import { join } from 'node:path'
 
 import { afterEach, describe, expect, it } from 'vitest'
 
+import { ChatManager } from '../chats/manager.js'
+import { ChatStore } from '../chats/store.js'
+import type { ClawHistoryEntry } from '../claw/state.js'
 import { Worktrees } from '../git/worktrees.js'
 import { Quota } from '../quota/quota.js'
 import type { QuotaReaders } from '../quota/readers.js'
@@ -27,13 +30,14 @@ afterEach(async () => {
 class FakeClawStatus extends EventEmitter<{ status: [string] }> {
   status = 'ready'
   version: string | null = '7.23.4'
+  history?: ClawHistoryEntry[]
   set(status: string) {
     this.status = status
     this.emit('status', status)
   }
 }
 
-async function setup() {
+async function setup(withStatic = false) {
   const base = await realpath(await mkdtemp(join(tmpdir(), 'grip-web-')))
   cleanups.push(() => rm(base, { recursive: true, force: true }))
   const repo = join(base, 'app')
@@ -44,11 +48,25 @@ async function setup() {
   git(repo, 'commit', '-qm', 'init')
   const plain = join(base, 'notes')
   await mkdir(plain)
+  const staticDir = join(base, 'web-dist')
+  if (withStatic) {
+    await mkdir(staticDir)
+    await writeFile(join(staticDir, 'index.html'), '<h1>Grip</h1>')
+  }
 
   const store = await RunStore.open(join(base, 'home'))
   const claw = new FakeClaw()
   const worktrees = new Worktrees()
   const manager = new RunManager({ store, worktrees, claw })
+  const chatStore = await ChatStore.open(join(base, 'home'))
+  const chats = new ChatManager({
+    chats: chatStore,
+    runs: manager,
+    runStore: store,
+    claw,
+    secret: 'test-secret',
+    mcpUrl: () => 'http://127.0.0.1:18797/mcp',
+  })
   const window = { name: '5h', usedPercent: 90, resetsAt: '2099-01-01T00:00:00.000Z', stale: false, observedAt: null }
   const readers: QuotaReaders = {
     codex: async () => ({ provider: 'codex', windows: [window] }),
@@ -62,6 +80,8 @@ async function setup() {
   const web = await startWebHttp({
     manager,
     store,
+    chats,
+    chatStore,
     quota,
     worktrees,
     claw: clawStatus,
@@ -69,8 +89,10 @@ async function setup() {
     keepAwake: () => ({ supported: true, holding: store.running().length > 0 }),
     port: 0,
     host: 'windows-pc',
+    staticDir,
   })
   cleanups.push(() => web.close())
+  cleanups.push(() => chats.stopAll())
   const url = `http://127.0.0.1:${web.port}`
 
   /** A request as tailscale serve would pass it on from an allowed device. */
@@ -82,10 +104,34 @@ async function setup() {
     })
     return { status: res.status, body: (await res.json()) as any }
   }
-  return { base, repo, plain, store, claw, manager, quota, clawStatus, url, api }
+  return { base, repo, plain, store, chats, chatStore, claw, manager, quota, clawStatus, url, api }
 }
 
 describe('web API identity', () => {
+  it('includes update history in state when supplied by the supervisor', async () => {
+    const t = await setup()
+    t.clawStatus.history = [{ at: '2026-11-18T00:00:00.000Z', kind: 'updated', from: '7.23.4', to: '7.24.0' }]
+    expect((await t.api('GET', '/api/state')).body.claw.history).toEqual(t.clawStatus.history)
+  })
+
+  it('requires identity for the built app and leaves health public', async () => {
+    const t = await setup(true)
+    expect((await fetch(`${t.url}/`)).status).toBe(401)
+    expect((await fetch(`${t.url}/`, { headers: { 'Tailscale-User-Login': 'someone@github' } })).status).toBe(403)
+    const page = await fetch(`${t.url}/`, { headers: { 'Tailscale-User-Login': LOGIN } })
+    expect(page.status).toBe(200)
+    expect(await page.text()).toBe('<h1>Grip</h1>')
+    expect((await fetch(`${t.url}/health`)).status).toBe(200)
+    expect((await t.api('GET', '/api/missing')).status).toBe(404)
+  })
+
+  it('reports a missing build without affecting the API', async () => {
+    const t = await setup()
+    const page = await fetch(`${t.url}/`, { headers: { 'Tailscale-User-Login': LOGIN } })
+    expect(page.status).toBe(503)
+    expect(await page.text()).toContain('Web app not built')
+    expect((await t.api('GET', '/api/state')).status).toBe(200)
+  })
   it('answers /health to anyone, and nothing else without an allowed login', async () => {
     const t = await setup()
     expect((await fetch(`${t.url}/health`)).status).toBe(200)
@@ -105,7 +151,7 @@ describe('web API identity', () => {
 })
 
 describe('web API runs', () => {
-  it('delegates, shows the run, and marks it viewed when opened', async () => {
+  it('delegates, shows the run, and marks it seen by the app when opened', async () => {
     const t = await setup()
     const made = await t.api('POST', '/api/runs', { folder: t.plain, engine: 'agy', brief: { text: 'Say hi' } })
     expect(made.status).toBe(200)
@@ -125,8 +171,13 @@ describe('web API runs', () => {
     await t.manager.settled(made.body.id)
     expect(t.store.get(made.body.id)?.viewed).toBe(false)
     const detail = await t.api('GET', `/api/runs/${made.body.id}`)
-    expect(detail.body).toMatchObject({ status: 'done', unread: false, turns: [{ turn: 1, message: 'Say hi', output: 'hi' }] })
-    expect(t.store.get(made.body.id)?.viewed).toBe(true)
+    expect(detail.body).toMatchObject({
+      status: 'done',
+      unread: true,
+      unseen: false,
+      turns: [{ turn: 1, message: 'Say hi', output: 'hi' }],
+    })
+    expect(t.store.get(made.body.id)).toMatchObject({ viewed: false, seen: true })
   })
 
   it('messages, stops and retries a run on another engine', async () => {
@@ -140,6 +191,8 @@ describe('web API runs', () => {
 
     const followUp = await t.api('POST', `/api/runs/${run.id}/message`, { text: 'more' })
     expect(followUp.body).toMatchObject({ status: 'running' })
+    expect(t.store.get(run.id)?.fromUser).toContain(2)
+    expect((await t.store.turn(run.id, 1)).message).toBe('Do it')
     await t.claw.waitForSend(`grip-${run.id}`)
     t.claw.answer(`grip-${run.id}`, { output: 'done' })
     await t.manager.settled(run.id)
@@ -164,6 +217,43 @@ describe('web API runs', () => {
     expect(bad.status).toBe(400)
     expect(bad.body.error).toContain('engine')
     expect((await t.api('GET', '/api/nothing')).status).toBe(404)
+  })
+})
+
+describe('web API chats', () => {
+  it('starts, lists, reads, messages and stops a chat', async () => {
+    const t = await setup()
+    const made = await t.api('POST', '/api/chats', { folder: t.plain, engine: 'claude', message: 'Hello' })
+    expect(made.status).toBe(200)
+    expect(made.body).toMatchObject({ kind: 'grip', title: 'Hello', status: 'working' })
+    const id = made.body.id
+    expect((await t.api('GET', '/api/state')).body.chats).toEqual([expect.objectContaining({ id, runs: [] })])
+    const detail = await t.api('GET', `/api/chats/${id}`)
+    expect(detail.body).toMatchObject({ chat: { id }, runs: [], timeline: [{ kind: 'message', text: 'Hello' }] })
+    expect((await t.api('POST', `/api/chats/${id}/message`, { text: 'Follow up' })).status).toBe(200)
+    expect((await t.api('POST', `/api/chats/${id}/stop`, {})).body.status).toBe('stopped')
+    expect((await t.api('GET', '/api/chats/c-nope')).status).toBe(404)
+    expect((await t.api('POST', '/api/chats/c-nope/message', { text: 'x' })).status).toBe(404)
+    expect((await t.api('POST', '/api/chats', { folder: t.plain, engine: 'invalid', message: 'x' })).status).toBe(400)
+  })
+
+  it('stops working chats with stop-all', async () => {
+    const t = await setup()
+    const chat = (await t.api('POST', '/api/chats', { folder: t.plain, engine: 'claude', message: 'Hi' })).body
+    const all = await t.api('POST', '/api/stop-all', {})
+    expect(all.body.stoppedChats).toEqual([expect.objectContaining({ id: chat.id, status: 'stopped' })])
+  })
+
+  it('keeps a retried worker attached to its chat', async () => {
+    const t = await setup()
+    const chat = await t.chats.externalChat({ folder: t.plain, title: 'Fix the app' })
+    const run = await t.manager.delegate({ folder: t.plain, engine: 'codex', brief: { text: 'Fix' }, chatId: chat.id })
+    await t.claw.waitForSend(run.session)
+    await t.manager.stop(run.id)
+    await t.manager.settled(run.id)
+    const retry = await t.api('POST', `/api/runs/${run.id}/retry`, { engine: 'agy' })
+    expect(retry.body).toMatchObject({ chatId: chat.id, retryOf: run.id, engine: 'agy' })
+    expect((await t.api('GET', `/api/chats/${chat.id}`)).body.runs).toHaveLength(2)
   })
 })
 
@@ -196,7 +286,7 @@ describe('web API quota and worktrees', () => {
 })
 
 describe('web API events', () => {
-  it('streams the state first, then run, quota and Claw changes', async () => {
+  it('streams the state first, then chat, run, quota and Claw changes', async () => {
     const t = await setup()
     const events: { event: string; data: any }[] = []
     let text = ''
@@ -222,11 +312,13 @@ describe('web API events', () => {
     await until(1)
     expect(events[0]).toMatchObject({ event: 'state', data: { you: LOGIN, runs: [] } })
     await t.api('POST', '/api/runs', { folder: t.plain, engine: 'agy', brief: { text: 'Hi' } })
+    await t.api('POST', '/api/chats', { folder: t.plain, engine: 'claude', message: 'Hello' })
     t.clawStatus.set('updating')
     await t.quota.refresh(['codex'])
     await until(5)
     const kinds = events.map(e => e.event)
     expect(kinds).toContain('run')
+    expect(kinds).toContain('chat')
     expect(kinds).toContain('quota')
     expect(events.find(e => e.event === 'claw')?.data).toEqual({ status: 'updating', version: '7.23.4' })
     expect(events.find(e => e.event === 'run')?.data).toMatchObject({ title: 'Hi', status: 'running' })

@@ -83,6 +83,20 @@ describe('restart', () => {
 })
 
 describe('boot', () => {
+  it('loads update history and refreshes it after an update without exposing mutable state', async () => {
+    const t = setup({ current: '7.23.4', published: ['7.23.4', '7.25.0'] })
+    t.store.state.history.push({ at: '2026-11-17T00:00:00.000Z', kind: 'installed', from: null, to: '7.23.4' })
+    await t.supervisor.start()
+    expect(t.supervisor.history).toEqual(t.store.state.history)
+    await t.supervisor.checkForUpdate()
+    expect(t.supervisor.history).toEqual(t.store.state.history)
+    expect(t.supervisor.history.at(-1)).toMatchObject({ kind: 'updated', from: '7.23.4', to: '7.25.0' })
+    const copy = t.supervisor.history
+    copy[0]!.kind = 'gate-failed'
+    expect(t.supervisor.history[0]?.kind).toBe('installed')
+    await t.supervisor.stop()
+  })
+
   it('installs the newest in-range release when Claw is missing', async () => {
     const t = setup({ current: null, published: ['7.23.4', '7.24.0', '8.0.0'] })
     await t.supervisor.start()

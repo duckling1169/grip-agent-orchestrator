@@ -9,9 +9,15 @@ import type { RunManager } from '../runs/manager.js'
 import { present, summarize } from '../runs/present.js'
 import { ENGINES } from '../runs/store.js'
 import type { Run } from '../runs/store.js'
+import type { McpChats } from './http.js'
 
 const WAIT_DEFAULT_SEC = 120
 const WAIT_MAX_SEC = 600
+
+export type McpCaller = { chatId?: string; host?: string; chats?: McpChats }
+
+// A hosted chat can have more than one MCP session.
+const waitsByChatManager = new WeakMap<McpChats, Map<string, number>>()
 
 const ok = (value: unknown): CallToolResult => ({ content: [{ type: 'text', text: JSON.stringify(value, null, 2) }] })
 const fail = (error: unknown): CallToolResult => ({ content: [{ type: 'text', text: (error as Error).message }], isError: true })
@@ -24,12 +30,65 @@ async function guarded(work: () => Promise<unknown>): Promise<CallToolResult> {
   }
 }
 
+async function whileWaiting<T>(chats: McpChats | undefined, chatId: string | undefined, wait: () => Promise<T>): Promise<T> {
+  if (!chats || !chatId) return wait()
+  let counts = waitsByChatManager.get(chats)
+  if (!counts) {
+    counts = new Map()
+    waitsByChatManager.set(chats, counts)
+  }
+  const active = (counts.get(chatId) ?? 0) + 1
+  counts.set(chatId, active)
+  try {
+    if (active === 1) chats.setWaiting(chatId, true)
+    return await wait()
+  } finally {
+    const remaining = counts.get(chatId)! - 1
+    if (remaining > 0) {
+      counts.set(chatId, remaining)
+    } else {
+      counts.delete(chatId)
+      chats.setWaiting(chatId, false)
+    }
+  }
+}
+
 /**
  * Grip's tools for orchestrators. Any model that speaks MCP can delegate with them: start runs,
  * follow up, stop, and take finished results one at a time with `wait_any`.
  */
-export function createGripMcpServer(manager: RunManager, quota: Quota, version = '0.0.0'): McpServer {
-  const server = new McpServer({ name: 'grip', version })
+export function createGripMcpServer(manager: RunManager, quota: Quota, version = '0.0.0', caller: McpCaller = {}): McpServer {
+  const server = new McpServer(
+    { name: 'grip', version },
+    {
+      instructions:
+        'Use delegate to start workers asynchronously. Give your chat a short descriptive chat_title on the first delegation. ' +
+        'Use wait_any to review completed workers in your chat. To pick up work from another chat, find the runs with list and pass ' +
+        'their IDs as run_ids to wait_any, or read a specific run with result.',
+    },
+  )
+
+  let creatingChat: Promise<string> | undefined
+
+  async function chatForDelegation(folder: string, title?: string): Promise<string | undefined> {
+    const { chats } = caller
+    if (!chats) return caller.chatId
+    if (!caller.chatId && !creatingChat) {
+      // Concurrent first delegations must use the same chat creation.
+      creatingChat = chats.externalChat({ folder, host: caller.host, title }).then(chat => {
+        caller.chatId = chat.id
+        return chat.id
+      })
+      try {
+        return await creatingChat
+      } finally {
+        creatingChat = undefined
+      }
+    }
+    const chatId = caller.chatId ?? (await creatingChat)
+    if (title && chatId) await chats.rename(chatId, title)
+    return chatId
+  }
 
   server.registerTool(
     'delegate',
@@ -48,10 +107,12 @@ export function createGripMcpServer(manager: RunManager, quota: Quota, version =
         model: z.string().optional().describe("Model for the worker; the engine's default when left out"),
         effort: z.string().optional().describe('Reasoning effort, where the engine supports it'),
         retry_of: z.string().optional().describe('Id of an earlier run this one redoes from its brief'),
+        chat_title: z.string().optional().describe('Short title for this chat in Grip'),
       },
     },
     args =>
       guarded(async () => {
+        const chatId = await chatForDelegation(args.folder, args.chat_title?.trim())
         const run = await manager.delegate({
           folder: args.folder,
           engine: args.engine as Run['engine'],
@@ -59,6 +120,7 @@ export function createGripMcpServer(manager: RunManager, quota: Quota, version =
           ...(args.model ? { model: args.model } : {}),
           ...(args.effort ? { effort: args.effort } : {}),
           ...(args.retry_of ? { retryOf: args.retry_of } : {}),
+          ...(chatId ? { chatId } : {}),
         })
         const quotaNote = quota.noteFor(run.engine)
         return { ...summarize(run), ...(quotaNote ? { quotaNote } : {}) }
@@ -108,6 +170,7 @@ export function createGripMcpServer(manager: RunManager, quota: Quota, version =
       title: "Read a run's result",
       description: "A run's brief, every turn's message and output, git facts, and its full diff against where it started. Marks it read.",
       inputSchema: { run_id: z.string() },
+      annotations: { destructiveHint: false },
     },
     args => guarded(async () => present(await manager.details(args.run_id, { diff: true, markViewed: true }))),
   )
@@ -118,19 +181,24 @@ export function createGripMcpServer(manager: RunManager, quota: Quota, version =
       title: 'Wait for the next finished run',
       description:
         'Return the next run that has finished (done or failed) and has not been read, with its full result, waiting up to timeout_sec. ' +
-        'Returns null on timeout. Loop on this after delegating several tasks instead of polling each one.',
+        'Waits for runs in this chat by default. Pass run_ids to wait for specific runs from any chat. Returns null on timeout.',
       inputSchema: {
         timeout_sec: z.number().int().min(0).max(WAIT_MAX_SEC).optional().describe(`Default ${WAIT_DEFAULT_SEC}, at most ${WAIT_MAX_SEC}`),
         run_ids: z.array(z.string()).optional().describe('Only wait for these runs'),
       },
+      annotations: { destructiveHint: false },
     },
     (args, extra) =>
       guarded(async () => {
-        const details = await manager.waitAny({
-          timeoutMs: (args.timeout_sec ?? WAIT_DEFAULT_SEC) * 1000,
-          ...(args.run_ids ? { ids: args.run_ids } : {}),
-          signal: extra.signal,
-        })
+        const { chats, chatId } = caller
+        if (extra.signal.aborted || (chats && !chatId && !args.run_ids)) return null
+        const details = await whileWaiting(chats, chatId, () =>
+          manager.waitAny({
+            timeoutMs: (args.timeout_sec ?? WAIT_DEFAULT_SEC) * 1000,
+            ...(args.run_ids ? { ids: args.run_ids } : { chatId }),
+            signal: extra.signal,
+          }),
+        )
         return details ? present(details) : null
       }),
   )

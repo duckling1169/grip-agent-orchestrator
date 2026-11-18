@@ -56,6 +56,7 @@ const HOUR_MS = 60 * 60 * 1000
 export class ClawSupervisor extends EventEmitter<SupervisorEvents> {
   private _status: SupervisorStatus = 'stopped'
   private _version: string | null = null
+  private _history: ClawHistoryEntry[] = []
   private timer: NodeJS.Timeout | null = null
   private busy: Promise<unknown> | null = null
   private readonly range: string
@@ -72,6 +73,11 @@ export class ClawSupervisor extends EventEmitter<SupervisorEvents> {
   /** The Claw version running now, or null. */
   get version(): string | null {
     return this._version
+  }
+
+  /** Recent persisted update events, loaded at startup and refreshed when an event is recorded. */
+  get history(): readonly ClawHistoryEntry[] {
+    return structuredClone(this._history)
   }
 
   /**
@@ -165,6 +171,7 @@ export class ClawSupervisor extends EventEmitter<SupervisorEvents> {
   private async boot(): Promise<void> {
     this.setStatus('starting')
     const state = await this.options.store.load()
+    this._history = structuredClone(state.history)
     let installed = await this.options.packages.installed()
 
     if (!inRange(installed, this.range)) {
@@ -203,6 +210,7 @@ export class ClawSupervisor extends EventEmitter<SupervisorEvents> {
 
   private async update(): Promise<UpdateOutcome> {
     const state = await this.options.store.load()
+    this._history = structuredClone(state.history)
     let available: string[]
     try {
       available = await this.options.packages.available()
@@ -274,5 +282,6 @@ export class ClawSupervisor extends EventEmitter<SupervisorEvents> {
 
   private log(state: ClawState, entry: Omit<ClawHistoryEntry, 'at'>): void {
     state.history.push({ at: this.now(), ...entry })
+    this._history = structuredClone(state.history)
   }
 }
