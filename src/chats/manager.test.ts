@@ -160,6 +160,8 @@ it('runs a chat led over ACP and resumes its conversation on the next turn', asy
   const header = fake.log.newSessions[0]?.mcpServers[0]
   expect(header && 'headers' in header && chatOfToken('secret', header.headers[0]!.value.slice('Bearer '.length))).toBe(chat.id)
   expect(t.claw.starts).toHaveLength(0)
+  // The turn's end is reported just after the chat is marked idle.
+  await until(() => turnsEnded.length > 0)
   expect(turnsEnded).toEqual(['agy'])
 
   await t.manager.message(chat.id, 'Next')
