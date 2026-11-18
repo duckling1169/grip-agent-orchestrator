@@ -149,6 +149,16 @@ export class Worktrees {
     return { baseCommit, stat: statText, patch: [patch, ...added].filter(Boolean).join('\n'), untrackedFiles }
   }
 
+  /**
+   * Whether a worktree's work is all in `base` already: nothing uncommitted, and every commit on
+   * its branch reachable from `base`.
+   */
+  async merged(path: string, base: string): Promise<boolean> {
+    if (await this.git(path, ['status', '--porcelain', '--untracked-files=all'])) return false
+    const result = await this.run('git', ['-C', path, 'merge-base', '--is-ancestor', 'HEAD', base], { timeoutMs: 60_000 })
+    return result.code === 0
+  }
+
   /** The worktrees Grip made for a repo, newest last. */
   async list(repoRoot: string): Promise<GripWorktree[]> {
     const entries = parseWorktreeList(await this.git(repoRoot, ['worktree', 'list', '--porcelain']))

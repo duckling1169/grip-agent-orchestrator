@@ -19,6 +19,9 @@ export interface ClawApi {
   listSessions(): Promise<ClawSession[]>
 }
 
+/** How many of a repo's newest other runs `result` checks for overlapping changes. */
+const OVERLAP_RUNS = 20
+
 export const CLAW_ENGINE = Object.fromEntries(ENGINES.map(engine => [engine, engineSpec(engine).claw])) as Record<Engine, ClawEngine>
 
 /**
@@ -80,7 +83,8 @@ export type RunDetails = {
   facts: GitFacts | null
   diff: (WorktreeDiff & { truncated: boolean }) | null
   /** Files this run and another active run in the same repo have both changed. */
-  overlaps: { runId: string; title: string; files: string[] }[]
+  /** Other runs in the same repo whose unmerged work touches the same files; `running` when still working. */
+  overlaps: { runId: string; title: string; files: string[]; running: boolean }[]
 }
 
 export type RunManagerOptions = {
@@ -328,14 +332,25 @@ export class RunManager {
     this.options.onActivityChange?.(this.store.running().length)
   }
 
+  /**
+   * Other runs in the same repo that changed any of the same files and are not merged yet:
+   * working ones, and finished ones whose worktree still holds work that `base` lacks. Those are
+   * the clashes you meet when merging. Only the newest runs are checked, to keep `result` quick.
+   */
   private async overlaps(run: Run, files: string[]): Promise<RunDetails['overlaps']> {
     if (!run.repo || files.length === 0) return []
+    const root = run.repo.root
+    const others = this.store.list().filter(other => other.id !== run.id && other.repo?.root === root)
     const out: RunDetails['overlaps'] = []
-    for (const other of this.store.running()) {
-      if (other.id === run.id || other.repo?.root !== run.repo.root) continue
-      const theirs = await this.options.worktrees.facts(other.repo.worktree, other.repo.baseCommit).catch(() => null)
+    for (const other of others.slice(0, OVERLAP_RUNS)) {
+      const repo = other.repo!
+      const theirs = await this.options.worktrees.facts(repo.worktree, repo.baseCommit).catch(() => null)
       const both = theirs ? overlappingFiles(files, theirs.changedFiles) : []
-      if (both.length) out.push({ runId: other.id, title: other.title, files: both })
+      if (!both.length) continue
+      const running = other.status === 'running'
+      // A removed worktree fails here too, and has nothing left to clash.
+      if (!running && (await this.options.worktrees.merged(repo.worktree, repo.base).catch(() => true))) continue
+      out.push({ runId: other.id, title: other.title, files: both, running })
     }
     return out
   }

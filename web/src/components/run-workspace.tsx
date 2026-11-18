@@ -97,7 +97,7 @@ function RunGit({ run, now }: { run: RunDetail; now: number }) {
                 <a className={textLink} href={runHref(overlap.runId)}>
                   {overlap.title}
                 </a>{' '}
-                · {overlap.files.join(', ')}
+                · {overlap.running ? 'working' : 'not merged'} · {overlap.files.join(', ')}
               </li>
             ))}
           </ul>

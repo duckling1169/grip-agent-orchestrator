@@ -92,6 +92,21 @@ describe('facts and diff', () => {
   })
 })
 
+describe('merged', () => {
+  it('counts a worktree as merged only when it is clean and its branch is in the base', async () => {
+    const root = await repo()
+    const made = await wt.create({ root, base: 'main' }, 'claude', 'Small fix')
+    expect(await wt.merged(made.path, 'main')).toBe(true)
+    await writeFile(join(made.path, 'fix.txt'), 'fix\n')
+    expect(await wt.merged(made.path, 'main')).toBe(false)
+    git(made.path, 'add', '.')
+    git(made.path, 'commit', '-qm', 'Fix')
+    expect(await wt.merged(made.path, 'main')).toBe(false)
+    git(root, 'merge', '-q', made.branch)
+    expect(await wt.merged(made.path, 'main')).toBe(true)
+  })
+})
+
 describe('list and remove', () => {
   it('lists only Grip worktrees, and keeps a branch with unmerged commits', async () => {
     const root = await repo()

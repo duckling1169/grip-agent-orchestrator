@@ -245,7 +245,7 @@ Add a handoff action per engine only once it works on the PC. Messages sent in t
 - **If the folder is not a repo,** the worker runs there directly. Example: "fix my network settings" runs in your home folder.
 - **Nothing is copied into worktrees.** No `.env` handling. A worker that needs local config creates it.
 - **Cleanup is manual.** The app lists finished runs' worktrees with their age and disk size, with a Remove button. Nothing is deleted automatically.
-- **Overlap warning:** if another active run in the same repo has changed any of the same files, the run detail says so. Grip doesn't prevent it.
+- **Overlap warning:** if another run in the same repo has changed any of the same files and isn't merged yet, the run detail says so and whether that run is still working. A finished run counts until its worktree is clean and its branch is in the base, so two branches that would clash on merge are named before you merge either. Only a repo's 20 newest other runs are checked. Grip doesn't prevent overlaps.
 
 ### 6.3 Orphans and retries
 
@@ -492,7 +492,7 @@ Wake-on-LAN is not planned. A sleeping principal shows as offline.
 - **The test suite never calls real models.** A Claw `custom` engine preset runs a fake CLI that emits Claude-style stream-json (tool events, results, a `rate_limit_event`). It's used for `delegate` → `wait_any`, stop, message, retry and the update health gate.
 - **Unit tests** for the copied `logic.ts` pieces (bring over the existing `logic.test.ts` cases), the quota parsers (fixtures from real Codex RPC, agy `/usage` and Claude `rate_limit_event` payloads), worktree naming and protected-path checks.
 - **Auth tests:** missing header, wrong login, loopback without a header, MCP without its token.
-- **Scenario tests:** one user intent each ("run a council", "stop everything"), done by a scripted orchestrator through Grip's MCP tools against fake Claw. They check that Grip's tools are enough for the task, not how well a model uses them.
+- **Scenario tests** (`src/scenarios.test.ts`): one user intent each ("run a council", "stop everything"), done by a scripted orchestrator through Grip's MCP tools over HTTP against fake Claw and a real git repo (`src/testing/orchestrator.ts`). They check that Grip's tools are enough for the task, not how well a model uses them. A gap stays in the file as an expected failure (`it.fails`) until it is fixed.
 - **A manual smoke test** on the PC, run as a logon task: one tiny task per real engine, the same as the trial in §3.2.
 
 ## 17. Build order
@@ -527,7 +527,10 @@ Wake-on-LAN is not planned. A sleeping principal shows as offline.
      - Not tried live: none of the new CLIs is installed on the PC. On Windows, a CLI installed as a `.cmd` shim (npm's) cannot lead, since Grip spawns leaders with no shell.
 2. **Use it for real, then review what the app can't do.**
    - A few days of daily use, settling §18 on the way: protected paths per engine, the `mcp__grip` deny, background jobs after a turn, one MCP session per Claude Code conversation, a real sleep and shutdown push.
-   - Scenario tests (§16): one user intent each, such as "run a council" or "send this to the engine with quota left". A scripted orchestrator does it through Grip's MCP tools against fake Claw. An intent that can't be written as a test is a missing feature.
+   - Scenario tests (§16). Done for 11 intents: the engine with most quota left, a strong model, a council with a second round, stop everything, retry on another engine, review a new file and its branch, two workers on one file, an engine that isn't installed, a working or stuck worker, changing a worker's course, a brief file. Gaps they found:
+     - Fixed: overlap warnings counted only runs still working, so two finished, unmerged branches that touch the same file went unreported. They now count until merged (§6.2).
+     - No tool removes a merged run's worktree; only the app can. An orchestrator uses `git worktree remove` itself.
+     - A council's members are grouped only by their titles (step 4).
    - Compare what the API supports with what the app exposes.
    - Fix the top gaps from all three.
 3. **Look-and-feel review** of the whole app, once the functions settle.

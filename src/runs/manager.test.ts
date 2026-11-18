@@ -231,7 +231,7 @@ describe('message, stop and wait', () => {
     await writeFile(join(a.cwd, 'README.md'), 'changed by a\n')
     await writeFile(join(b.cwd, 'README.md'), 'changed by b\n')
     const details = await t.manager.details(a.id)
-    expect(details.overlaps).toEqual([{ runId: b.id, title: 'B', files: ['README.md'] }])
+    expect(details.overlaps).toEqual([{ runId: b.id, title: 'B', files: ['README.md'], running: true }])
   })
 
   it('deletes a working run: stops it, hides it, and keeps it deleted after a restart', async () => {
