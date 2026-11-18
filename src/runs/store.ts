@@ -5,12 +5,10 @@ import { join } from 'node:path'
 
 import { JsonlAppender, readJsonl } from '../jsonl.js'
 
-/** The engines a run can use, as Grip names them. Claw calls Codex's `codex-app`. */
-export type Engine = 'claude' | 'codex' | 'agy'
-export const ENGINES: readonly Engine[] = ['claude', 'codex', 'agy']
-
-/** How notifications and the CLI name each engine's worker: by its model family. */
-export const ENGINE_NAMES: Record<Engine, string> = { claude: 'Claude', codex: 'GPT', agy: 'Gemini' }
+// The engines a run can use live in src/engines.ts, with what each needs from Claw.
+export { ENGINE_NAMES, ENGINES } from '../engines.js'
+export type { Engine } from '../engines.js'
+import type { Engine } from '../engines.js'
 
 export type RunStatus = 'running' | 'done' | 'failed' | 'stopped'
 

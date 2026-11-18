@@ -13,6 +13,7 @@ import type { ClawHistoryEntry } from '../claw/state.js'
 import { diskUsage, samePath } from '../git/worktrees.js'
 import type { Worktrees } from '../git/worktrees.js'
 import { readJsonBody, sendJson } from '../http-util.js'
+import { EngineCatalog } from '../engines.js'
 import { ModelCatalog } from '../models.js'
 import type { Quota, QuotaSnapshot } from '../quota/quota.js'
 import { TOOLS } from '../quota/usage.js'
@@ -59,6 +60,8 @@ export type WebOptions = {
   staticDir?: string
   /** Each agent's models for the app's pickers. */
   models?: Pick<ModelCatalog, 'list'>
+  /** Which engines are installed here, for the app's pickers. */
+  engines?: Pick<EngineCatalog, 'list'>
   /** Which agents can lead a chat here, for the app's picker. */
   leaders?: Pick<LeaderCatalog, 'list'>
   /** Tailnet machines for the app's machine switcher. */
@@ -140,6 +143,7 @@ export async function startWebHttp(options: WebOptions): Promise<{ server: Serve
   const { manager, store, chats, chatStore, quota, worktrees, claw } = options
   const models = options.models ?? new ModelCatalog()
   const leaders = options.leaders ?? new LeaderCatalog()
+  const engines = options.engines ?? new EngineCatalog()
   const host = options.host ?? hostname()
   const streams = new Set<ServerResponse>()
   const suffix = options.trustedOrigin ? null : await tailnetSuffix()
@@ -244,6 +248,7 @@ export async function startWebHttp(options: WebOptions): Promise<{ server: Serve
     if (method === 'GET' && path === '/api/state') return state(login)
     if (method === 'GET' && path === '/api/models') return models.list()
     if (method === 'GET' && path === '/api/leaders') return leaders.list()
+    if (method === 'GET' && path === '/api/engines') return engines.list()
     if (method === 'GET' && path === '/api/machines') return (options.machines ?? listMachines)()
     if (method === 'GET' && path === '/api/folders') {
       const at = new URL(req.url ?? '/', 'http://127.0.0.1').searchParams.get('path')

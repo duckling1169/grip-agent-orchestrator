@@ -69,20 +69,24 @@ it('says why a leader is unavailable', async () => {
   })
 })
 
-it('offers Claude always and each ACP leader by its check, checking again after a failure', async () => {
-  let agy: LeaderCheck = { available: false, reason: 'agy is not installed' }
+it('offers Claude always, each ACP leader by its check and no other engine, checking a failed leader again', async () => {
+  let agy: LeaderCheck = { available: false, reason: 'agy failed to start' }
   const probed: string[] = []
   const catalog = new LeaderCatalog(async engine => {
     probed.push(engine)
-    return engine === 'agy' ? agy : { available: true }
+    if (engine === 'agy') return agy
+    return engine === 'codex' ? { available: true } : { available: false, reason: `${engine} is not installed` }
   })
-  await expect(catalog.list()).resolves.toEqual([
+  const first = await catalog.list()
+  expect(first.slice(0, 3)).toEqual([
     { engine: 'claude', available: true },
     { engine: 'codex', available: true },
-    { engine: 'agy', available: false, reason: 'agy is not installed' },
+    { engine: 'agy', available: false, reason: 'agy failed to start' },
   ])
+  expect(first).toContainEqual({ engine: 'cursor', available: false, reason: "Can't lead a chat" })
+  expect(first).toContainEqual({ engine: 'kimi', available: false, reason: 'kimi is not installed' })
   agy = { available: true }
   await expect(catalog.list()).resolves.toContainEqual({ engine: 'agy', available: true })
   await catalog.list()
-  expect(probed).toEqual(['codex', 'agy', 'codex', 'agy'])
+  expect(probed).toEqual(['codex', 'agy', 'kimi', 'deepseek', 'codex', 'agy', 'kimi', 'deepseek'])
 })

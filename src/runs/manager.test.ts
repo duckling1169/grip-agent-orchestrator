@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { Worktrees } from '../git/worktrees.js'
 import { GRIP_TOOLS, RunManager, WORKER_PROMPT } from './manager.js'
+import type { RunManagerOptions } from './manager.js'
 import { RunStore } from './store.js'
 import { FakeClaw } from '../testing/fake-claw.js'
 
@@ -19,7 +20,7 @@ afterEach(async () => {
   for (const d of dirs.splice(0)) await rm(d, { recursive: true, force: true })
 })
 
-async function setup() {
+async function setup(options: Partial<RunManagerOptions> = {}) {
   const base = await realpath(await mkdtemp(join(tmpdir(), 'grip-mgr-')))
   dirs.push(base)
   const repo = join(base, 'app')
@@ -47,11 +48,25 @@ async function setup() {
       claw.hangStops = false
       for (const s of [...claw.sessions.keys()]) await claw.stopSession(s)
     },
+    ...options,
   })
   return { base, repo, plain, store, claw, manager, activity, killed }
 }
 
 describe('delegate', () => {
+  it("starts Kimi through Claw's ACP preset, and refuses an engine that is not installed", async () => {
+    const t = await setup({ installed: engine => engine !== 'cursor' })
+    await expect(t.manager.delegate({ folder: t.plain, engine: 'cursor', brief: { text: 'Fix it' } })).rejects.toThrow(
+      'Cursor is not installed on this machine (no cursor-agent on PATH)',
+    )
+    const run = await t.manager.delegate({ folder: t.plain, engine: 'kimi', brief: { text: 'Fix it' } })
+    await t.claw.waitForSend(run.session)
+    expect(t.claw.starts.at(-1)).toMatchObject({ engine: 'acp', acpAgent: 'kimi-code' })
+    expect(t.claw.starts.at(-1)).not.toHaveProperty('permissionMode')
+    t.claw.answer(run.session, { output: 'ok' })
+    await t.manager.settled(run.id)
+  })
+
   it('runs Claude and agy workers in auto mode, so shell commands are not refused unasked', async () => {
     const t = await setup()
     for (const engine of ['agy', 'claude'] as const) {

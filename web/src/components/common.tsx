@@ -12,11 +12,45 @@ export const touchButton = 'min-h-11 md:min-h-8'
 /** The keyboard focus ring for rows and links that fill their space. */
 export const focusRing = 'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring'
 
-export const engines: Engine[] = ['claude', 'codex', 'agy']
+// The same engines as src/engines.ts, which the app cannot import: it reads the file system.
+export const engines: Engine[] = ['claude', 'codex', 'agy', 'gemini', 'cursor', 'grok', 'opencode', 'kimi', 'deepseek']
+/** The engines Grip reads quota for, which the quota table shows. */
+export const quotaEngines: Engine[] = ['claude', 'codex', 'agy']
 // Model families, not product names: Codex runs GPT models and Antigravity runs Gemini.
-export const engineNames: Record<Engine, string> = { claude: 'Claude', codex: 'GPT', agy: 'Gemini' }
-const engineMarks: Record<Engine, string> = { claude: '✻', codex: '◆', agy: '▲' }
-export const engineColors: Record<Engine, string> = { claude: 'text-claude', codex: 'text-codex', agy: 'text-agy' }
+export const engineNames: Record<Engine, string> = {
+  claude: 'Claude',
+  codex: 'GPT',
+  agy: 'Gemini',
+  gemini: 'Gemini CLI',
+  cursor: 'Cursor',
+  grok: 'Grok',
+  opencode: 'OpenCode',
+  kimi: 'Kimi',
+  deepseek: 'DeepSeek',
+}
+const engineMarks: Record<Engine, string> = {
+  claude: '✻',
+  codex: '◆',
+  agy: '▲',
+  gemini: '△',
+  cursor: '■',
+  grok: '✕',
+  opencode: '◇',
+  kimi: '●',
+  deepseek: '◐',
+}
+// Only the three engines with quota have colors of their own; the rest take the text color.
+export const engineColors: Record<Engine, string> = {
+  claude: 'text-claude',
+  codex: 'text-codex',
+  agy: 'text-agy',
+  gemini: 'text-agy',
+  cursor: 'text-foreground',
+  grok: 'text-foreground',
+  opencode: 'text-foreground',
+  kimi: 'text-foreground',
+  deepseek: 'text-foreground',
+}
 
 export function isEngine(value: string): value is Engine {
   return engines.some(engine => engine === value)

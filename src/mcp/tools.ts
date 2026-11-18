@@ -153,13 +153,13 @@ export function createGripMcpServer(
     {
       title: 'Delegate a task to a worker',
       description:
-        'Start a worker (Claude Code, Codex or Antigravity) on a task. Returns at once with the run; use wait_any to get the result. ' +
+        'Start a worker (Claude Code, Codex, Antigravity, or another agent the models tool lists as installed) on a task. Returns at once with the run; use wait_any to get the result. ' +
         'In a git repo the worker gets its own worktree on a grip/ branch; elsewhere it works in the folder itself. ' +
         'Give the brief as a file path (relative to folder, or absolute) or as text. ' +
         "Adds quotaNote when that engine's provider is low or out; the run starts either way.",
       inputSchema: {
         folder: z.string().optional().describe("Absolute path of the folder or repo to work in. A retry defaults to the old run's folder."),
-        engine: z.enum(ENGINES as [string, ...string[]]).describe('Which worker: claude, codex or agy'),
+        engine: z.enum(ENGINES as [string, ...string[]]).describe('Which worker: an engine the models tool lists'),
         brief_path: z.string().optional().describe('Path to a brief file describing the task'),
         brief_text: z.string().optional().describe('The task, written out, when there is no brief file'),
         model: z

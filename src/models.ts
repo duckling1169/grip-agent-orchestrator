@@ -1,6 +1,7 @@
 import { exec as defaultExec, spawnPiped as defaultSpawn } from './exec.js'
 import type { Exec, SpawnPiped } from './exec.js'
 import { codexCli, codexRpc } from './quota/readers.js'
+import type { EngineCatalog } from './engines.js'
 import type { Engine } from './runs/store.js'
 import { DEFAULT_SETTINGS, minutes } from './settings.js'
 
@@ -53,6 +54,24 @@ export class ModelCatalog {
       if (lists.some(l => l.error) && this.cached === entry) this.cached = null
     })
     return value
+  }
+}
+
+/**
+ * The model lists plus every other engine installed here, with no list of its own: it runs its
+ * agent's default model unless a model is named. So `models` also says which workers there are.
+ */
+export function withInstalledEngines(
+  catalog: Pick<ModelCatalog, 'list'>,
+  engines: Pick<EngineCatalog, 'list'>,
+): Pick<ModelCatalog, 'list'> {
+  return {
+    list: async () => {
+      const lists = await catalog.list()
+      const listed = new Set(lists.map(list => list.engine))
+      const others = engines.list().filter(info => info.installed && !listed.has(info.engine))
+      return [...lists, ...others.map((info): EngineModels => ({ engine: info.engine, models: [], error: null }))]
+    },
   }
 }
 

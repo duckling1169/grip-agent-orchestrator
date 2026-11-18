@@ -8,7 +8,10 @@ import { request as httpRequest } from 'node:http'
 
 import { afterText, errorText } from '../errors.js'
 
-export type ClawEngine = 'claude' | 'codex-app' | 'agy'
+export type ClawEngine = 'claude' | 'codex-app' | 'agy' | 'gemini' | 'cursor' | 'grok' | 'opencode' | 'acp'
+
+/** The permission modes Grip sets; Claw has more. */
+export type ClawPermissionMode = 'auto' | 'bypassPermissions'
 
 export type ClawHealth = { ok: boolean; version: string; sessions: number }
 
@@ -28,6 +31,8 @@ export type StartSessionOptions = {
   name: string
   cwd: string
   engine: ClawEngine
+  /** For the `acp` engine: one of Claw's bundled presets. Claw's HTTP API takes no inline agent. */
+  acpAgent?: string
   model?: string
   effort?: string
   /** The engine's conversation to continue instead of starting a new one. */
@@ -38,7 +43,7 @@ export type StartSessionOptions = {
   allowedTools?: string[]
   disallowedTools?: string[]
   /** Claw's permission mode; Grip sets it per engine (`PERMISSION_MODE`). */
-  permissionMode?: 'auto'
+  permissionMode?: ClawPermissionMode
   /** Claude only: added to the system prompt, as `--append-system-prompt`. */
   appendSystemPrompt?: string
 }

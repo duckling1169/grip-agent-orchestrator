@@ -6,7 +6,8 @@ import { ChatManager } from './chats/manager.js'
 import { ChatStore } from './chats/store.js'
 import { createClawSupervisor } from './claw/index.js'
 import { loadConfig } from './config.js'
-import { ModelCatalog } from './models.js'
+import { EngineCatalog } from './engines.js'
+import { ModelCatalog, withInstalledEngines } from './models.js'
 import type { ClawEngine } from './claw/index.js'
 import { loadOrCreateToken } from './fs-util.js'
 import { Worktrees } from './git/worktrees.js'
@@ -84,6 +85,8 @@ export async function startDaemon(options: DaemonOptions = {}) {
   let restarting: Promise<void> | undefined
   // Chats and workers can both hit their stop deadline; one restart kills the whole tree.
   const killWorkers = () => (restarting ??= supervisor.restart().finally(() => (restarting = undefined)))
+  // Workers on any engine Claw runs whose CLI is installed here, looked up again as the model lists are.
+  const engines = new EngineCatalog(undefined, undefined, minutes(config.settings.modelListRefreshMinutes))
   const manager = new RunManager({
     store,
     worktrees,
@@ -91,6 +94,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
     clawReady: () => supervisor.whenReady(),
     onActivityChange: activityChanged,
     onTurnEnded: engine => quota.afterTurn(engine),
+    installed: engine => engines.isInstalled(engine),
     turnTimeoutMs: minutes(config.settings.turnTimeoutMinutes),
     // Restarting Claw takes every engine process it started with it.
     killWorkers,
@@ -141,7 +145,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
   powerEvents.start()
 
   // One catalog for the orchestrator's models tool and the app's pickers.
-  const models = new ModelCatalog(undefined, undefined, minutes(config.settings.modelListRefreshMinutes))
+  const models = withInstalledEngines(new ModelCatalog(undefined, undefined, minutes(config.settings.modelListRefreshMinutes)), engines)
   const mcp = await startMcpHttp({
     manager,
     quota,
@@ -167,6 +171,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
     models,
     push,
     localToken: mcpToken,
+    engines,
     ...(options.onShutdownRequest ? { shutdown: options.onShutdownRequest } : {}),
   })
   log(`web API on http://127.0.0.1:${web.port} (publish it with tailscale serve)`)

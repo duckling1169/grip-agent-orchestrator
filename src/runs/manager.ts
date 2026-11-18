@@ -2,7 +2,8 @@ import { realpath, stat } from 'node:fs/promises'
 import { errorText } from '../errors.js'
 import { resolve } from 'node:path'
 
-import type { ClawEngine, ClawSendResult, ClawSession, StartSessionOptions } from '../claw/client.js'
+import type { ClawEngine, ClawPermissionMode, ClawSendResult, ClawSession, StartSessionOptions } from '../claw/client.js'
+import { ENGINE_NAMES, ENGINES, engineSpec } from '../engines.js'
 import { overlappingFiles } from '../git/worktrees.js'
 import type { GitFacts, Worktrees, WorktreeDiff } from '../git/worktrees.js'
 import { resolveBrief } from './briefs.js'
@@ -18,15 +19,19 @@ export interface ClawApi {
   listSessions(): Promise<ClawSession[]>
 }
 
-export const CLAW_ENGINE: Record<Engine, ClawEngine> = { claude: 'claude', codex: 'codex-app', agy: 'agy' }
+export const CLAW_ENGINE = Object.fromEntries(ENGINES.map(engine => [engine, engineSpec(engine).claw])) as Record<Engine, ClawEngine>
 
 /**
  * How each engine runs unattended (DESIGN §9.2). Nobody can answer a permission prompt, so a mode
- * that asks would refuse every shell command. Claude and agy use their auto modes, where the
- * engine's own reviewer approves commands; Codex already runs in its `workspace-write` sandbox
- * with no approval prompts. Without this, Claw's default `acceptEdits` blocks git, npm and tests.
+ * that asks would refuse every shell command. Claude, agy and Grok use their auto modes, where the
+ * engine's own reviewer approves commands; Gemini CLI has none, so it skips prompts. Codex already
+ * runs in its `workspace-write` sandbox with no approval prompts, Cursor with `--force`, and ACP
+ * agents are allowed by Claw. Without this, Claw's default `acceptEdits` blocks git, npm and tests.
  */
-export const PERMISSION_MODE: Record<Engine, 'auto' | undefined> = { claude: 'auto', codex: undefined, agy: 'auto' }
+export const PERMISSION_MODE = Object.fromEntries(ENGINES.map(engine => [engine, engineSpec(engine).permissionMode])) as Record<
+  Engine,
+  ClawPermissionMode | undefined
+>
 
 /**
  * Grip's MCP server as an orchestrator's config names it. Claude workers start with its tools
@@ -88,6 +93,8 @@ export type RunManagerOptions = {
   onActivityChange?: (running: number) => void
   /** Called after each turn ends, however it ended, so quota can be read again. */
   onTurnEnded?: (engine: Engine) => void
+  /** Whether an engine's CLI is installed here; a run on one that is not is refused at once. */
+  installed?: (engine: Engine) => boolean
   /**
    * Kills every worker at once, for Stop all when Claw does not stop a session in time. The
    * daemon restarts Claw, which takes every engine process it started with it.
@@ -132,6 +139,8 @@ export class RunManager {
   async delegate(input: DelegateInput): Promise<Run> {
     const original = input.retryOf ? this.store.get(input.retryOf) : null
     if (input.retryOf && !original) throw new Error(`unknown run ${input.retryOf}`)
+    if (this.options.installed && !this.options.installed(input.engine))
+      throw new Error(`${ENGINE_NAMES[input.engine]} is not installed on this machine (no ${engineSpec(input.engine).bin} on PATH)`)
     const asked = input.folder ?? original?.folder
     if (!asked) throw new Error('a folder is required')
     const folder = await realpath(resolve(asked)).catch(() => {
@@ -354,6 +363,7 @@ export class RunManager {
         name: run.session,
         cwd: run.cwd,
         engine: CLAW_ENGINE[run.engine],
+        ...(engineSpec(run.engine).acpAgent ? { acpAgent: engineSpec(run.engine).acpAgent } : {}),
         ...(PERMISSION_MODE[run.engine] ? { permissionMode: PERMISSION_MODE[run.engine] } : {}),
         ...(run.model ? { model: run.model } : {}),
         ...(run.effort ? { effort: run.effort } : {}),

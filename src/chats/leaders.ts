@@ -6,7 +6,8 @@ import { client, ndJsonStream, PROTOCOL_VERSION } from '@agentclientprotocol/sdk
 import { errorText } from '../errors.js'
 import { spawnPiped } from '../exec.js'
 import type { Exec, SpawnPiped } from '../exec.js'
-import type { Engine } from '../runs/store.js'
+import { ENGINES } from '../engines.js'
+import type { Engine } from '../engines.js'
 import { DEFAULT_SETTINGS, minutes } from '../settings.js'
 import { AcpChatTurns } from './acp-turns.js'
 import type { AcpCommand, StdioBridge } from './acp-turns.js'
@@ -24,7 +25,12 @@ export const ACP_LEADERS = {
     env: { NO_BROWSER: '1' },
   }),
   agy: (): AcpCommand => ({ command: 'agy', args: ['acp'] }),
+  // The same commands as Claw's bundled presets for these workers (`clawo engines`).
+  kimi: (): AcpCommand => ({ command: 'kimi', args: ['acp'] }),
+  deepseek: (): AcpCommand => ({ command: 'dsh', args: ['--profile', 'acp'] }),
 } satisfies Partial<Record<Engine, () => AcpCommand>>
+
+const isAcpLeader = (engine: Engine): engine is keyof typeof ACP_LEADERS => engine in ACP_LEADERS
 
 const BRIDGE_AUTH_ENV = 'GRIP_AUTHORIZATION'
 
@@ -48,10 +54,10 @@ export const mcpRemoteBridge: StdioBridge = mcp => ({
 })
 
 export function acpLeaders(options: { spawn?: SpawnPiped; exec?: Exec } = {}): Partial<Record<Engine, ChatTurns>> {
-  return {
-    codex: new AcpChatTurns(ACP_LEADERS.codex(), { ...options, bridge: mcpRemoteBridge }),
-    agy: new AcpChatTurns(ACP_LEADERS.agy(), { ...options, bridge: mcpRemoteBridge }),
-  }
+  const engines = Object.keys(ACP_LEADERS) as (keyof typeof ACP_LEADERS)[]
+  return Object.fromEntries(
+    engines.map(engine => [engine, new AcpChatTurns(ACP_LEADERS[engine](), { ...options, bridge: mcpRemoteBridge })]),
+  )
 }
 
 export type LeaderCheck = { available: true } | { available: false; reason: string }
@@ -110,15 +116,19 @@ export class LeaderCatalog {
 
   list(): Promise<EngineLeader[]> {
     if (this.cached && this.now() - this.cached.at < this.cacheMs) return this.cached.value
-    const engines = Object.keys(ACP_LEADERS) as (keyof typeof ACP_LEADERS)[]
-    const value = Promise.all(engines.map(async engine => ({ engine, ...(await this.probe(engine)) }))).then((acp): EngineLeader[] => [
-      { engine: 'claude', available: true },
-      ...acp,
-    ])
+    const value = Promise.all(
+      ENGINES.map(async (engine): Promise<EngineLeader> => {
+        if (engine === 'claude') return { engine, available: true }
+        if (!isAcpLeader(engine)) return { engine, available: false, reason: "Can't lead a chat" }
+        return { engine, ...(await this.probe(engine)) }
+      }),
+    )
     const entry = { at: this.now(), value }
     this.cached = entry
+    // An installed leader that failed its check is checked again on the next ask.
     void value.then(list => {
-      if (list.some(l => !l.available) && this.cached === entry) this.cached = null
+      const failed = list.some(l => !l.available && isAcpLeader(l.engine) && !l.reason.endsWith('is not installed'))
+      if (failed && this.cached === entry) this.cached = null
     })
     return value
   }

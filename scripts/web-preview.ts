@@ -16,6 +16,7 @@ import type { Engine } from '../src/runs/store.js'
 import { RunStore } from '../src/runs/store.js'
 import { FakeClaw } from '../src/testing/fake-claw.js'
 import { acpLeaders } from '../src/chats/leaders.js'
+import { ENGINE_NAMES } from '../src/engines.js'
 import { CLAUDE_MODELS } from '../src/models.js'
 import { fakeAcpAgent } from '../src/testing/fake-acp-agent.js'
 import type { Machine } from '../src/web/machines.js'
@@ -136,11 +137,16 @@ async function startPreview(name: Name, seed: (s: Seed) => Promise<void>, used: 
         },
       ],
     },
+    // As if Kimi were installed too, so its worker and leader show.
+    engines: {
+      list: () => (['claude', 'codex', 'agy', 'kimi'] as const).map(engine => ({ engine, name: ENGINE_NAMES[engine], installed: true })),
+    },
     leaders: {
       list: async () => [
         { engine: 'claude', available: true },
         { engine: 'codex', available: true },
         { engine: 'agy', available: false, reason: 'agy is not installed' },
+        { engine: 'kimi', available: true },
       ],
     },
   })

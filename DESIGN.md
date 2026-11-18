@@ -170,7 +170,7 @@ A **chat** is one orchestrator conversation. Every run belongs to the chat that 
 - **Waiting on workers:** while its turn sits in `wait_any`, the app says it is waiting on its workers. If the chat is idle when one of its workers finishes, Grip sends it a one-line note, so it reviews without you. That costs a turn of its own quota, by design.
 - **Live view:** Claw plain sessions have no event stream (§7.3), so the chat shows "working on its reply" until the turn ends, then the reply.
 - **Stop:** stops its turn and every worker it manages.
-- **Which models:** Claude leads through Claw, which passes `--mcp-config` to Claude sessions only. Codex and agy lead through ACP (below).
+- **Which models:** Claude leads through Claw, which passes `--mcp-config` to Claude sessions only. Codex, agy, Kimi (`kimi acp`) and DeepSeek (`dsh --profile acp`) lead through ACP (below). Workers run on any engine in `src/engines.ts` whose CLI is installed.
 
 **Leaders through ACP.** Each leader needs Grip's tools for its own session only. Checked on the PC (2026-11-18):
 
@@ -517,13 +517,14 @@ Wake-on-LAN is not planned. A sleeping principal shows as offline.
    - **Leaders through ACP** (§5.1), in this order:
      1. Done: `ChatTurns` runs a turn through Claw (Claude, as now) or ACP.
      2. Done: the ACP turn runner (`src/chats/acp-turns.ts`), tested against a fake ACP agent.
-     3. Done: presets for agy (`agy acp`) and Codex (`codex-acp` 2.7.0, with its own pinned Codex sharing your `~/.codex` login), the `mcp-remote` bridge and a leader check that only sends `initialize`. ACP agents from `config.json` come with the workers below, which need the same wider engine list.
+     3. Done: presets for agy (`agy acp`) and Codex (`codex-acp` 2.7.0, with its own pinned Codex sharing your `~/.codex` login), the `mcp-remote` bridge and a leader check that only sends `initialize`. Kimi and DeepSeek leaders came with the workers below.
      4. Done: the app offers every leader that passes the check (`GET /api/leaders`, kept as long as the model lists) when you start a chat, says why the others cannot lead, and names the chat's leader in its screen.
      5. Done on the PC (2026-11-18): a Codex-led chat and an agy-led chat each delegated to a Claude Haiku worker, waited for it and reviewed its diff, in under a minute each.
-   - **Workers through Claw.** Claw already runs `grok`, `opencode`, ACP agents (`-e acp --acp-agent`, with presets such as `dsh` for DeepSeek and `kimi-code`) and `custom` engines. Grip narrows this to three in `Engine` and `ClawEngine`. Pass the others through:
-     - `delegate` takes the engine and an optional ACP preset.
-     - Extra engines are listed in `config.json`, for example `"workers": ["acp:dsh"]`. The health gate checks their sign-in, and `grip status` and the app say when one is broken. Each is signed in once on the PC.
-     - No quota or model list for them, so they show "not tracked".
+   - **Workers through Claw.** Done: `src/engines.ts` lists every engine Claw 7.23 runs (Claude, Codex, agy, Gemini CLI, Cursor, Grok, OpenCode, and Kimi and DeepSeek through Claw's bundled ACP presets) with its Claw engine, preset, permission mode and CLI.
+     - Grip finds each CLI on PATH. `delegate`, `models` and the app offer only installed engines, and a run on any other is refused at once. `GET /api/engines` serves the list.
+     - No quota or model list for the new ones: they run their agent's default model unless one is named, and show "Quota unknown".
+     - Not done: agents from `config.json`. Claw's HTTP API starts only its bundled ACP presets, so Grip would have to run those workers itself over ACP. Add it when one is wanted.
+     - Not tried live: none of the new CLIs is installed on the PC. On Windows, a CLI installed as a `.cmd` shim (npm's) cannot lead, since Grip spawns leaders with no shell.
 2. **Use it for real, then review what the app can't do.**
    - A few days of daily use, settling §18 on the way: protected paths per engine, the `mcp__grip` deny, background jobs after a turn, one MCP session per Claude Code conversation, a real sleep and shutdown push.
    - Scenario tests (§16): one user intent each, such as "run a council" or "send this to the engine with quota left". A scripted orchestrator does it through Grip's MCP tools against fake Claw. An intent that can't be written as a test is a missing feature.

@@ -71,10 +71,12 @@ export class Quota extends EventEmitter<{ change: [QuotaSnapshot] }> {
 
   /**
    * After a worker turn ends, read that provider again in the background. Claude is skipped:
-   * Claw keeps the turn's `rate_limit_event` to itself, and a probe would spend quota.
+   * Claw keeps the turn's `rate_limit_event` to itself, and a probe would spend quota. Engines
+   * Grip reads no quota for are skipped too.
    */
-  afterTurn(provider: ToolId): void {
-    if (!FREE_PROVIDERS.includes(provider)) return
+  afterTurn(engine: string): void {
+    const provider = TOOLS.find(tool => tool === engine)
+    if (!provider || !FREE_PROVIDERS.includes(provider)) return
     const now = this.now()
     if (now - (this.lastAuto.get(provider) ?? -Infinity) < AFTER_TURN_GAP_MS) return
     this.lastAuto.set(provider, now)
@@ -96,8 +98,9 @@ export class Quota extends EventEmitter<{ change: [QuotaSnapshot] }> {
   }
 
   /** A line for `delegate` when this provider is low or out. Information only, never a block. */
-  noteFor(provider: ToolId): string | null {
-    const mine = this.snapshot().providers.filter(p => p.provider === provider)
+  noteFor(engine: string): string | null {
+    const mine = this.snapshot().providers.filter(p => p.provider === engine)
+    if (!mine.length) return null
     const v = verdict(mine, this.now())
     return v.tone === 'warn' || v.tone === 'alert' ? v.text : null
   }

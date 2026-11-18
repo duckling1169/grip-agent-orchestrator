@@ -18,7 +18,7 @@ import {
   chatStatusText,
   EngineMark,
   engineNames,
-  engines,
+  quotaEngines,
   ErrorBanner,
   focusRing,
   folderName,
@@ -394,7 +394,7 @@ export function QuotaStrip({ snapshot, now, offline }: { snapshot: QuotaSnapshot
             {WINDOW_LABELS[name]!.short}
           </span>
         ))}
-        {engines.map(engine => {
+        {quotaEngines.map(engine => {
           const provider = snapshot.providers.find(item => item.provider === engine)
           const readings = pickQuotaWindows(provider?.windows)
           return (

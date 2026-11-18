@@ -16,6 +16,7 @@ import { ModelFields } from './model-fields.js'
 import { ResponsiveDialog } from './responsive-dialog.js'
 
 const readLeaders = (_: string, signal: AbortSignal) => api.leaders(signal)
+const readEngines = (_: string, signal: AbortSignal) => api.engines(signal)
 const skipLeaders = async () => null
 
 type StartMode = { kind: 'chat' | 'worker' } | { kind: 'retry'; run: RunSummary }
@@ -99,6 +100,11 @@ export function StartDialog({
   const isChat = mode.kind === 'chat'
   // Only a chat asks which agents can lead; the check starts each agent briefly.
   const leaders = useDetail(isChat ? 'leaders' : 'none', isChat ? readLeaders : skipLeaders)
+  // Every engine whose CLI is installed here; until that is known, the three Grip started with.
+  const installed = useDetail('engines', readEngines)
+  const offered = installed.data
+    ? engines.filter(option => installed.data?.some(info => info.engine === option && info.installed))
+    : engines.slice(0, 3)
   const isRetry = mode.kind === 'retry'
   const title = isChat ? 'Start a chat' : isRetry ? 'Retry with another agent' : 'Start one worker'
   const folders = [
@@ -176,7 +182,7 @@ export function StartDialog({
               setEffort('')
             }}
           >
-            {engines.map(option => {
+            {offered.map(option => {
               const leader = isChat ? leaders.data?.find(item => item.engine === option) : undefined
               const unavailable = isChat && option !== 'claude' && !leader?.available
               const why = leader && !leader.available ? leader.reason : leaders.error ? "Couldn't check" : 'Checking…'
