@@ -173,8 +173,8 @@ it('preserves a stopped turn when the chat is resumed', async () => {
   await t.manager.stop(chat.id)
   await until(() => !t.claw.sessions.has(chat.session!))
   await until(() => t.chats.get(chat.id)?.status === 'stopped')
-  // The old turn's cleanup runs asynchronously after stop.
-  await new Promise(resolve => setTimeout(resolve, 20))
+  // The old turn's cleanup runs asynchronously after stop; a fixed wait was too short on slow CI.
+  await until(() => !t.manager['busy'].has(chat.id))
   await t.manager.message(chat.id, 'Second')
   await t.claw.waitForSend(chat.session!)
   expect((await t.chats.turn(chat.id, 1)).message).toBe('First')
