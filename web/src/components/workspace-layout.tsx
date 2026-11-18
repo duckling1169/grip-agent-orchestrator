@@ -8,7 +8,7 @@ import { EngineMark, ErrorBanner, touchButton } from './common.js'
 
 export const contentWidth = 'mx-auto w-full max-w-4xl px-4 sm:px-6 lg:px-8'
 
-export const composerFrame = 'shrink-0 border-t bg-background pt-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)]'
+export const composerFrame = 'shrink-0 bg-background pt-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)]'
 
 // Keep Radix's intrinsic-width wrapper from expanding the viewport for code blocks and diffs.
 export const scrollFrame = 'min-h-0 min-w-0 flex-1 [&_[data-slot=scroll-area-viewport]>div]:block!'

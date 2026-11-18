@@ -71,19 +71,23 @@ function WorkerCard({
 
 function TimelineItem({ entry, runs, now }: { entry: TimelineEntry; runs: RunSummary[]; now: number }) {
   if (entry.kind === 'message' || entry.kind === 'reply') {
-    const from = entry.kind === 'reply' ? 'Claude' : entry.from === 'grip' ? 'Grip' : 'You'
+    // Yours sit on the right in a bubble and Claude's on the left, so neither needs a name. A note
+    // Grip sent the chat is neither, so it alone says where it came from.
     const user = entry.kind === 'message' && entry.from === 'user'
+    const fromGrip = entry.kind === 'message' && entry.from === 'grip'
     return (
-      <li
-        className={`grid min-w-0 gap-2 wrap-anywhere ${user ? 'ml-auto max-w-[92%] rounded-xl rounded-br-sm border bg-muted/50 px-4 py-3' : ''}`}
-      >
-        <div className="flex flex-wrap items-baseline gap-x-2 text-xs text-muted-foreground">
-          <strong className="font-medium text-foreground">{from}</strong>
-          <Time at={entry.at} />
-          {entry.text && <CopyButton text={entry.text} className="ml-auto self-center" />}
-        </div>
-        {entry.text && <Markdown text={entry.text} />}
+      <li className={`grid min-w-0 gap-1 wrap-anywhere ${user ? 'ml-auto max-w-[92%] justify-items-end' : ''}`}>
+        {entry.text && (
+          <div className={user ? 'min-w-0 rounded-xl rounded-br-sm border bg-muted/50 px-4 py-3' : 'min-w-0'}>
+            <Markdown text={entry.text} />
+          </div>
+        )}
         {entry.kind === 'reply' && <ErrorBanner text={entry.error} />}
+        <div className="flex items-center gap-1 text-xs text-muted-foreground">
+          {entry.text && <CopyButton text={entry.text} />}
+          {fromGrip && <span>Grip</span>}
+          <Time at={entry.at} />
+        </div>
       </li>
     )
   }
