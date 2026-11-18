@@ -1,5 +1,6 @@
+import { timingSafeEqual } from 'node:crypto'
 import { createServer } from 'node:http'
-import type { IncomingMessage, Server, ServerResponse } from 'node:http'
+import type { IncomingHttpHeaders, IncomingMessage, Server, ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { hostname } from 'node:os'
 
@@ -66,7 +67,15 @@ export type WebOptions = {
   trustedOrigin?: (origin: string) => boolean
   /** Web Push to devices that turned notifications on (DESIGN §13). */
   push?: Pick<PushNotifier, 'publicKey' | 'device' | 'subscribe' | 'setMuted' | 'unsubscribe' | 'test'>
+  /**
+   * Lets `grip status` and `grip stop-all` on this machine call the API: a request with no
+   * Tailscale identity that carries this token as a bearer acts as the local user.
+   */
+  localToken?: string
 }
+
+/** The login a request from `grip` on this machine acts as. */
+export const LOCAL_LOGIN = 'local'
 
 class HttpError extends Error {
   constructor(
@@ -368,7 +377,9 @@ export async function startWebHttp(options: WebOptions): Promise<{ server: Serve
       return void res.end()
     }
     if (req.method === 'GET' && path === '/health') return sendJson(res, 200, { ok: true, app: 'grip' })
-    const who = identify(req.headers, options.allowedLogins)
+    const who = localCaller(req.headers, options.localToken)
+      ? { ok: true as const, login: LOCAL_LOGIN }
+      : identify(req.headers, options.allowedLogins)
     if (!who.ok) return sendJson(res, who.status, { error: who.error })
     const refused = crossSiteWrite(req.method ?? 'GET', req.headers, cors ? trusted : undefined)
     if (refused) return sendJson(res, 403, { error: refused })
@@ -398,3 +409,14 @@ export async function startWebHttp(options: WebOptions): Promise<{ server: Serve
 }
 
 const STREAMING = Symbol('streaming')
+
+/**
+ * `grip` on this machine: the bearer token and no Tailscale identity. `tailscale serve` always
+ * adds the identity to device requests, so a device never counts as local even with the token.
+ */
+function localCaller(headers: IncomingHttpHeaders, token: string | undefined): boolean {
+  if (!token || headers['tailscale-user-login']) return false
+  const given = Buffer.from(headers.authorization ?? '')
+  const expected = Buffer.from(`Bearer ${token}`)
+  return given.length === expected.length && timingSafeEqual(given, expected)
+}

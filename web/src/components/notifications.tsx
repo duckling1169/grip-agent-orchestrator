@@ -10,6 +10,7 @@ const EVENT_LABELS: Record<PushEvent, string> = {
   'run-done': 'A worker finishes',
   'run-failed': 'A worker fails',
   'claw-rolled-back': 'A Claw update is rolled back',
+  'principal-offline': 'This computer goes to sleep or shuts down',
 }
 
 type Status =

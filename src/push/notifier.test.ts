@@ -114,6 +114,27 @@ describe('PushNotifier', () => {
     })
   })
 
+  it('says when this machine goes to sleep or shuts down, and has sent it by the time it returns', async () => {
+    const t = await setup()
+    await t.push.subscribe('you@github', phone)
+    await t.push.subscribe('you@github', laptop)
+    await t.push.setMuted(laptop.endpoint, 'you@github', ['principal-offline'])
+    await t.push.offline('windows-pc', 'sleep')
+    expect(t.sent).toEqual([
+      {
+        endpoint: phone.endpoint,
+        message: {
+          title: 'windows-pc is going to sleep',
+          body: 'Grip and its workers are offline until it is back.',
+          url: '/',
+          tag: 'principal-offline',
+        },
+      },
+    ])
+    await t.push.offline('windows-pc', 'logoff')
+    expect(t.sent[1]?.message.title).toBe('You signed out of windows-pc')
+  })
+
   it('drops a device the push service says is gone, and logs other failures', async () => {
     const t = await setup(endpoint =>
       endpoint === phone.endpoint

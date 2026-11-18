@@ -1,3 +1,4 @@
+import { hostname } from 'node:os'
 import { join } from 'node:path'
 
 import { ChatManager } from './chats/manager.js'
@@ -12,6 +13,7 @@ import { DEFAULT_MCP_PORT, startMcpHttp } from './mcp/http.js'
 import { gripPaths } from './paths.js'
 import { assertNotElevated } from './power/elevation.js'
 import { KeepAwake } from './power/keep-awake.js'
+import { PowerEvents } from './power/power-events.js'
 import { PushNotifier } from './push/notifier.js'
 import { Quota } from './quota/quota.js'
 import { CliQuotaReaders } from './quota/readers.js'
@@ -122,6 +124,16 @@ export async function startDaemon(options: DaemonOptions = {}) {
   })
   push.watchRuns(store)
   push.watchClaw(supervisor)
+  // Sleep, shutdown and signing out; stopping or restarting Grip itself sends nothing.
+  const powerEvents = new PowerEvents({
+    ...(options.testing ? { command: null } : {}),
+    log,
+    onOffline: why => {
+      log(`this machine is going offline (${why})`)
+      return push.offline(hostname(), why)
+    },
+  })
+  powerEvents.start()
 
   // One catalog for the orchestrator's models tool and the app's pickers.
   const models = new ModelCatalog(undefined, undefined, minutes(config.settings.modelListRefreshMinutes))
@@ -149,6 +161,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
     port: options.webPort ?? DEFAULT_WEB_PORT,
     models,
     push,
+    localToken: mcpToken,
   })
   log(`web API on http://127.0.0.1:${web.port} (publish it with tailscale serve)`)
   if (config.allowedLogins.length === 0)
@@ -171,6 +184,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
       await supervisor.stop()
       quota.stopTimer()
       keepAwake.release()
+      powerEvents.stop()
     })())
 
   return { manager, store, chats, chatStore, quota, supervisor, mcpPort: mcp.port, webPort: web.port, stop }

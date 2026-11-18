@@ -9,6 +9,9 @@ import { JsonlAppender, readJsonl } from '../jsonl.js'
 export type Engine = 'claude' | 'codex' | 'agy'
 export const ENGINES: readonly Engine[] = ['claude', 'codex', 'agy']
 
+/** How notifications and the CLI name each engine's worker: by its model family. */
+export const ENGINE_NAMES: Record<Engine, string> = { claude: 'Claude', codex: 'GPT', agy: 'Gemini' }
+
 export type RunStatus = 'running' | 'done' | 'failed' | 'stopped'
 
 export type Brief = { kind: 'path'; path: string } | { kind: 'text'; text: string }

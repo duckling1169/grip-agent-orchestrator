@@ -1,15 +1,16 @@
 import type { EventEmitter } from 'node:events'
 
 import { readJson, writeFileAtomic } from '../fs-util.js'
+import { ENGINE_NAMES } from '../runs/store.js'
 import type { Run, RunStatus } from '../runs/store.js'
 import { createVapidKeys, webPushSender } from './web-push.js'
 import type { PushSender, PushSubscriptionJson, VapidKeys } from './web-push.js'
 
 /**
- * What Grip notifies about (DESIGN §13). Each device mutes any of them. Admin requests and the
- * principal going offline come with the admin flow and `grip install`.
+ * What Grip notifies about (DESIGN §13). Each device mutes any of them. Admin requests come with
+ * the admin flow.
  */
-export const PUSH_EVENTS = ['run-done', 'run-failed', 'claw-rolled-back'] as const
+export const PUSH_EVENTS = ['run-done', 'run-failed', 'claw-rolled-back', 'principal-offline'] as const
 export type PushEvent = (typeof PUSH_EVENTS)[number]
 
 /** A notification's whole payload: a title and a line, never code or output. */
@@ -17,8 +18,6 @@ export type PushMessage = { title: string; body: string; url: string; tag: strin
 
 type Device = PushSubscriptionJson & { login: string; addedAt: string; muted: PushEvent[] }
 type PushFile = { vapid: VapidKeys; devices: Device[] }
-
-const ENGINE_NAMES: Record<Run['engine'], string> = { claude: 'Claude', codex: 'GPT', agy: 'Gemini' }
 
 type RunEvents = { change: [Run] }
 type RolledBack = { attempted: string; to: string; reason: string }
@@ -145,6 +144,17 @@ export class PushNotifier {
         url: '/',
         tag: 'claw-update',
       })
+    })
+  }
+
+  /** Tell devices this machine is about to go offline, before the network goes. */
+  offline(host: string, why: 'sleep' | 'shutdown' | 'logoff'): Promise<void> {
+    const title = { sleep: `${host} is going to sleep`, shutdown: `${host} is shutting down`, logoff: `You signed out of ${host}` }[why]
+    return this.notify('principal-offline', {
+      title,
+      body: 'Grip and its workers are offline until it is back.',
+      url: '/',
+      tag: 'principal-offline',
     })
   }
 

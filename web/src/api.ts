@@ -33,7 +33,7 @@ function write<T>(path: string, body: unknown = {}, method: 'POST' | 'DELETE' = 
   return request<T>(path, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }, local)
 }
 
-export type PushEvent = 'run-done' | 'run-failed' | 'claw-rolled-back'
+export type PushEvent = 'run-done' | 'run-failed' | 'claw-rolled-back' | 'principal-offline'
 export type PushDevice = { muted: PushEvent[] }
 
 /**

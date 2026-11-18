@@ -21,6 +21,7 @@ import { tailnetOrigin } from './identity.js'
 import { startWebHttp } from './server.js'
 
 const LOGIN = 'duckling1169@github'
+const LOCAL_TOKEN = 'a'.repeat(64)
 const git = (cwd: string, ...args: string[]) =>
   execFileSync('git', ['-c', 'user.name=grip-test', '-c', 'user.email=grip@test', '-C', cwd, ...args], { encoding: 'utf8' }).trim()
 
@@ -101,6 +102,7 @@ async function setup(withStatic = false) {
     staticDir,
     models: { list: async () => [{ engine: 'codex', models: [], error: null }] },
     trustedOrigin: origin => tailnetOrigin(origin, '.tail.ts.net'),
+    localToken: LOCAL_TOKEN,
   })
   cleanups.push(() => web.close())
   cleanups.push(() => chats.stopAll())
@@ -150,6 +152,22 @@ describe('web API identity', () => {
     const stranger = await fetch(`${t.url}/api/state`, { headers: { 'Tailscale-User-Login': 'someone@github' } })
     expect(stranger.status).toBe(403)
     expect((await t.api('GET', '/api/state')).status).toBe(200)
+  })
+
+  it('lets grip on this machine in with the local token, but never a device', async () => {
+    const t = await setup()
+    const local = { Authorization: `Bearer ${LOCAL_TOKEN}` }
+    expect((await fetch(`${t.url}/api/state`, { headers: local })).status).toBe(200)
+    const stop = await fetch(`${t.url}/api/stop-all`, {
+      method: 'POST',
+      headers: { ...local, 'Content-Type': 'application/json' },
+      body: '{}',
+    })
+    expect(stop.status).toBe(200)
+    expect((await fetch(`${t.url}/api/state`, { headers: { Authorization: 'Bearer wrong' } })).status).toBe(401)
+    // tailscale serve adds the identity to every device request, so the token alone never counts.
+    const device = await fetch(`${t.url}/api/state`, { headers: { ...local, 'Tailscale-User-Login': 'someone@github' } })
+    expect(device.status).toBe(403)
   })
 
   it('refuses cross-site writes', async () => {
@@ -409,7 +427,7 @@ describe('web API notifications', () => {
     const t = await setup()
     expect((await t.api('GET', '/api/push')).body).toEqual({
       publicKey: t.push.publicKey,
-      events: ['run-done', 'run-failed', 'claw-rolled-back'],
+      events: ['run-done', 'run-failed', 'claw-rolled-back', 'principal-offline'],
     })
     const device = { endpoint: subscription.endpoint }
     expect((await t.api('POST', '/api/push/device', device)).body).toBeNull()
