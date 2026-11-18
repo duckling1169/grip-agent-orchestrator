@@ -291,11 +291,11 @@ Workers may do **anything your user account can do**, with three hard limits:
 3. **Stop all works.** The app's **Stop all** marks every run stopped, then gives Claw 5 seconds to stop each session. If Claw doesn't, Grip restarts Claw with its whole process tree, which kills every worker. Grip never looks for worker processes itself.
 
 **Per-engine permission defaults** for unattended workers:
-- Claude: `acceptEdits` plus auto mode
-- Codex: `workspace-write` sandbox
-- agy: its explicit permission mode
+- Claude (workers and hosted chats): Claw `permissionMode: "auto"`, which is Claude Code's auto mode
+- Codex: `workspace-write` sandbox with no approval prompts (Claw's fixed setting)
+- agy: Claw `permissionMode: "auto"`, agy's own auto mode with its reviewer
 
-These are set once in Grip's code, not per run.
+These are set once in Grip's code (`PERMISSION_MODE`), not per run. Nobody can answer a prompt in an unattended turn, so a mode that asks refuses every shell command: Claw's default `acceptEdits` left Claude and agy workers unable to run git, npm or tests.
 
 ### 9.3 Accepted risks
 
@@ -372,7 +372,7 @@ The agreed screens are in the design canvas (claude.ai artifact `JktKuQYLVZ7S8Fv
 - `POST /api/chats` (start a Grip chat)
 - `POST /api/chats/:id/message`
 - `POST /api/chats/:id/stop`
-- `POST /api/chats/:id/settings` and `POST /api/runs/:id/settings` (`{ model, effort }`, null for the agent default): the next turn uses them, like switching models mid-conversation in Claude Code or Codex. The composer shows both pickers.
+- `POST /api/chats/:id/settings` and `POST /api/runs/:id/settings` (`{ model, effort }`, null for the agent default): the next turn uses them, like switching models mid-conversation in Claude Code or Codex. The composer shows both as small text beside Send, each opening a menu.
 - `GET /api/runs/:id`
 - `POST /api/runs` (delegate)
 - `POST /api/runs/:id/message`

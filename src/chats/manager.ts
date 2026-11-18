@@ -1,7 +1,7 @@
 import { realpath, stat, writeFile } from 'node:fs/promises'
 import { basename, join, resolve } from 'node:path'
 
-import { GRIP_TOOLS } from '../runs/manager.js'
+import { GRIP_TOOLS, PERMISSION_MODE } from '../runs/manager.js'
 import type { ClawApi, RunManager } from '../runs/manager.js'
 import { protectedFolderOf } from '../runs/protected.js'
 import type { Engine, RunStore } from '../runs/store.js'
@@ -234,6 +234,7 @@ export class ChatManager {
         name: session,
         cwd: chat.folder!,
         engine: 'claude',
+        permissionMode: PERMISSION_MODE.claude,
         ...(chat.model ? { model: chat.model } : {}),
         ...(chat.effort ? { effort: chat.effort } : {}),
         ...(chat.engineSessionId ? { resumeSessionId: chat.engineSessionId } : {}),

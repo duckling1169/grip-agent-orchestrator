@@ -20,6 +20,14 @@ export interface ClawApi {
 export const CLAW_ENGINE: Record<Engine, ClawEngine> = { claude: 'claude', codex: 'codex-app', agy: 'agy' }
 
 /**
+ * How each engine runs unattended (DESIGN §9.2). Nobody can answer a permission prompt, so a mode
+ * that asks would refuse every shell command. Claude and agy use their auto modes, where the
+ * engine's own reviewer approves commands; Codex already runs in its `workspace-write` sandbox
+ * with no approval prompts. Without this, Claw's default `acceptEdits` blocks git, npm and tests.
+ */
+export const PERMISSION_MODE: Record<Engine, 'auto' | undefined> = { claude: 'auto', codex: undefined, agy: 'auto' }
+
+/**
  * Grip's MCP server as an orchestrator's config names it. Claude workers start with its tools
  * denied, so a worker that loads Grip from your user config still can't delegate: only chats do.
  */
@@ -267,6 +275,7 @@ export class RunManager {
         name: run.session,
         cwd: run.cwd,
         engine: CLAW_ENGINE[run.engine],
+        ...(PERMISSION_MODE[run.engine] ? { permissionMode: PERMISSION_MODE[run.engine] } : {}),
         ...(run.model ? { model: run.model } : {}),
         ...(run.effort ? { effort: run.effort } : {}),
         ...(run.engineSessionId ? { resumeSessionId: run.engineSessionId } : {}),

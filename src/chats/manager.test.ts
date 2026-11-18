@@ -48,6 +48,7 @@ it('starts Claude with a chat token and queues messages for the resumed turn', a
     allowedTools: ['mcp__grip'],
     // Claude's own subagents would die when the turn ends, out of the app's sight.
     disallowedTools: ['Agent', 'Task'],
+    permissionMode: 'auto',
   })
   expect(start.appendSystemPrompt).toContain('delegate')
   expect(start.mcpConfig).toBe(join(t.chats.chatDir(chat.id), 'mcp.json'))

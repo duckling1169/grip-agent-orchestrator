@@ -33,6 +33,8 @@ export type StartSessionOptions = {
   /** Claude only: tools allowed without asking, and tools refused, as permission rules. */
   allowedTools?: string[]
   disallowedTools?: string[]
+  /** Claw's permission mode; Grip sets it per engine (`PERMISSION_MODE`). */
+  permissionMode?: 'auto'
   /** Claude only: added to the system prompt, as `--append-system-prompt`. */
   appendSystemPrompt?: string
 }

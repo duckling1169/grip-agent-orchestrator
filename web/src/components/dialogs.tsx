@@ -85,42 +85,56 @@ function FolderField({
 const readModels = (_: string, signal: AbortSignal) => api.models(signal)
 const defaultChoice = 'default'
 
-/** Model and effort pickers; an empty string is the agent's default. `compact` fits a composer. */
-export function ModelFields({
+/**
+ * An agent's models and the efforts the chosen one offers; an empty string is the agent's default.
+ * `pickModel` returns the next choice, resetting an effort the new model doesn't offer.
+ */
+export function useModelChoices(engine: Engine, model: string, effort: string) {
+  const catalogs = useDetail('models', readModels)
+  const catalog = catalogs.data?.find(list => list.engine === engine)
+  const chosen = catalog?.models.find(option => option.id === model)
+  const allEfforts = [...new Set(catalog?.models.flatMap(option => option.efforts) ?? [])]
+  const efforts = engine === 'agy' ? [] : (chosen?.efforts ?? allEfforts)
+  const defaultEffort = (chosen ?? catalog?.models.find(option => option.isDefault))?.defaultEffort ?? null
+  const pickModel = (value: string) => {
+    const next = catalog?.models.find(option => option.id === value)
+    return { model: value, effort: effort && !(next?.efforts ?? allEfforts).includes(effort) ? '' : effort }
+  }
+  return {
+    models: catalog?.models ?? [],
+    chosen,
+    efforts,
+    defaultEffort,
+    error: catalogs.error ?? catalog?.error,
+    loading: !catalogs.data && !catalogs.error,
+    pickModel,
+  }
+}
+
+/** Model and effort pickers for the start dialogs. */
+function ModelFields({
   engine,
   model,
   effort,
   disabled,
   choose,
-  compact = false,
 }: {
   engine: Engine
   model: string
   effort: string
   disabled: boolean
   choose: (next: { model: string; effort: string }) => void
-  compact?: boolean
 }) {
   const id = useId()
-  const catalogs = useDetail('models', readModels)
-  const catalog = catalogs.data?.find(list => list.engine === engine)
-  const chosen = catalog?.models.find(option => option.id === model)
-  const allEfforts = [...new Set(catalog?.models.flatMap(option => option.efforts) ?? [])]
-  const efforts = engine === 'agy' ? [] : (chosen?.efforts ?? allEfforts)
-  const defaultEffort = (chosen ?? catalog?.models.find(option => option.isDefault))?.defaultEffort
-  const error = catalogs.error ?? catalog?.error
-  const loading = !catalogs.data && !catalogs.error
+  const { models, chosen, efforts, defaultEffort, error, loading, pickModel: next } = useModelChoices(engine, model, effort)
+  const catalog = { models }
   const effortPlaceholder = engine === 'agy' ? 'Set by the model' : 'Not used by this model'
-  const pickModel = (value: string) => {
-    const next = catalog?.models.find(option => option.id === value)
-    // An effort the new model doesn't offer goes back to its default.
-    choose({ model: value, effort: effort && !(next?.efforts ?? allEfforts).includes(effort) ? '' : effort })
-  }
-  const label = compact ? 'sr-only' : undefined
-  const trigger = compact ? 'h-9 w-full min-w-0 text-xs' : 'min-h-11 w-full min-w-0 md:min-h-9'
+  const pickModel = (value: string) => choose(next(value))
+  const label = undefined
+  const trigger = 'min-h-11 w-full min-w-0 md:min-h-9'
 
   return (
-    <div className={compact ? 'grid min-w-0 grid-cols-2 gap-2' : 'grid items-start gap-3 min-[360px]:grid-cols-2'}>
+    <div className="grid items-start gap-3 min-[360px]:grid-cols-2">
       <div className="grid min-w-0 gap-2">
         <Label className={label} htmlFor={`${id}-model`}>
           Model

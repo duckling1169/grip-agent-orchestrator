@@ -51,6 +51,17 @@ async function setup() {
 }
 
 describe('delegate', () => {
+  it('runs Claude and agy workers in auto mode, so shell commands are not refused unasked', async () => {
+    const t = await setup()
+    for (const engine of ['agy', 'claude'] as const) {
+      const run = await t.manager.delegate({ folder: t.plain, engine, brief: { text: 'Run the tests' } })
+      await t.claw.waitForSend(run.session)
+      expect(t.claw.starts.at(-1)).toMatchObject({ engine, permissionMode: 'auto' })
+      t.claw.answer(run.session, { output: 'ok' })
+      await t.manager.settled(run.id)
+    }
+  })
+
   it('gives a repo run its own worktree, starts a Claw session there, and records the result', async () => {
     const t = await setup()
     const run = await t.manager.delegate({ folder: t.repo, engine: 'codex', brief: { path: 'docs/brief-login.md' }, model: 'gpt-6.1' })
@@ -60,6 +71,8 @@ describe('delegate', () => {
 
     await t.claw.waitForSend(run.session)
     expect(t.claw.starts[0]).toMatchObject({ name: run.session, cwd: run.cwd, engine: 'codex-app', model: 'gpt-6.1' })
+    // Codex runs in its own sandbox with no prompts; it takes no permission mode.
+    expect(t.claw.starts[0]?.permissionMode).toBeUndefined()
     expect(t.claw.sends[0]?.message).toBe(`Do the work described in ${join(t.repo, 'docs', 'brief-login.md')}.`)
 
     await writeFile(join(run.cwd, 'fix.ts'), 'export {}\n')

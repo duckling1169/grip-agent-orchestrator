@@ -4,6 +4,14 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } f
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Textarea } from '@/components/ui/textarea'
 
@@ -12,7 +20,7 @@ import { api } from '../api.js'
 import { chatHref, runHref, useDetail } from '../state.js'
 import type { AppState, ChatSummary, Engine, RunDetail, RunSummary, TimelineEntry } from '../types.js'
 import { EngineMark, ErrorBanner, folderName, isEngine, Markdown, runActivity, StatusDot, Time, useAction } from './common.js'
-import { ModelFields } from './dialogs.js'
+import { useModelChoices } from './dialogs.js'
 import { ChatStatus, hostName } from './navigation.js'
 
 const contentWidth = 'mx-auto w-full max-w-4xl px-4 sm:px-6 lg:px-8'
@@ -84,11 +92,11 @@ export function Composer({
           placeholder={name}
         />
         <ErrorBanner text={action.error} />
-        {settings}
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
           <span className="min-w-0 flex-1 text-xs text-muted-foreground" role="status">
             {notice || (queued ? 'Messages queue while Claude is working.' : '')}
           </span>
+          {settings}
           <Button className={`shrink-0 ${touchButton}`} size="sm" type="submit" disabled={!text.trim() || blocked || action.busy}>
             {action.busy ? 'Sending…' : 'Send message'}
           </Button>
@@ -113,22 +121,70 @@ function TurnSettings({
   save: (settings: { model: string | null; effort: string | null }) => Promise<unknown>
 }) {
   const action = useAction()
+  const choices = useModelChoices(engine, model ?? '', effort ?? '')
+  const choose = (next: { model: string; effort: string }) =>
+    void action.perform(async () => {
+      await save({ model: next.model || null, effort: next.effort || null })
+    })
+  const modelName = model ? (choices.chosen?.label ?? model) : 'Default model'
+  const effortName = effort || (choices.defaultEffort ? `${choices.defaultEffort} effort` : 'Default effort')
+  const off = disabled || action.busy || choices.loading
+  // Small text like Claude Code's footer; each opens a menu.
+  const link = 'h-8 gap-1 px-1.5 text-xs font-normal text-muted-foreground hover:text-foreground md:h-7'
   return (
-    <div className="grid gap-2">
-      <ModelFields
-        compact
-        engine={engine}
-        model={model ?? ''}
-        effort={effort ?? ''}
-        disabled={disabled || action.busy}
-        choose={next =>
-          void action.perform(async () => {
-            await save({ model: next.model || null, effort: next.effort || null })
-          })
-        }
-      />
-      <ErrorBanner text={action.error} />
-    </div>
+    <span className="flex shrink-0 items-center" title={action.error || choices.error || undefined}>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button type="button" variant="ghost" size="sm" className={link} disabled={off} aria-label={`Model: ${modelName}`}>
+            {modelName}
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="max-h-80">
+          <DropdownMenuLabel>Model for the next message</DropdownMenuLabel>
+          <DropdownMenuRadioGroup value={model ?? ''} onValueChange={value => choose(choices.pickModel(value))}>
+            <DropdownMenuRadioItem value="">Agent default</DropdownMenuRadioItem>
+            {choices.models.map(option => (
+              <DropdownMenuRadioItem key={option.id} value={option.id}>
+                {option.label}
+              </DropdownMenuRadioItem>
+            ))}
+            {model && !choices.chosen && <DropdownMenuRadioItem value={model}>{model}</DropdownMenuRadioItem>}
+          </DropdownMenuRadioGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {choices.efforts.length > 0 && (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className={`${link} capitalize`}
+              disabled={off}
+              aria-label={`Effort: ${effortName}`}
+            >
+              {effortName}
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuLabel>Effort</DropdownMenuLabel>
+            <DropdownMenuRadioGroup value={effort ?? ''} onValueChange={value => choose({ model: model ?? '', effort: value })}>
+              <DropdownMenuRadioItem value="">Default{choices.defaultEffort ? ` (${choices.defaultEffort})` : ''}</DropdownMenuRadioItem>
+              {choices.efforts.map(option => (
+                <DropdownMenuRadioItem key={option} value={option} className="capitalize">
+                  {option}
+                </DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
+      {action.error && (
+        <span className="sr-only" role="alert">
+          {action.error}
+        </span>
+      )}
+    </span>
   )
 }
 
