@@ -12,6 +12,7 @@ import { api } from '../api.js'
 import { chatHref, runHref, useDetail } from '../state.js'
 import type { AppState, ChatSummary, Engine, RunDetail, RunSummary, TimelineEntry } from '../types.js'
 import { EngineMark, ErrorBanner, folderName, isEngine, Markdown, runActivity, StatusDot, Time, useAction } from './common.js'
+import { ModelFields } from './dialogs.js'
 import { ChatStatus, hostName } from './navigation.js'
 
 const contentWidth = 'mx-auto w-full max-w-4xl px-4 sm:px-6 lg:px-8'
@@ -29,12 +30,15 @@ export function Composer({
   blocked,
   focus,
   send,
+  settings,
 }: {
   name: string
   queued?: boolean
   blocked: boolean
   focus?: number
   send: (text: string) => Promise<void>
+  /** Model and effort pickers for the next turn. */
+  settings?: ReactNode
 }) {
   const id = useId()
   const ref = useRef<HTMLTextAreaElement>(null)
@@ -80,6 +84,7 @@ export function Composer({
           placeholder={name}
         />
         <ErrorBanner text={action.error} />
+        {settings}
         <div className="flex items-center gap-3">
           <span className="min-w-0 flex-1 text-xs text-muted-foreground" role="status">
             {notice || (queued ? 'Messages queue while Claude is working.' : '')}
@@ -90,6 +95,40 @@ export function Composer({
         </div>
       </div>
     </form>
+  )
+}
+
+/** The model and effort the next turn uses, saved as soon as they change. */
+function TurnSettings({
+  engine,
+  model,
+  effort,
+  disabled,
+  save,
+}: {
+  engine: Engine
+  model: string | null
+  effort: string | null
+  disabled: boolean
+  save: (settings: { model: string | null; effort: string | null }) => Promise<unknown>
+}) {
+  const action = useAction()
+  return (
+    <div className="grid gap-2">
+      <ModelFields
+        compact
+        engine={engine}
+        model={model ?? ''}
+        effort={effort ?? ''}
+        disabled={disabled || action.busy}
+        choose={next =>
+          void action.perform(async () => {
+            await save({ model: next.model || null, effort: next.effort || null })
+          })
+        }
+      />
+      <ErrorBanner text={action.error} />
+    </div>
   )
 }
 
@@ -399,6 +438,15 @@ export function ChatWorkspace({
           name="Message Claude"
           queued={chat.status === 'working'}
           blocked={offline}
+          settings={
+            <TurnSettings
+              engine="claude"
+              model={chat.model}
+              effort={chat.effort}
+              disabled={offline}
+              save={settings => api.chatSettings(id, settings)}
+            />
+          }
           send={async text => {
             await api.messageChat(id, text)
             detail.refresh()
@@ -678,6 +726,15 @@ export function RunWorkspace({
         <Composer
           name="Message worker"
           blocked={offline}
+          settings={
+            <TurnSettings
+              engine={run.engine}
+              model={run.model}
+              effort={run.effort ?? null}
+              disabled={offline}
+              save={settings => api.runSettings(id, settings)}
+            />
+          }
           focus={focus}
           send={async text => {
             await api.messageRun(id, text)

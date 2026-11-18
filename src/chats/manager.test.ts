@@ -40,7 +40,16 @@ it('starts Claude with a chat token and queues messages for the resumed turn', a
   expect(chat.title).toBe('Hello there')
   await t.claw.waitForSend(chat.session!)
   const start = t.claw.starts[0]!
-  expect(start).toMatchObject({ name: chat.session, cwd: t.dir, engine: 'claude', model: 'opus', allowedTools: ['mcp__grip'] })
+  expect(start).toMatchObject({
+    name: chat.session,
+    cwd: t.dir,
+    engine: 'claude',
+    model: 'opus',
+    allowedTools: ['mcp__grip'],
+    // Claude's own subagents would die when the turn ends, out of the app's sight.
+    disallowedTools: ['Agent', 'Task'],
+  })
+  expect(start.appendSystemPrompt).toContain('delegate')
   expect(start.mcpConfig).toBe(join(t.chats.chatDir(chat.id), 'mcp.json'))
   const config = JSON.parse(await readFile(join(t.chats.chatDir(chat.id), 'mcp.json'), 'utf8'))
   expect(config.mcpServers.grip.url).toBe('http://127.0.0.1:123/mcp')
@@ -67,6 +76,24 @@ it('starts a chat without a message and titles it from the first one', async () 
   await until(() => t.chats.get(chat.id)?.status === 'idle')
   await t.manager.message(chat.id, 'Second')
   expect(t.chats.get(chat.id)?.title).toBe('Fix the login page')
+})
+
+it('uses a changed model and effort from the next turn, and keeps them after a restart', async () => {
+  const t = await setup()
+  const chat = await t.manager.startChat({ folder: t.dir, engine: 'claude', model: 'claude-opus-5-5', message: 'Hello' })
+  await t.claw.waitForSend(chat.session!)
+  await t.chats.configure(chat.id, { model: 'claude-sonnet-5-5', effort: 'low' })
+  t.claw.answer(chat.session!, { output: 'Hi', sessionId: 'conv' })
+  await until(() => t.chats.get(chat.id)?.status === 'idle')
+  await t.manager.message(chat.id, 'Next')
+  await until(() => t.claw.starts.length === 2)
+  expect(t.claw.starts[0]).toMatchObject({ model: 'claude-opus-5-5' })
+  expect(t.claw.starts[1]).toMatchObject({ model: 'claude-sonnet-5-5', effort: 'low', resumeSessionId: 'conv' })
+  t.claw.answer(chat.session!, { output: 'Done' })
+  await until(() => t.chats.get(chat.id)?.status === 'idle')
+  await t.chats.configure(chat.id, { model: null, effort: null })
+  const reopened = await ChatStore.open(join(t.dir, 'home'))
+  expect(reopened.get(chat.id)).toMatchObject({ model: null, effort: null })
 })
 
 it('deletes a working chat: stops its turn, and stays deleted after a restart', async () => {

@@ -84,6 +84,7 @@ const DelegateBody = z.object({
   retryOf: z.string().optional(),
 })
 const MessageBody = z.object({ text: z.string() })
+const SettingsBody = z.object({ model: z.string().min(1).nullable(), effort: z.string().min(1).nullable() })
 const ChatBody = z.object({
   folder: z.string().min(1),
   engine,
@@ -185,8 +186,8 @@ export async function startWebHttp(options: WebOptions): Promise<{ server: Serve
 
   async function route(req: IncomingMessage, res: ServerResponse, login: string, path: string): Promise<unknown> {
     const method = req.method ?? 'GET'
-    const runMatch = /^\/api\/runs\/([\w-]+)(?:\/(message|stop|retry))?$/.exec(path)
-    const chatMatch = /^\/api\/chats\/([\w-]+)(?:\/(message|stop))?$/.exec(path)
+    const runMatch = /^\/api\/runs\/([\w-]+)(?:\/(message|stop|retry|settings))?$/.exec(path)
+    const chatMatch = /^\/api\/chats\/([\w-]+)(?:\/(message|stop|settings))?$/.exec(path)
 
     if (method === 'GET' && path === '/api/state') return state(login)
     if (method === 'GET' && path === '/api/models') return models.list()
@@ -220,6 +221,11 @@ export async function startWebHttp(options: WebOptions): Promise<{ server: Serve
         return { chat, runs: manager.list({ chatId: id }).map(summarize), timeline: await chats.timeline(id) }
       if (method === 'POST' && action === 'message') return chats.message(id, parse(MessageBody, await readJsonBody(req)).text)
       if (method === 'POST' && action === 'stop') return chats.stop(id)
+      if (method === 'POST' && action === 'settings') {
+        if (chat.kind !== 'grip') throw new HttpError(400, 'This chat runs in its own host; change its model there.')
+        // The next turn uses them; a turn already running keeps its own.
+        return chatStore.configure(id, parse(SettingsBody, await readJsonBody(req)))
+      }
       if (method === 'DELETE' && !action) return chats.delete(id)
     }
     if (runMatch) {
@@ -232,6 +238,10 @@ export async function startWebHttp(options: WebOptions): Promise<{ server: Serve
       if (method === 'POST' && action === 'message') {
         mustRun(id)
         return summarize(await manager.message(id, parse(MessageBody, await readJsonBody(req)).text, { fromUser: true }))
+      }
+      if (method === 'POST' && action === 'settings') {
+        mustRun(id)
+        return summarize(await store.configure(id, parse(SettingsBody, await readJsonBody(req))))
       }
       if (method === 'POST' && action === 'stop') {
         mustRun(id)

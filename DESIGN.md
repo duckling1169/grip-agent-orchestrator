@@ -175,6 +175,8 @@ A **chat** is one orchestrator conversation. Every run belongs to the chat that 
 
 **Runs started from the app** with **Start one worker** belong to no chat and are listed apart.
 
+**Hosted chats delegate only through Grip.** Grip stops a hosted chat's Claude session when its turn ends, so a subagent or plugin job Claude started itself would die unseen. Hosted chats run with Claude's `Agent` tool denied and an appended system prompt that points them at Grip's `delegate`.
+
 **One level only.** Only chats delegate. Claude workers start with `mcp__grip` in their denied tools, so a worker that loaded Grip from your user config can't call it. Codex and agy workers don't get Grip, as long as Grip is added only to the orchestrator's host (§15).
 
 **Messages to workers.** When you message a worker directly, its chat sees that message the next time it reads the run, through `result` or `wait_any`.
@@ -370,6 +372,7 @@ The agreed screens are in the design canvas (claude.ai artifact `JktKuQYLVZ7S8Fv
 - `POST /api/chats` (start a Grip chat)
 - `POST /api/chats/:id/message`
 - `POST /api/chats/:id/stop`
+- `POST /api/chats/:id/settings` and `POST /api/runs/:id/settings` (`{ model, effort }`, null for the agent default): the next turn uses them, like switching models mid-conversation in Claude Code or Codex. The composer shows both pickers.
 - `GET /api/runs/:id`
 - `POST /api/runs` (delegate)
 - `POST /api/runs/:id/message`

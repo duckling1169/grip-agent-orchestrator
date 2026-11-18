@@ -7,7 +7,8 @@ import { errorText } from '../api.js'
 import type { Engine, RunSummary } from '../types.js'
 
 export const engines: Engine[] = ['claude', 'codex', 'agy']
-export const engineNames: Record<Engine, string> = { claude: 'Claude', codex: 'Codex', agy: 'Antigravity' }
+// Model families, not product names: Codex runs GPT models and Antigravity runs Gemini.
+export const engineNames: Record<Engine, string> = { claude: 'Claude', codex: 'GPT', agy: 'Gemini' }
 const engineMarks: Record<Engine, string> = { claude: '✻', codex: '◆', agy: '▲' }
 export const engineColors: Record<Engine, string> = { claude: 'text-claude', codex: 'text-codex', agy: 'text-agy' }
 

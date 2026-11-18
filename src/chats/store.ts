@@ -47,6 +47,9 @@ export type Chat = {
 export type NewChat = Pick<Chat, 'kind' | 'title' | 'folder'> & Partial<Pick<Chat, 'engine' | 'model' | 'effort' | 'host'>>
 
 /** One line of `chats.jsonl`. */
+/** Model and effort for the next turns; null means the agent's default. */
+export type TurnSettings = { model: string | null; effort: string | null }
+
 export type ChatEvent =
   | { t: 'created'; at: string; chat: Chat }
   | { t: 'named'; at: string; id: string; title: string }
@@ -55,6 +58,7 @@ export type ChatEvent =
   | { t: 'stopped'; at: string; id: string }
   | { t: 'interrupted'; at: string; id: string; reason: string }
   | { t: 'deleted'; at: string; id: string }
+  | ({ t: 'configured'; at: string; id: string } & TurnSettings)
 
 export type ChatStoreEvents = { change: [Chat] }
 
@@ -132,6 +136,10 @@ export class ChatStore extends EventEmitter<ChatStoreEvents> {
         chat.error = e.reason
         chat.waiting = false
         break
+      case 'configured':
+        chat.model = e.model
+        chat.effort = e.effort
+        break
       case 'deleted':
         this.deleted.add(e.id)
         chat.waiting = false
@@ -184,6 +192,13 @@ export class ChatStore extends EventEmitter<ChatStoreEvents> {
   async rename(id: string, title: string): Promise<Chat> {
     if (this.must(id).title === title) return structuredClone(this.must(id))
     return this.record({ t: 'named', at: this.stamp(), id, title })
+  }
+
+  /** Change the model and effort the chat's next turns use. */
+  async configure(id: string, settings: TurnSettings): Promise<Chat> {
+    const chat = this.must(id)
+    if (chat.model === settings.model && chat.effort === settings.effort) return structuredClone(chat)
+    return this.record({ t: 'configured', at: this.stamp(), id, ...settings })
   }
 
   /** A message is going to a Grip chat. Returns the turn number. */

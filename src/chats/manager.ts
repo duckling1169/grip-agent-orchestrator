@@ -21,6 +21,16 @@ const titleOf = (message: string) =>
 /** A chat started without a message keeps this title until its first one. */
 const newChatTitle = (folder: string) => `New chat in ${basename(folder) || folder}`
 
+/**
+ * A hosted chat's turn ends when Claude replies, and Grip then stops the session, so a subagent or
+ * plugin job Claude starts itself dies with it and the app never sees it. Hosted chats therefore
+ * cannot use Claude's own Agent tool, and are told to hand work off through Grip instead.
+ */
+export const HOSTED_CHAT_DISALLOWED = ['Agent', 'Task']
+export const HOSTED_CHAT_PROMPT =
+  'You are running inside Grip. To hand work to another agent (Claude, Codex or Antigravity), use the ' +
+  "Grip MCP tools (delegate, then wait_any or result). Do not start subagents or background jobs yourself: they stop when your turn ends and the user can't see them. Do the work yourself only when it is small."
+
 type Options = {
   chats: ChatStore
   runs: RunManager
@@ -229,6 +239,8 @@ export class ChatManager {
         ...(chat.engineSessionId ? { resumeSessionId: chat.engineSessionId } : {}),
         mcpConfig: join(this.o.chats.chatDir(chat.id), 'mcp.json'),
         allowedTools: [GRIP_TOOLS],
+        disallowedTools: HOSTED_CHAT_DISALLOWED,
+        appendSystemPrompt: HOSTED_CHAT_PROMPT,
       })
       if (this.stopping.has(chat.id)) throw new Error('stopped before the turn began')
       const sent = await this.o.claw.sendMessage(session, message, {

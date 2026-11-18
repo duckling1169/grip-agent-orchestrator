@@ -85,20 +85,21 @@ function FolderField({
 const readModels = (_: string, signal: AbortSignal) => api.models(signal)
 const defaultChoice = 'default'
 
-function ModelFields({
+/** Model and effort pickers; an empty string is the agent's default. `compact` fits a composer. */
+export function ModelFields({
   engine,
   model,
   effort,
   disabled,
-  chooseModel,
-  chooseEffort,
+  choose,
+  compact = false,
 }: {
   engine: Engine
   model: string
   effort: string
   disabled: boolean
-  chooseModel: (value: string) => void
-  chooseEffort: (value: string) => void
+  choose: (next: { model: string; effort: string }) => void
+  compact?: boolean
 }) {
   const id = useId()
   const catalogs = useDetail('models', readModels)
@@ -111,21 +112,25 @@ function ModelFields({
   const loading = !catalogs.data && !catalogs.error
   const effortPlaceholder = engine === 'agy' ? 'Set by the model' : 'Not used by this model'
   const pickModel = (value: string) => {
-    chooseModel(value)
     const next = catalog?.models.find(option => option.id === value)
-    if (effort && !(next?.efforts ?? allEfforts).includes(effort)) chooseEffort('')
+    // An effort the new model doesn't offer goes back to its default.
+    choose({ model: value, effort: effort && !(next?.efforts ?? allEfforts).includes(effort) ? '' : effort })
   }
+  const label = compact ? 'sr-only' : undefined
+  const trigger = compact ? 'h-9 w-full min-w-0 text-xs' : 'min-h-11 w-full min-w-0 md:min-h-9'
 
   return (
-    <div className="grid items-start gap-3 min-[360px]:grid-cols-2">
+    <div className={compact ? 'grid min-w-0 grid-cols-2 gap-2' : 'grid items-start gap-3 min-[360px]:grid-cols-2'}>
       <div className="grid min-w-0 gap-2">
-        <Label htmlFor={`${id}-model`}>Model</Label>
+        <Label className={label} htmlFor={`${id}-model`}>
+          Model
+        </Label>
         <Select
           value={model ? `model:${model}` : defaultChoice}
           onValueChange={value => pickModel(value === defaultChoice ? '' : value.slice('model:'.length))}
           disabled={disabled || loading}
         >
-          <SelectTrigger id={`${id}-model`} className="min-h-11 w-full min-w-0 md:min-h-9">
+          <SelectTrigger id={`${id}-model`} className={trigger}>
             <SelectValue placeholder="Agent default" />
           </SelectTrigger>
           <SelectContent position="popper">
@@ -135,18 +140,22 @@ function ModelFields({
                 {option.label}
               </SelectItem>
             ))}
+            {/* A model chosen elsewhere, or no longer listed, still shows by its id. */}
+            {model && !chosen && <SelectItem value={`model:${model}`}>{model}</SelectItem>}
           </SelectContent>
         </Select>
         {error && <ErrorBanner text={`Couldn't list models. ${error}`} />}
       </div>
       <div className="grid min-w-0 gap-2">
-        <Label htmlFor={`${id}-effort`}>Effort</Label>
+        <Label className={label} htmlFor={`${id}-effort`}>
+          Effort
+        </Label>
         <Select
           value={effort ? `effort:${effort}` : defaultChoice}
-          onValueChange={value => chooseEffort(value === defaultChoice ? '' : value.slice('effort:'.length))}
+          onValueChange={value => choose({ model, effort: value === defaultChoice ? '' : value.slice('effort:'.length) })}
           disabled={disabled || !efforts.length}
         >
-          <SelectTrigger id={`${id}-effort`} className="min-h-11 w-full min-w-0 md:min-h-9">
+          <SelectTrigger id={`${id}-effort`} className={trigger}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent position="popper">
@@ -288,7 +297,16 @@ export function StartDialog({
           </RadioGroup>
         </div>
         {!isRetry && <FolderField value={folder} change={setFolder} recent={folders} disabled={disabled} />}
-        <ModelFields engine={engine} model={model} effort={effort} chooseModel={setModel} chooseEffort={setEffort} disabled={disabled} />
+        <ModelFields
+          engine={engine}
+          model={model}
+          effort={effort}
+          choose={next => {
+            setModel(next.model)
+            setEffort(next.effort)
+          }}
+          disabled={disabled}
+        />
         {mode.kind === 'worker' && (
           <>
             <div className="grid gap-2">

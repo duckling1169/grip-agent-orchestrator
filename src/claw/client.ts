@@ -33,6 +33,8 @@ export type StartSessionOptions = {
   /** Claude only: tools allowed without asking, and tools refused, as permission rules. */
   allowedTools?: string[]
   disallowedTools?: string[]
+  /** Claude only: added to the system prompt, as `--append-system-prompt`. */
+  appendSystemPrompt?: string
 }
 
 /** What a finished turn reports. Denied tool calls can leave a "successful" turn that did nothing. */

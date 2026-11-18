@@ -56,6 +56,9 @@ export type NewRun = Pick<Run, 'title' | 'engine' | 'folder' | 'cwd' | 'repo' | 
 export type Reader = 'orchestrator' | 'app'
 
 /** One line of `runs.jsonl`. The log is the record; run state is rebuilt from it on load. */
+/** Model and effort for the next turns; null means the agent's default. */
+export type TurnSettings = { model: string | null; effort: string | null }
+
 export type RunEvent =
   | { t: 'created'; at: string; run: Run }
   | { t: 'turn-started'; at: string; id: string; turn: number; fromUser?: true }
@@ -63,6 +66,7 @@ export type RunEvent =
   | { t: 'stopped'; at: string; id: string }
   | { t: 'interrupted'; at: string; id: string; reason: string }
   | { t: 'viewed'; at: string; id: string; by?: 'app' }
+  | ({ t: 'configured'; at: string; id: string } & TurnSettings)
 
 export type RunStoreEvents = { change: [Run] }
 
@@ -152,6 +156,10 @@ export class RunStore extends EventEmitter<RunStoreEvents> {
         run.status = 'stopped'
         run.finishedAt = e.at
         break
+      case 'configured':
+        run.model = e.model
+        run.effort = e.effort
+        break
       case 'interrupted':
         run.status = 'failed'
         run.error = e.reason
@@ -240,6 +248,13 @@ export class RunStore extends EventEmitter<RunStoreEvents> {
   async saveOutput(id: string, turn: number, output: string): Promise<void> {
     this.must(id)
     await writeFile(join(this.runDir(id), `turn-${turn}.out.md`), output)
+  }
+
+  /** Change the model and effort the run's next turns use. */
+  async configure(id: string, settings: TurnSettings): Promise<Run> {
+    const run = this.must(id)
+    if (run.model === settings.model && run.effort === settings.effort) return structuredClone(run)
+    return this.record({ t: 'configured', at: this.stamp(), id, ...settings })
   }
 
   async markStopped(id: string): Promise<Run> {
