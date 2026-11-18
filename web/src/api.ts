@@ -49,6 +49,9 @@ export const api = {
   messageChat: (id: string, text: string) => write<ChatRecord>(`${chatPath(id)}/message`, { text }),
   messageRun: (id: string, text: string) => write<RunSummary>(`${runPath(id)}/message`, { text }),
   deleteChat: (id: string) => write<{ deleted: string }>(chatPath(id), {}, 'DELETE'),
+  deleteRun: (id: string) => write<{ deleted: string }>(runPath(id), {}, 'DELETE'),
+  renameChat: (id: string, title: string) => write<ChatRecord>(`${chatPath(id)}/rename`, { title }),
+  renameRun: (id: string, title: string) => write<RunSummary>(`${runPath(id)}/rename`, { title }),
   /** Model and effort for the chat's next turns; null is the agent's default. */
   chatSettings: (id: string, settings: { model: string | null; effort: string | null }) =>
     write<ChatRecord>(`${chatPath(id)}/settings`, settings),

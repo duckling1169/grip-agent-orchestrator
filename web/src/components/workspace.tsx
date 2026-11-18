@@ -649,6 +649,16 @@ function RunOutput({ run, now }: { run: RunDetail; now: number }) {
   )
 }
 
+/**
+ * A model by its catalog name. With none chosen the agent picks its own default, which Claw
+ * does not report back, so say so rather than guess.
+ */
+function ModelName({ engine, model }: { engine: Engine; model: string | null }) {
+  const { chosen } = useModelChoices(engine, model ?? '', '')
+  if (!model) return <span className="text-muted-foreground">agent's default model</span>
+  return <span title={model}>{chosen?.label ?? model}</span>
+}
+
 export function RunWorkspace({
   id,
   live,
@@ -742,7 +752,8 @@ export function RunWorkspace({
             <Facts>
               <Fact name="Agent">
                 <EngineMark engine={run.engine} labelled />
-                {run.model && ` · ${run.model}`}
+                {' · '}
+                <ModelName engine={run.engine} model={run.model} />
               </Fact>
               {detail.data?.effort && <Fact name="Effort">{detail.data.effort}</Fact>}
               <Fact name="Chat">

@@ -106,6 +106,13 @@ it('removes a deleted chat and its workers from the live lists', () => {
     chats: [{ ...retainedChat, runs: [retainedRun] }],
     runs: [retainedRun, independentRun],
   })
+  expect(reconcile(before, { kind: 'run-deleted', value: { id: retainedRun.id } })).toMatchObject({
+    chats: [
+      { ...removedChat, runs: [removedRun] },
+      { ...retainedChat, runs: [] },
+    ],
+    runs: [removedRun, independentRun],
+  })
 })
 
 it('accepts chat and worker routes and falls back to the list for malformed hashes', () => {

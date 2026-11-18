@@ -321,6 +321,28 @@ describe('web API chats', () => {
     expect((await t.api('DELETE', `/api/chats/${chat.id}`, {})).status).toBe(404)
   })
 
+  it('renames and deletes a worker, keeping its worktree listed', async () => {
+    const t = await setup()
+    const run = (await t.api('POST', '/api/runs', { folder: t.repo, engine: 'agy', brief: { text: 'Old' } })).body
+    await t.claw.waitForSend(`grip-${run.id}`)
+    expect((await t.api('POST', `/api/runs/${run.id}/rename`, { title: '  New  ' })).body.title).toBe('New')
+    expect((await t.api('POST', `/api/runs/${run.id}/rename`, { title: ' ' })).status).toBe(400)
+    expect((await t.api('DELETE', `/api/runs/${run.id}`, {})).body).toEqual({ deleted: run.id })
+    await t.manager.settled(run.id)
+    expect((await t.api('GET', '/api/state')).body.runs).toEqual([])
+    expect((await t.api('GET', `/api/runs/${run.id}`)).status).toBe(404)
+    expect((await t.api('DELETE', `/api/runs/${run.id}`, {})).status).toBe(404)
+    const listed = (await t.api('GET', '/api/worktrees')).body
+    expect(listed).toEqual([expect.objectContaining({ path: run.worktree, run: null })])
+    expect((await t.api('DELETE', '/api/worktrees', { path: run.worktree })).status).toBe(200)
+  })
+
+  it('renames a chat', async () => {
+    const t = await setup()
+    const chat = (await t.api('POST', '/api/chats', { folder: t.plain, engine: 'claude' })).body
+    expect((await t.api('POST', `/api/chats/${chat.id}/rename`, { title: 'Login work' })).body.title).toBe('Login work')
+  })
+
   it('stops working chats with stop-all', async () => {
     const t = await setup()
     const chat = (await t.api('POST', '/api/chats', { folder: t.plain, engine: 'claude', message: 'Hi' })).body
@@ -370,7 +392,7 @@ describe('web API quota and worktrees', () => {
 })
 
 describe('web API events', () => {
-  it('streams the state first, then chat, run, quota and Claw changes', async () => {
+  it('streams the state first, then chat, run, quota, Claw changes and deletions', async () => {
     const t = await setup()
     const events: { event: string; data: any }[] = []
     let text = ''
@@ -395,7 +417,7 @@ describe('web API events', () => {
 
     await until(1)
     expect(events[0]).toMatchObject({ event: 'state', data: { you: LOGIN, runs: [] } })
-    await t.api('POST', '/api/runs', { folder: t.plain, engine: 'agy', brief: { text: 'Hi' } })
+    const run = (await t.api('POST', '/api/runs', { folder: t.plain, engine: 'agy', brief: { text: 'Hi' } })).body
     await t.api('POST', '/api/chats', { folder: t.plain, engine: 'claude', message: 'Hello' })
     t.clawStatus.set('updating')
     await t.quota.refresh(['codex'])
@@ -406,5 +428,8 @@ describe('web API events', () => {
     expect(kinds).toContain('quota')
     expect(events.find(e => e.event === 'claw')?.data).toEqual({ status: 'updating', version: '7.23.4' })
     expect(events.find(e => e.event === 'run')?.data).toMatchObject({ title: 'Hi', status: 'running' })
+    await t.api('DELETE', `/api/runs/${run.id}`, {})
+    for (let i = 0; i < 200 && !events.some(e => e.event === 'run-deleted'); i++) await new Promise(r => setTimeout(r, 10))
+    expect(events.find(e => e.event === 'run-deleted')?.data).toEqual({ id: run.id })
   })
 })

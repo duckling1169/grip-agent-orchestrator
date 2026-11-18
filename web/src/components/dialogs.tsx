@@ -430,6 +430,59 @@ export function ConfirmDialog({
   )
 }
 
+export function RenameDialog({
+  title,
+  current,
+  close,
+  rename,
+  offline,
+}: {
+  title: string
+  current: string
+  close: () => void
+  rename: (title: string) => Promise<void>
+  offline: boolean
+}) {
+  const action = useAction()
+  const id = useId()
+  const [value, setValue] = useState(current)
+  const next = value.trim()
+  return (
+    <ResponsiveDialog
+      title={title}
+      busy={action.busy}
+      close={close}
+      actions={
+        <>
+          <Button variant="outline" type="button" onClick={close} disabled={action.busy}>
+            Cancel
+          </Button>
+          <Button type="submit" form={id} disabled={offline || action.busy || !next || next === current}>
+            {action.busy ? 'Renaming…' : 'Rename'}
+          </Button>
+        </>
+      }
+    >
+      <form
+        id={id}
+        className="grid gap-2"
+        onSubmit={event => {
+          event.preventDefault()
+          if (!next || next === current) return
+          void action.perform(async () => {
+            await rename(next)
+            close()
+          })
+        }}
+      >
+        <Label htmlFor={`${id}-name`}>Name</Label>
+        <Input id={`${id}-name`} value={value} maxLength={200} autoFocus onChange={event => setValue(event.target.value)} />
+        <ErrorBanner text={action.error} />
+      </form>
+    </ResponsiveDialog>
+  )
+}
+
 const readWorktrees = (_: string, signal: AbortSignal) => api.worktrees(signal)
 
 function sizeLabel(tree: Worktree) {

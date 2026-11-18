@@ -11,7 +11,7 @@ import { api } from '../api.js'
 import { pickQuotaWindows, QUOTA_WINDOWS } from '../quota.js'
 import { chatHref, runHref } from '../state.js'
 import type { AppState, QuotaSnapshot, Route, RunSummary } from '../types.js'
-import { ChatRow } from './chat-row.js'
+import { RowMenu } from './row-menu.js'
 import { EngineMark, engineNames, engines, ErrorBanner, folderName, runActivity, StatusDot, useAction } from './common.js'
 
 const sectionLabel = 'text-xs font-medium text-muted-foreground'
@@ -110,18 +110,38 @@ function RowText({ title, detail, detailTitle }: { title: string; detail: string
   )
 }
 
-function WorkerLink({ run, selected, now }: { run: RunSummary; selected: boolean; now: number }) {
+function WorkerLink({ run, selected, now, offline }: { run: RunSummary; selected: boolean; now: number; offline: boolean }) {
+  const stops = run.status === 'running' ? ' and stops working' : ''
+  const files = run.worktree ? 'Its worktree stays on disk until you remove it under Worktrees.' : 'Files stay on disk.'
   return (
     <li className="min-w-0">
-      <a href={runHref(run.id)} aria-current={selected ? 'page' : undefined} className={rowLink}>
-        <EngineMark engine={run.engine} />
-        <RowText title={run.title} detail={runActivity(run, now, true)} />
-        {run.unseen ? (
-          <span className="size-1.5 shrink-0 rounded-full bg-foreground" role="img" aria-label="Unviewed result" title="Unviewed result" />
-        ) : (
-          run.status === 'running' && <StatusDot status={run.status} engine={run.engine} />
-        )}
-      </a>
+      <RowMenu
+        noun="worker"
+        size="small"
+        title={run.title}
+        deleteDescription={`${run.title} leaves your list${stops}. ${files}`}
+        offline={offline}
+        rename={async title => void (await api.renameRun(run.id, title))}
+        remove={async () => {
+          await api.deleteRun(run.id)
+          if (selected) location.hash = ''
+        }}
+      >
+        <a href={runHref(run.id)} aria-current={selected ? 'page' : undefined} className={`${rowLink} pr-12 md:pr-9`}>
+          <EngineMark engine={run.engine} />
+          <RowText title={run.title} detail={runActivity(run, now, true)} />
+          {run.unseen ? (
+            <span
+              className="size-1.5 shrink-0 rounded-full bg-foreground"
+              role="img"
+              aria-label="Unviewed result"
+              title="Unviewed result"
+            />
+          ) : (
+            run.status === 'running' && <StatusDot status={run.status} engine={run.engine} />
+          )}
+        </a>
+      </RowMenu>
     </li>
   )
 }
@@ -225,9 +245,14 @@ export function Navigation({
               return (
                 <li key={chat.id} className="min-w-0">
                   {index > 0 && <Separator className="mb-1" />}
-                  <ChatRow
-                    chat={chat}
-                    deleted={() => {
+                  <RowMenu
+                    noun="chat"
+                    title={chat.title}
+                    deleteDescription={`${chat.title} and its ${chat.runs.length} workers leave your list. Files stay on disk.`}
+                    offline={offline}
+                    rename={async title => void (await api.renameChat(chat.id, title))}
+                    remove={async () => {
+                      await api.deleteChat(chat.id)
                       if (selected || activeWorker) location.hash = ''
                     }}
                   >
@@ -248,11 +273,17 @@ export function Navigation({
                         </span>
                       )}
                     </a>
-                  </ChatRow>
+                  </RowMenu>
                   {chat.runs.length > 0 && (
                     <ul className="mt-1 ml-4 grid min-w-0 gap-0.5 border-l pl-2" aria-label={`Workers for ${chat.title}`}>
                       {chat.runs.map(run => (
-                        <WorkerLink key={run.id} run={run} now={now} selected={active.kind === 'run' && active.id === run.id} />
+                        <WorkerLink
+                          key={run.id}
+                          run={run}
+                          now={now}
+                          offline={offline}
+                          selected={active.kind === 'run' && active.id === run.id}
+                        />
                       ))}
                     </ul>
                   )}
@@ -286,7 +317,7 @@ export function Navigation({
         {independent.length ? (
           <ul className="grid min-w-0 gap-0.5">
             {independent.map(run => (
-              <WorkerLink key={run.id} run={run} now={now} selected={active.kind === 'run' && active.id === run.id} />
+              <WorkerLink key={run.id} run={run} now={now} offline={offline} selected={active.kind === 'run' && active.id === run.id} />
             ))}
           </ul>
         ) : (

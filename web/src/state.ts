@@ -27,6 +27,7 @@ type Event =
   | { kind: 'state'; value: AppState }
   | { kind: 'chat'; value: ChatRecord }
   | { kind: 'chat-deleted'; value: { id: string } }
+  | { kind: 'run-deleted'; value: { id: string } }
   | { kind: 'run'; value: RunSummary }
   | { kind: 'quota'; value: QuotaSnapshot }
   | { kind: 'claw'; value: ClawState }
@@ -50,6 +51,16 @@ export function reconcile(state: AppState | null, event: Event): AppState | null
     case 'chat-deleted': {
       const { id } = event.value
       return { ...state, chats: state.chats.filter(chat => chat.id !== id), runs: state.runs.filter(run => run.chatId !== id) }
+    }
+    case 'run-deleted': {
+      const { id } = event.value
+      return {
+        ...state,
+        runs: state.runs.filter(run => run.id !== id),
+        chats: state.chats.map(chat =>
+          chat.runs.some(run => run.id === id) ? { ...chat, runs: chat.runs.filter(run => run.id !== id) } : chat,
+        ),
+      }
     }
     case 'run': {
       const run = event.value
@@ -99,7 +110,7 @@ export function useLiveState(base: string | null) {
           }, 1_000)
         }
       }
-      for (const kind of ['state', 'run', 'chat', 'chat-deleted', 'quota', 'claw'] as const) {
+      for (const kind of ['state', 'run', 'run-deleted', 'chat', 'chat-deleted', 'quota', 'claw'] as const) {
         current.addEventListener(kind, event => {
           if (!isCurrent()) return
           try {

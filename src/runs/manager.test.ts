@@ -207,6 +207,31 @@ describe('message, stop and wait', () => {
     expect(details.overlaps).toEqual([{ runId: b.id, title: 'B', files: ['README.md'] }])
   })
 
+  it('deletes a working run: stops it, hides it, and keeps it deleted after a restart', async () => {
+    const t = await setup()
+    const run = await t.manager.delegate({ folder: t.repo, engine: 'claude', brief: { text: 'Doomed' } })
+    await t.claw.waitForSend(run.session)
+    expect(await t.manager.delete(run.id)).toEqual({ deleted: run.id })
+    expect(t.claw.sessions.size).toBe(0)
+    await t.manager.settled(run.id)
+    expect(t.store.get(run.id)).toBeNull()
+    expect(t.manager.list()).toEqual([])
+    // Its worktree stays, so the app can still list and remove it.
+    expect(t.store.list({ deleted: true }).map(r => r.id)).toEqual([run.id])
+    expect(await t.manager.waitAny({ timeoutMs: 20 })).toBeNull()
+    const reopened = await RunStore.open(join(t.base, 'grip-home'))
+    expect(reopened.get(run.id)).toBeNull()
+    expect(reopened.isDeleted(run.id)).toBe(true)
+  })
+
+  it('renames a run', async () => {
+    const t = await setup()
+    const run = await t.manager.delegate({ folder: t.plain, engine: 'agy', brief: { text: 'Old name' } })
+    expect((await t.manager.rename(run.id, 'New name')).title).toBe('New name')
+    const reopened = await RunStore.open(join(t.base, 'grip-home'))
+    expect(reopened.get(run.id)?.title).toBe('New name')
+  })
+
   it('recovers after a restart: stuck runs fail and their sessions close', async () => {
     const t = await setup()
     const run = await t.manager.delegate({ folder: t.plain, engine: 'claude', brief: { text: 'x' } })

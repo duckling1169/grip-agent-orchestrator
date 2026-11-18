@@ -162,6 +162,18 @@ export class RunManager {
     return stopped
   }
 
+  /** Delete a run from the app: stop it if it is working, then stop showing it. Its worktree stays. */
+  async delete(id: string): Promise<{ deleted: string }> {
+    await this.stop(id)
+    await this.store.delete(id)
+    return { deleted: id }
+  }
+
+  rename(id: string, title: string): Promise<Run> {
+    this.mustGet(id)
+    return this.store.rename(id, title)
+  }
+
   /**
    * Stop every running run. Each is recorded as stopped first, so the record is right even when
    * Claw hangs. Claw then gets a few seconds to stop each session; if any is left, every worker

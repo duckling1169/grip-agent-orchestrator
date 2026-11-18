@@ -67,6 +67,8 @@ export type RunEvent =
   | { t: 'interrupted'; at: string; id: string; reason: string }
   | { t: 'viewed'; at: string; id: string; by?: 'app' }
   | ({ t: 'configured'; at: string; id: string } & TurnSettings)
+  | { t: 'named'; at: string; id: string; title: string }
+  | { t: 'deleted'; at: string; id: string }
 
 export type RunStoreEvents = { change: [Run] }
 
@@ -83,6 +85,8 @@ export class RunStore extends EventEmitter<RunStoreEvents> {
   private readonly createdSeq = new Map<string, number>()
   private readonly finishedSeq = new Map<string, number>()
   private readonly events = new Map<string, RunEvent[]>()
+  /** Runs you deleted. Their log lines, turn files and worktree stay; Grip stops showing them. */
+  private readonly deleted = new Set<string>()
   private seq = 0
   private readonly log: JsonlAppender
 
@@ -159,6 +163,12 @@ export class RunStore extends EventEmitter<RunStoreEvents> {
       case 'configured':
         run.model = e.model
         run.effort = e.effort
+        break
+      case 'named':
+        run.title = e.title
+        break
+      case 'deleted':
+        this.deleted.add(e.id)
         break
       case 'interrupted':
         run.status = 'failed'
@@ -257,6 +267,25 @@ export class RunStore extends EventEmitter<RunStoreEvents> {
     return this.record({ t: 'configured', at: this.stamp(), id, ...settings })
   }
 
+  async rename(id: string, title: string): Promise<Run> {
+    const run = this.must(id)
+    if (run.title === title) return structuredClone(run)
+    return this.record({ t: 'named', at: this.stamp(), id, title })
+  }
+
+  /**
+   * Stop showing a run. Stop it first; this only hides it. A turn that ends later still saves
+   * its output, out of sight.
+   */
+  async delete(id: string): Promise<void> {
+    this.must(id)
+    if (!this.deleted.has(id)) await this.record({ t: 'deleted', at: this.stamp(), id })
+  }
+
+  isDeleted(id: string): boolean {
+    return this.deleted.has(id)
+  }
+
   async markStopped(id: string): Promise<Run> {
     this.must(id)
     return this.record({ t: 'stopped', at: this.stamp(), id })
@@ -286,15 +315,19 @@ export class RunStore extends EventEmitter<RunStoreEvents> {
   }
 
   get(id: string): Run | null {
-    const run = this.runs.get(id)
+    const run = this.deleted.has(id) ? undefined : this.runs.get(id)
     return run ? structuredClone(run) : null
   }
 
-  /** Runs newest first, optionally only one status, one folder or one chat (null: runs with no chat). */
-  list(filter: { status?: RunStatus; folder?: string; chatId?: string | null } = {}): Run[] {
+  /**
+   * Runs newest first, optionally only one status, one folder or one chat (null: runs with no
+   * chat). Deleted runs only with `deleted`, for the worktrees they leave behind.
+   */
+  list(filter: { status?: RunStatus; folder?: string; chatId?: string | null; deleted?: boolean } = {}): Run[] {
     return [...this.runs.values()]
       .filter(
         r =>
+          (filter.deleted || !this.deleted.has(r.id)) &&
           (!filter.status || r.status === filter.status) &&
           (!filter.folder || r.folder === filter.folder) &&
           (filter.chatId === undefined || r.chatId === filter.chatId),
@@ -324,7 +357,7 @@ export class RunStore extends EventEmitter<RunStoreEvents> {
    */
   waitAny(options: { timeoutMs: number; ids?: readonly string[]; chatId?: string | null; signal?: AbortSignal }): Promise<Run | null> {
     const mine = (r: Run) => (options.ids ? options.ids.includes(r.id) : options.chatId === undefined || r.chatId === options.chatId)
-    const wanted = (r: Run) => REPORTABLE.includes(r.status) && !r.viewed && mine(r)
+    const wanted = (r: Run) => REPORTABLE.includes(r.status) && !r.viewed && !this.deleted.has(r.id) && mine(r)
     const ready = [...this.runs.values()]
       .filter(wanted)
       .sort((a, b) => (this.finishedSeq.get(a.id) ?? 0) - (this.finishedSeq.get(b.id) ?? 0))[0]

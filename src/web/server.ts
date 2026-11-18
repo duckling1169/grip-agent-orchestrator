@@ -84,6 +84,7 @@ const DelegateBody = z.object({
   retryOf: z.string().optional(),
 })
 const MessageBody = z.object({ text: z.string() })
+const RenameBody = z.object({ title: z.string().trim().min(1).max(200) })
 const SettingsBody = z.object({ model: z.string().min(1).nullable(), effort: z.string().min(1).nullable() })
 const ChatBody = z.object({
   folder: z.string().min(1),
@@ -156,7 +157,8 @@ export async function startWebHttp(options: WebOptions): Promise<{ server: Serve
 
   async function listWorktrees() {
     const byRoot = new Map<string, Run[]>()
-    for (const run of manager.list()) if (run.repo) byRoot.set(run.repo.root, [...(byRoot.get(run.repo.root) ?? []), run])
+    // Deleted runs leave their worktrees behind, so they still count here.
+    for (const run of store.list({ deleted: true })) if (run.repo) byRoot.set(run.repo.root, [...(byRoot.get(run.repo.root) ?? []), run])
     const out = []
     for (const [root, runs] of byRoot) {
       const listed = await worktrees.list(root).catch(() => [])
@@ -170,7 +172,7 @@ export async function startWebHttp(options: WebOptions): Promise<{ server: Serve
           repo: root,
           bytes: disk.bytes,
           sizeComplete: disk.complete,
-          run: run && summarize(run),
+          run: run && !store.isDeleted(run.id) ? summarize(run) : null,
         })
       }
     }
@@ -178,7 +180,7 @@ export async function startWebHttp(options: WebOptions): Promise<{ server: Serve
   }
 
   async function removeWorktree(path: string) {
-    const run = manager.list().find(r => r.repo && samePath(r.repo.worktree, path))
+    const run = store.list({ deleted: true }).find(r => r.repo && samePath(r.repo.worktree, path))
     if (!run?.repo) throw new HttpError(404, `${path} is not the worktree of a Grip run`)
     if (run.status === 'running') throw new HttpError(409, `run ${run.id} is still working in ${path}; stop it first`)
     return worktrees.remove(run.repo.root, run.repo.worktree, run.repo.base)
@@ -186,8 +188,8 @@ export async function startWebHttp(options: WebOptions): Promise<{ server: Serve
 
   async function route(req: IncomingMessage, res: ServerResponse, login: string, path: string): Promise<unknown> {
     const method = req.method ?? 'GET'
-    const runMatch = /^\/api\/runs\/([\w-]+)(?:\/(message|stop|retry|settings))?$/.exec(path)
-    const chatMatch = /^\/api\/chats\/([\w-]+)(?:\/(message|stop|settings))?$/.exec(path)
+    const runMatch = /^\/api\/runs\/([\w-]+)(?:\/(message|stop|retry|settings|rename))?$/.exec(path)
+    const chatMatch = /^\/api\/chats\/([\w-]+)(?:\/(message|stop|settings|rename))?$/.exec(path)
 
     if (method === 'GET' && path === '/api/state') return state(login)
     if (method === 'GET' && path === '/api/models') return models.list()
@@ -226,6 +228,7 @@ export async function startWebHttp(options: WebOptions): Promise<{ server: Serve
         // The next turn uses them; a turn already running keeps its own.
         return chatStore.configure(id, parse(SettingsBody, await readJsonBody(req)))
       }
+      if (method === 'POST' && action === 'rename') return chats.rename(id, parse(RenameBody, await readJsonBody(req)).title)
       if (method === 'DELETE' && !action) return chats.delete(id)
     }
     if (runMatch) {
@@ -246,6 +249,14 @@ export async function startWebHttp(options: WebOptions): Promise<{ server: Serve
       if (method === 'POST' && action === 'stop') {
         mustRun(id)
         return summarize(await manager.stop(id))
+      }
+      if (method === 'POST' && action === 'rename') {
+        mustRun(id)
+        return summarize(await manager.rename(id, parse(RenameBody, await readJsonBody(req)).title))
+      }
+      if (method === 'DELETE' && !action) {
+        mustRun(id)
+        return manager.delete(id)
       }
       if (method === 'POST' && action === 'retry') {
         const run = mustRun(id)
@@ -272,7 +283,8 @@ export async function startWebHttp(options: WebOptions): Promise<{ server: Serve
     res.write('retry: 1000\n\n')
     write('state', state(login))
     const onRun = (run: Run) => {
-      if (!run.chatId || !chatStore.isDeleted(run.chatId)) write('run', summarize(run))
+      if (store.isDeleted(run.id)) write('run-deleted', { id: run.id })
+      else if (!run.chatId || !chatStore.isDeleted(run.chatId)) write('run', summarize(run))
     }
     const onChat = (chat: Chat) => (chatStore.isDeleted(chat.id) ? write('chat-deleted', { id: chat.id }) : write('chat', chat))
     const onQuota = (snapshot: QuotaSnapshot) => write('quota', snapshot)

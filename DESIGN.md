@@ -62,7 +62,7 @@ Facts that shaped this design:
 - **The Codex app's bundled `codex.exe` is not a usable CLI.** The `.codex\.sandbox-bin` copy lacks its command-runner helper. The standalone CLI (`npm i -g @openai/codex`) is now installed and on PATH.
 - **`-w/--worktree` only works for Claude.** Claw passes it to Claude's own `--worktree`. Codex and agy ran in the main checkout. Grip creates worktrees itself (§6.2).
 - **`clawo-mcp` runs its own private session manager** and sets `CLAWO_NO_EMBEDDED_SERVER=1`, so its sessions are invisible to a separately running `clawo serve`. Only the on-disk run ledger is shared. Orchestrators therefore must not use `clawo-mcp` directly (§5).
-- **Plain sessions have no event stream.** `POST /session/send` blocks until the turn ends. Server-sent events exist only for workflows, councils, autoloops and ultraapp. Live per-tool activity waits on an upstream change (§7.3).
+- **Plain sessions have no event stream.** `POST /session/send` blocks until the turn ends, so Grip calls Claw through `node:http` with only its own turn timeout: `fetch` gives up on headers after five minutes. Server-sent events exist only for workflows, councils, autoloops and ultraapp. Live per-tool activity waits on an upstream change (§7.3).
 - **Tool counts are incomplete.** The Codex and agy session status showed `Tools: 0` even though both wrote files.
 - **Ledger cost figures are list-price estimates.** All engines used subscription logins, and no API key was needed.
 
@@ -356,9 +356,9 @@ The agreed screens are in the design canvas (claude.ai artifact `JktKuQYLVZ7S8Fv
   - **Chat list:** chats with their workers nested, then runs that belong to no chat. Unviewed runs are marked.
   - **A Grip chat:** the conversation, with each hand-off shown inline as a card for that worker and its live status, plus a message box. Action: **Stop this chat**, which also stops its workers.
   - **A Claude Code chat:** the thread of briefs, messages and results Grip saw (§5.1), the *Needs you* block for its workers, and a note that you reply to it in its own host.
-  - **Worker detail:** everything in §7.1, plus the chat it works for. Actions: **Message** (its chat sees it too), **Stop**, **Retry with another agent**, **Copy the folder path**.
+  - **Worker detail:** everything in §7.1, plus the chat it works for and the model by name. With no model chosen it says the agent's default model, since Claw does not report which one the agent picked. Actions: **Message** (its chat sees it too), **Stop**, **Retry with another agent**, **Copy the folder path**.
   - **Start a chat:** the model that runs it, with each one's quota left, a folder (typed, recent, or browsed), model and effort from each agent's own list. No first message: you write it in the chat.
-  - **Delete a chat:** swipe, long-press or right-click, then a small confirm. It stops anything still working and hides the chat and its workers; files stay on disk.
+  - **Rename or delete a chat or worker:** its `…` menu, the only way in, so no stray gesture deletes anything. Delete asks first, stops anything still working, and hides it (a chat takes its workers along). Files stay on disk; a deleted worker's worktree stays listed under worktree cleanup.
   - **Start one worker:** folder, engine, model and effort, brief (text or path). The same call as `delegate`, for work that needs no chat.
   - **Global:** quota, **Stop all runs**, worktree cleanup list, Claw status and update history, notification settings.
 - **Live updates:** Grip serves its own SSE stream of run and quota changes to the app. The app never polls Claw.
@@ -367,7 +367,8 @@ The agreed screens are in the design canvas (claude.ai artifact `JktKuQYLVZ7S8Fv
 **Web API** (`127.0.0.1:18798`, behind `tailscale serve`, identity-checked). Writes must be JSON, and any `Origin` must be Grip's own, because `tailscale serve` adds your identity to requests from every page in your browser:
 - `GET /api/state` (chats, runs, quota, Claw)
 - `GET /api/models`, `GET /api/folders?path=`, `GET /api/machines`
-- `DELETE /api/chats/:id`
+- `DELETE /api/chats/:id` and `DELETE /api/runs/:id`
+- `POST /api/chats/:id/rename` and `POST /api/runs/:id/rename` (`{ title }`)
 - `GET /api/chats/:id`
 - `POST /api/chats` (start a Grip chat)
 - `POST /api/chats/:id/message`

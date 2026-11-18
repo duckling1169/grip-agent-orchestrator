@@ -4,6 +4,8 @@
  * health gate checks after each Claw update.
  */
 
+import { request as httpRequest } from 'node:http'
+
 export type ClawEngine = 'claude' | 'codex-app' | 'agy'
 
 export type ClawHealth = { ok: boolean; version: string; sessions: number }
@@ -57,21 +59,42 @@ export class ClawError extends Error {
   }
 }
 
-type Fetch = typeof globalThis.fetch
+type Reply = { status: number; text: string }
+
+/**
+ * One request through `node:http`, not `fetch`. A turn's `/session/send` answers only when the
+ * turn ends, and `fetch` (undici) gives up on any answer whose headers take more than five
+ * minutes. Here the only limit is `timeoutMs`.
+ */
+function request(url: string, options: { method: string; headers?: Record<string, string>; body?: string; timeoutMs: number }) {
+  return new Promise<Reply>((resolve, reject) => {
+    // A fresh connection per request, so no agent's socket timeout applies to a long turn.
+    const req = httpRequest(url, { method: options.method, headers: options.headers, agent: false }, res => {
+      let text = ''
+      res.setEncoding('utf8')
+      res.on('data', (chunk: string) => (text += chunk))
+      res.on('end', () => resolve({ status: res.statusCode ?? 0, text }))
+      res.on('error', reject)
+    })
+    const timer = setTimeout(() => req.destroy(new Error(`no answer in ${Math.round(options.timeoutMs / 1000)} s`)), options.timeoutMs)
+    req.on('close', () => clearTimeout(timer))
+    req.on('error', reject)
+    req.end(options.body)
+  })
+}
 
 export class ClawClient {
   constructor(
     readonly baseUrl: string,
     private readonly token: string,
-    private readonly fetchImpl: Fetch = globalThis.fetch,
   ) {}
 
   /** The one unauthenticated route. Null when nothing answers on the port. */
   async health(timeoutMs = 2000): Promise<ClawHealth | null> {
     try {
-      const res = await this.fetchImpl(`${this.baseUrl}/health`, { signal: AbortSignal.timeout(timeoutMs) })
-      if (!res.ok) return null
-      const body = (await res.json()) as Partial<ClawHealth>
+      const res = await request(`${this.baseUrl}/health`, { method: 'GET', timeoutMs })
+      if (res.status !== 200) return null
+      const body = JSON.parse(res.text) as Partial<ClawHealth>
       return body.ok === true && typeof body.version === 'string'
         ? { ok: true, version: body.version, sessions: typeof body.sessions === 'number' ? body.sessions : 0 }
         : null
@@ -81,24 +104,25 @@ export class ClawClient {
   }
 
   private async post<T>(path: string, body: Record<string, unknown>, timeoutMs = 60_000): Promise<T> {
-    let res: Response
+    let res: Reply
     try {
-      res = await this.fetchImpl(`${this.baseUrl}${path}`, {
+      res = await request(`${this.baseUrl}${path}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${this.token}` },
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(timeoutMs),
+        timeoutMs,
       })
     } catch (error) {
       throw new ClawError(`${path}: ${(error as Error).message}`, null)
     }
     let parsed: { ok?: unknown; error?: unknown } & Record<string, unknown>
     try {
-      parsed = (await res.json()) as typeof parsed
+      parsed = JSON.parse(res.text) as typeof parsed
     } catch {
       throw new ClawError(`${path}: HTTP ${res.status} with a non-JSON body`, res.status)
     }
-    if (!res.ok || parsed.ok !== true) {
+    const ok = res.status >= 200 && res.status < 300
+    if (!ok || parsed.ok !== true) {
       throw new ClawError(`${path}: ${typeof parsed.error === 'string' ? parsed.error : `HTTP ${res.status}`}`, res.status)
     }
     return parsed as T
