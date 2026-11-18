@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { Worktrees } from '../git/worktrees.js'
-import { RunManager } from './manager.js'
+import { GRIP_TOOLS, RunManager, WORKER_PROMPT } from './manager.js'
 import { RunStore } from './store.js'
 import { FakeClaw } from '../testing/fake-claw.js'
 
@@ -61,6 +61,17 @@ describe('delegate', () => {
       t.claw.answer(run.session, { output: 'ok' })
       await t.manager.settled(run.id)
     }
+  })
+
+  it('denies Claude workers Grip, and tells them to finish their subagents within the turn', async () => {
+    const t = await setup()
+    const run = await t.manager.delegate({ folder: t.plain, engine: 'claude', brief: { text: 'Split the work' } })
+    await t.claw.waitForSend(run.session)
+    expect(t.claw.starts.at(-1)).toMatchObject({ disallowedTools: [GRIP_TOOLS], appendSystemPrompt: WORKER_PROMPT })
+    // Their own Agent tool stays: subagents that finish inside the turn are part of the worker's job.
+    expect(t.claw.starts.at(-1)?.disallowedTools).not.toContain('Agent')
+    t.claw.answer(run.session, { output: 'ok' })
+    await t.manager.settled(run.id)
   })
 
   it('gives a repo run its own worktree, starts a Claw session there, and records the result', async () => {

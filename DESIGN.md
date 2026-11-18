@@ -180,6 +180,15 @@ A **chat** is one orchestrator conversation. Every run belongs to the chat that 
 
 **One level only.** Only chats delegate. Claude workers start with `mcp__grip` in their denied tools, so a worker that loaded Grip from your user config can't call it. Codex and agy workers don't get Grip, as long as Grip is added only to the orchestrator's host (§15).
 
+**Subagents within the turn.** A worker may use its own engine's subagents, such as Claude's `Agent` tool, for parts of its job. They must finish before the worker's turn ends:
+
+- **Why it is safe:** a subagent that finishes inside the turn works in the worker's folder or worktree, stops when the worker is stopped, and its result reaches the chat through the worker's result.
+- **What is not allowed:** subagents or background jobs left running when the turn ends. Claw ends the session's process with the turn, so they die and nobody sees their results.
+- **How workers are told:** Claude workers get `WORKER_PROMPT` as an appended system prompt, which says so. Codex and agy have no system prompt that Grip can add to, so their briefs carry no extra rule (§18).
+- **What Grip does not do:** the app does not show subagents. The worker appears as one run that works for longer.
+
+Delegation from a worker through Grip (nested runs, a run tree, depth and fan-out limits) is left out on purpose. Add it only when a job needs a worker to hand work to another engine, or to run long jobs in parallel.
+
 **Messages to workers.** When you message a worker directly, its chat sees that message the next time it reads the run, through `result` or `wait_any`.
 
 **Storage:** `chats.jsonl` holds chat events (created, named, turn started or ended, stopped), and each run event carries its `chatId`. A Grip chat's turns are stored like run turns.
@@ -464,3 +473,4 @@ Wake-on-LAN is not planned. A sleeping principal shows as offline.
 - The status of Google's terms on third-party orchestration of `agy -p`.
 - Does the Claude Code desktop app open one MCP session per conversation, so each chat gets its own session (§5.1)? If not, Grip needs another way to tell its chats apart.
 - Does a `mcp__grip` deny rule in a Claude worker's settings block every Grip tool, including ones loaded from your user config?
+- Can a Codex or agy headless turn start subagents or background jobs that keep running after the turn ends? Is the token use of a Claude worker's subagents included in the turn's totals in Claw's ledger?

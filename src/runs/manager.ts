@@ -35,6 +35,16 @@ export const PERMISSION_MODE: Record<Engine, 'auto' | undefined> = { claude: 'au
 export const GRIP_MCP_NAME = 'grip'
 export const GRIP_TOOLS = `mcp__${GRIP_MCP_NAME}`
 
+/**
+ * Workers may use their engine's own subagents, but only ones that finish within the turn: Claw
+ * ends the session's process with the turn, so anything left running dies unseen (DESIGN §5.1).
+ * Claude is the only engine with a system prompt Grip can add to.
+ */
+export const WORKER_PROMPT =
+  'You are a worker started by Grip. You may use subagents for parts of this task, but wait for each one to ' +
+  'finish before you reply. Do not leave subagents or background jobs running when your turn ends: they stop ' +
+  'with it, and nobody sees their results.'
+
 export type DelegateInput = {
   /** Required, except for a retry, which defaults to the retried run's folder. */
   folder?: string
@@ -347,7 +357,7 @@ export class RunManager {
         ...(run.model ? { model: run.model } : {}),
         ...(run.effort ? { effort: run.effort } : {}),
         ...(run.engineSessionId ? { resumeSessionId: run.engineSessionId } : {}),
-        ...(run.engine === 'claude' ? { disallowedTools: [GRIP_TOOLS] } : {}),
+        ...(run.engine === 'claude' ? { disallowedTools: [GRIP_TOOLS], appendSystemPrompt: WORKER_PROMPT } : {}),
       })
       // A stop that landed while the session was starting must not let the turn begin.
       if (this.stopping.has(run.id)) throw new Error('stopped before the turn began')
