@@ -42,7 +42,7 @@ function Diff({ diff }: { diff: NonNullable<RunDetail['diff']> }) {
           </details>
         )
       })}
-      {diff.untrackedFiles.length > 0 && <p className="text-sm text-muted-foreground">Untracked: {diff.untrackedFiles.join(', ')}</p>}
+      {diff.untrackedFiles.length > 0 && <p className="text-sm text-muted-foreground">New files: {diff.untrackedFiles.join(', ')}</p>}
       {diff.truncated && <p className="text-sm text-muted-foreground">Grip shortened this patch.</p>}
       {!sections.length && !diff.untrackedFiles.length && <p className="text-sm text-muted-foreground">No changes.</p>}
     </WorkerSection>

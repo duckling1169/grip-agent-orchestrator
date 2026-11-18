@@ -86,6 +86,9 @@ describe('facts and diff', () => {
     expect(diff.patch).toContain('+export const a = 3')
     expect(diff.stat).toContain('2 files changed')
     expect(diff.untrackedFiles).toEqual(['notes.txt'])
+    // A new file the worker did not commit shows in full, and the worktree's index stays as it was.
+    expect(diff.patch).toMatch(/diff --git a\/notes\.txt b\/notes\.txt\nnew file mode \d+\n[^]*\+scratch/)
+    expect(git(made.path, 'status', '--porcelain')).toContain('?? notes.txt')
   })
 })
 

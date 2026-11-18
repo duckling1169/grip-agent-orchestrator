@@ -142,7 +142,7 @@ Orchestrators add Grip as an MCP server (`http://127.0.0.1:<port>/mcp`) **instea
 | `message` | `runId`, `text` | Ack. The next turn starts in the background |
 | `stop` | `runId` | Ack after the worker's process tree is gone |
 | `list` | `status?` (`running` / `done` / `failed`), `folder?` | Runs with title, engine, model, folder, branch, status, elapsed time, git facts, unviewed flag. A running run in a repo adds `activity`: newest edit, last commit, files changed and commits, since Claw reports nothing mid-turn |
-| `result` | `runId` | Brief, final result text, diff stats plus the unified diff, git facts, overlap warnings, and any messages you sent the worker yourself. Marks the run viewed |
+| `result` | `runId` | Brief, final result text, diff stats plus the unified diff (new files the worker did not commit included, up to 50 files of 256 KB each), git facts, overlap warnings, and any messages you sent the worker yourself. Marks the run viewed |
 | `wait_any` | `timeoutSec`, `runIds?` | The next run to finish or fail that hasn't been viewed yet, as `result`, or `null` on timeout |
 | `models` | `engine?` | Each engine's models from the same catalog as the app's pickers (`src/models.ts`: Codex `model/list`, `agy models`, a fixed Claude list): the id to pass as `model`, its name, efforts and default effort. `delegate` asks for one, because with none the agent picks its own default and Claw does not report which. It refuses a Codex or Antigravity model their CLI does not list (Antigravity base names without the effort suffix pass), so a typo fails at once instead of in the run; Claude models and unreadable lists are not checked |
 | `quota` | — | Current windows per provider plus the `verdict()` line (added with the quota module, §8) |
@@ -519,7 +519,7 @@ Wake-on-LAN is not planned. A sleeping principal shows as offline.
      2. Done: the ACP turn runner (`src/chats/acp-turns.ts`), tested against a fake ACP agent.
      3. Done: presets for agy (`agy acp`) and Codex (`codex-acp` 2.7.0, with its own pinned Codex sharing your `~/.codex` login), the `mcp-remote` bridge and a leader check that only sends `initialize`. ACP agents from `config.json` come with the workers below, which need the same wider engine list.
      4. Done: the app offers every leader that passes the check (`GET /api/leaders`, kept as long as the model lists) when you start a chat, says why the others cannot lead, and names the chat's leader in its screen.
-     5. On the PC: one agy-led chat and one Codex-led chat each delegate to a worker and review it.
+     5. Done on the PC (2026-11-18): a Codex-led chat and an agy-led chat each delegated to a Claude Haiku worker, waited for it and reviewed its diff, in under a minute each.
    - **Workers through Claw.** Claw already runs `grok`, `opencode`, ACP agents (`-e acp --acp-agent`, with presets such as `dsh` for DeepSeek and `kimi-code`) and `custom` engines. Grip narrows this to three in `Engine` and `ClawEngine`. Pass the others through:
      - `delegate` takes the engine and an optional ACP preset.
      - Extra engines are listed in `config.json`, for example `"workers": ["acp:dsh"]`. The health gate checks their sign-in, and `grip status` and the app say when one is broken. Each is signed in once on the PC.

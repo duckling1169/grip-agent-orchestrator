@@ -32,6 +32,9 @@ export type GripWorktree = { path: string; branch: string; ageMs: number | null 
 /** Worktrees Grip creates live on branches under this prefix, so they are easy to tell apart. */
 export const BRANCH_PREFIX = 'grip/'
 const MAX_STATS = 60
+/** New files shown in full in a diff; more, or larger ones, are only named. */
+const MAX_NEW_FILES = 50
+const MAX_NEW_FILE_BYTES = 256 * 1024
 
 /**
  * Git for worker runs: find a folder's repo, give a run its own worktree beside the repo (never
@@ -120,14 +123,30 @@ export class Worktrees {
     return { branch: branch === 'HEAD' ? null : branch, ahead: commits, changedFiles, untrackedFiles, lastCommit, newestEdit }
   }
 
-  /** Everything the run changed against its starting commit, including uncommitted edits. */
+  /**
+   * Everything the run changed against its starting commit, including uncommitted edits and new
+   * files, which workers seldom commit. New files are diffed against nothing, so the worktree's
+   * index is never touched.
+   */
   async diff(path: string, baseCommit: string): Promise<WorktreeDiff> {
     const [statText, patch, untracked] = await Promise.all([
       this.git(path, ['diff', '--stat', baseCommit]),
       this.git(path, ['diff', baseCommit]),
       this.git(path, ['ls-files', '--others', '--exclude-standard']),
     ])
-    return { baseCommit, stat: statText, patch, untrackedFiles: untracked.split(/\r?\n/).filter(Boolean) }
+    const untrackedFiles = untracked.split(/\r?\n/).filter(Boolean)
+    const added: string[] = []
+    for (const file of untrackedFiles.slice(0, MAX_NEW_FILES)) {
+      const size = await stat(join(path, file)).then(
+        s => (s.isFile() ? s.size : null),
+        () => null,
+      )
+      if (size === null || size > MAX_NEW_FILE_BYTES) continue
+      // Exit code 1 means the files differ, which a new file always does.
+      const result = await this.run('git', ['-C', path, 'diff', '--no-index', '--', '/dev/null', file], { timeoutMs: 60_000 })
+      if (result.code <= 1 && result.stdout) added.push(result.stdout.replace(/\r?\n$/, ''))
+    }
+    return { baseCommit, stat: statText, patch: [patch, ...added].filter(Boolean).join('\n'), untrackedFiles }
   }
 
   /** The worktrees Grip made for a repo, newest last. */
