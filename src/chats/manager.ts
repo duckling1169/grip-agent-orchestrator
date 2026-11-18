@@ -225,6 +225,7 @@ export class ChatManager {
         chatDir: this.o.chats.chatDir(chat.id),
         timeoutMs: this.o.turnTimeoutMs ?? minutes(DEFAULT_SETTINGS.turnTimeoutMinutes),
         stopped: () => this.stopping.has(chat.id),
+        onOutput: output => this.o.chats.setLiveOutput(chat.id, turn, output),
       })
     } catch (error) {
       result = { output: '', error: errorText(error), sessionId: null }

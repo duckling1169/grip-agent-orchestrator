@@ -232,3 +232,30 @@ it('bounds stop-all and suppresses notes to idle chats', async () => {
   expect(t.chats.get(idle.id)?.status).toBe('stopped')
   expect(t.chats.get(active.id)?.status).toBe('stopped')
 })
+
+it('forwards leader progress to live chat snapshots before saving the completed reply', async () => {
+  let finish!: () => void
+  const pending = new Promise<void>(resolve => {
+    finish = resolve
+  })
+  const leader: ChatTurns = {
+    async run(input) {
+      input.onOutput?.('Working through the first batch.')
+      await pending
+      return { output: 'First batch. Final answer.', error: null, sessionId: 'stream-session' }
+    },
+    async stop() {
+      finish()
+      return true
+    },
+    async recover() {},
+  }
+  const t = await setup({ leaders: { codex: leader } })
+  const chat = await t.manager.startChat({ folder: t.dir, engine: 'codex', message: 'Hello' })
+  await until(() => Boolean(t.chats.get(chat.id)?.liveOutput))
+  expect(t.chats.get(chat.id)).toMatchObject({ status: 'working', liveOutput: 'Working through the first batch.' })
+  finish()
+  await until(() => t.chats.get(chat.id)?.status === 'idle')
+  expect(t.chats.get(chat.id)?.liveOutput).toBeUndefined()
+  expect((await t.manager.timeline(chat.id)).filter(e => e.kind === 'reply')).toMatchObject([{ text: 'First batch. Final answer.' }])
+})

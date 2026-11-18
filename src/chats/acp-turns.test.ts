@@ -134,3 +134,23 @@ it('fails a turn that runs past its time limit', async () => {
   const { turns, input } = setup({ http: true, hang: true })
   await expect(turns.run(input({ timeoutMs: 50 }))).resolves.toMatchObject({ error: 'no reply within 0 minutes' })
 })
+
+it('publishes assistant text before turn completion, excluding loaded history', async () => {
+  const { turns, input } = setup({ http: true, loadSession: true, toolCallFirst: true, reply: 'Final answer.' })
+  const updates: string[] = []
+  let finished = false
+  const result = await turns.run(
+    input({
+      chat: chat({ engineSessionId: 'conv-1' }),
+      onOutput: output => {
+        expect(finished).toBe(false)
+        updates.push(output)
+      },
+    }),
+  )
+  finished = true
+  expect(updates[0]).toBe('Checking the diff.')
+  expect(updates.length).toBeGreaterThan(1)
+  expect(updates.at(-1)).toBe(result.output)
+  expect(updates.join('')).not.toContain('Earlier reply.')
+})

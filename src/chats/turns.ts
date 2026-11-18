@@ -32,6 +32,8 @@ export type TurnInput = {
   chatDir: string
   timeoutMs: number
   /** True once you stopped the chat, so a turn that has not begun yet does not. */
+  /** Current assistant reply as ACP text arrives; excludes thoughts and replayed history. */
+  onOutput?: (output: string) => void
   stopped: () => boolean
 }
 

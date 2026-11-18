@@ -44,7 +44,7 @@ export class AcpChatTurns implements ChatTurns {
     private readonly o: Options = {},
   ) {}
 
-  async run({ chat, message, mcp, timeoutMs, stopped }: TurnInput): Promise<TurnResult> {
+  async run({ chat, message, mcp, timeoutMs, stopped, onOutput }: TurnInput): Promise<TurnResult> {
     if (stopped()) throw new Error('stopped before the turn began')
     const child = (this.o.spawn ?? spawnPiped)(this.agent.command, this.agent.args, {
       cwd: chat.folder!,
@@ -84,6 +84,7 @@ export class AcpChatTurns implements ChatTurns {
         if (update.content.type !== 'text') return
         output += (paragraph ? '\n\n' : '') + update.content.text
         paragraph = false
+        onOutput?.(output)
       })
       // A leader works in its chat's folder, as a Claude chat does in its permission mode.
       .onRequest('session/request_permission', ({ params }) => {

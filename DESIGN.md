@@ -168,7 +168,7 @@ A **chat** is one orchestrator conversation. Every run belongs to the chat that 
 - **Its tools:** your own MCP servers, plus Grip's MCP through a config file that Grip writes to `~/.grip/chats/<id>/mcp.json`. That file holds a token minted for this chat, so every call it makes is tied to it.
 - **Messages:** you talk to it from any device. A message sent mid-turn is delivered when the turn ends, as for workers.
 - **Waiting on workers:** while its turn sits in `wait_any`, the app says it is waiting on its workers. If the chat is idle when one of its workers finishes, Grip sends it a one-line note, so it reviews without you. That costs a turn of its own quota, by design.
-- **Live view:** Claw plain sessions have no event stream (§7.3), so the chat shows "working on its reply" until the turn ends, then the reply.
+- **Live view:** Claw plain sessions have no event stream (§7.3), so Claude chats show "working on its reply" until the turn ends, then the reply. ACP leaders (including Codex and agy) forward assistant text chunks over Grip's SSE, so their replies appear as they are written. Replayed history and thought chunks are excluded; final output is still saved once per turn.
 - **Stop:** stops its turn and every worker it manages.
 - **Which models:** Claude leads through Claw, which passes `--mcp-config` to Claude sessions only. Codex, agy, Kimi (`kimi acp`) and DeepSeek (`dsh --profile acp`) lead through ACP (below). Workers run on any engine in `src/engines.ts` whose CLI is installed.
 

@@ -38,6 +38,8 @@ export type Chat = {
   turns: number
   /** Turns whose message was Grip's note rather than yours. */
   fromGrip: number[]
+  /** In-memory reply in progress, forwarded over SSE; final output stays in turn files. */
+  liveOutput?: string
   /** In a `wait_any` call now: waiting for its workers. Not logged; it only lasts a call. */
   waiting: boolean
   createdAt: string
@@ -116,18 +118,21 @@ export class ChatStore extends EventEmitter<ChatStoreEvents> {
         chat.title = e.title
         break
       case 'turn-started':
+        delete chat.liveOutput
         chat.status = 'working'
         chat.error = null
         chat.turns = Math.max(chat.turns, e.turn)
         if (e.from === 'grip') chat.fromGrip = [...chat.fromGrip, e.turn]
         break
       case 'turn-ended':
+        delete chat.liveOutput
         chat.turns = Math.max(chat.turns, e.turn)
         chat.status = e.error ? 'failed' : 'idle'
         chat.error = e.error
         if (e.sessionId) chat.engineSessionId = e.sessionId
         break
       case 'stopped':
+        delete chat.liveOutput
         chat.status = 'stopped'
         chat.waiting = false
         break
@@ -245,6 +250,14 @@ export class ChatStore extends EventEmitter<ChatStoreEvents> {
 
   isDeleted(id: string): boolean {
     return this.deleted.has(id)
+  }
+
+  /** Publish progress without appending a ledger event or writing a file per token. */
+  setLiveOutput(id: string, turn: number, output: string): void {
+    const chat = this.chats.get(id)
+    if (!chat || this.deleted.has(id) || chat.status !== 'working' || chat.turns !== turn) return
+    chat.liveOutput = output
+    this.emit('change', structuredClone(chat))
   }
 
   /** Waiting in `wait_any` or not. Shown live in the app, never logged. */

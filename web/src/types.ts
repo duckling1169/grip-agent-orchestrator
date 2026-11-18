@@ -39,6 +39,7 @@ export type ChatRecord = Pick<
   | 'error'
   | 'turns'
   | 'waiting'
+  | 'liveOutput'
   | 'createdAt'
   | 'updatedAt'
 >

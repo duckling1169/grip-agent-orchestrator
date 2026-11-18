@@ -193,7 +193,9 @@ export function ChatWorkspace({
   stop: (chat: ChatSummary) => void
   attention?: ReactNode
 }) {
-  const detail = useDetail(id, api.chat, live)
+  // Progress arrives in chat SSE snapshots; it must not refetch the timeline per token.
+  const revision = live ? JSON.stringify({ ...live, liveOutput: undefined }) : undefined
+  const detail = useDetail(id, api.chat, revision)
   const wide = useMediaQuery(WIDE)
   const chat = live ?? (detail.data && { ...detail.data.chat, runs: detail.data.runs })
   const entries = detail.data?.timeline
@@ -202,7 +204,7 @@ export function ChatWorkspace({
   useLayoutEffect(() => {
     const viewport = thread.current?.querySelector<HTMLDivElement>(viewportSelector)
     if (viewport && stickToLatest.current) viewport.scrollTop = viewport.scrollHeight
-  }, [entries, chat?.status, chat?.waiting, chat?.error])
+  }, [entries, chat?.status, chat?.waiting, chat?.error, chat?.liveOutput])
 
   if (!chat)
     return (
@@ -278,6 +280,11 @@ export function ChatWorkspace({
                     {external ? 'No messages yet.' : `${leader} is ready in ${chat.folder ?? 'this folder'}. Send a message to start.`}
                   </p>
                 ))}
+              {chat.status === 'working' && chat.liveOutput && (
+                <div className="min-w-0 wrap-anywhere" aria-label="Reply in progress">
+                  <Markdown text={chat.liveOutput} />
+                </div>
+              )}
               {chat.status === 'working' && (
                 <p className="flex items-center gap-2 text-sm text-muted-foreground" role="status">
                   <StatusDot status={chat.waiting ? 'waiting' : 'working'} engine={chat.engine ?? 'claude'} />
