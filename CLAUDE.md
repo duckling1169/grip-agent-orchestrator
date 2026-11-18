@@ -13,8 +13,9 @@ Grip lets any orchestrator model delegate to coding agents (Claude Code, Codex, 
   - `briefs.ts`, `protected.ts`
 - `src/git/`: worktrees (sibling `<repo>-worktrees/` folders on `grip/` branches), git facts, diffs. The parsers are copied from `agent-usage`.
 - `src/quota/`: quota windows (DESIGN §8). Parsers ported from `alethe-orchestrate`, wording copied from `agent-usage`. Codex through its own short-lived app-server client, agy through `agy -p /usage`, Claude only through an on-demand probe.
-- `src/mcp/`: the orchestrator MCP, stateless Streamable HTTP on `127.0.0.1:18797/mcp` behind a bearer token.
-- `src/web/`: the device web API and SSE on `127.0.0.1:18798`, behind Tailscale identity (`Tailscale-User-Login` checked against `allowedLogins` in `~/.grip/config.json`). Writes must be JSON from Grip's own origin.
+- `src/mcp/`: the orchestrator MCP, stateful Streamable HTTP on `127.0.0.1:18797/mcp`. Each session is bound to its opening install/chat token; tools associate workers with their chat (DESIGN §5.1). Session handling follows the official TypeScript SDK v1.x examples.
+- `src/web/`: the device web API and SSE on `127.0.0.1:18798`, behind Tailscale identity (`Tailscale-User-Login` checked against `allowedLogins` in `~/.grip/config.json`, which Grip fills with this machine's Tailscale owner on first start). Writes must be JSON from Grip's own origin.
+- `web/`: Preact/Vite workbench, built into `web/dist` and served by that same identity-checked web server. Hash routes select chats and workers; EventSource keeps state current. No runtime demo mode, transcript cache, or exposed MCP token. Native handoff and Web Push remain follow-up work.
 - `src/power/`: keep-awake while runs work (a PowerShell helper holds `SetThreadExecutionState` on Windows, `caffeinate` on macOS) and the never-elevated check.
 - `src/daemon.ts`, `src/cli.ts`: `grip serve` and `grip mcp-config`.
 - `src/testing/`: fakes for tests.
@@ -24,6 +25,8 @@ Grip lets any orchestrator model delegate to coding agents (Claude Code, Codex, 
 
 - `npm run format:check`, `npm run typecheck`, `npm test`: all three must pass before work is done. CI runs them on Windows and Linux.
 - `npm run format`: apply Prettier.
+- `npm run build`: compile the daemon and build the web app. Node 22.12+ is required by the frontend toolchain. `npm run typecheck` checks both backend and frontend; `npm test` explicitly excludes compiled test copies.
+- `npm run web:preview`: isolated loopback preview at port 18799 with fake Claw and temporary data; never use this identity-injecting development proxy in the daemon. `npm run web:dev` starts Vite with the preview as its API proxy.
 - `npm run dev -- serve`: run Grip. `npm run dev -- mcp-config`: print the orchestrator setup.
 - `npm run smoke:supervisor`: supervisor against real Claw. `npx tsx scripts/mcp-e2e.ts <repo>`: delegate to every engine through a running `grip serve`.
 
