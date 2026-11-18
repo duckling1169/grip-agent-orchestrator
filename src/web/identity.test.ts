@@ -48,18 +48,45 @@ describe('crossSiteWrite', () => {
 })
 
 describe('loadConfig', () => {
-  it('writes an empty config on first run and reads logins after', async () => {
+  const temp = async () => {
     const dir = await mkdtemp(join(tmpdir(), 'grip-config-'))
+    return { path: join(dir, 'config.json'), done: () => rm(dir, { recursive: true, force: true }) }
+  }
+
+  it("trusts this machine's Tailscale owner on first run and writes it down", async () => {
+    const t = await temp()
     try {
-      const path = join(dir, 'config.json')
-      expect(await loadConfig(path)).toEqual({ allowedLogins: [] })
-      expect(JSON.parse(await readFile(path, 'utf8'))).toEqual({ allowedLogins: [] })
-      await writeFile(path, JSON.stringify({ allowedLogins: [' duckling1169@github ', ''] }))
-      expect(await loadConfig(path)).toEqual({ allowedLogins: ['duckling1169@github'] })
-      await writeFile(path, JSON.stringify({ allowedLogins: 'duckling1169@github' }))
-      await expect(loadConfig(path)).rejects.toThrow('allowedLogins must be a list')
+      const config = await loadConfig(t.path, { owner: async () => 'duckling1169@github' })
+      expect(config).toEqual({ allowedLogins: ['duckling1169@github'], trustedOwner: 'duckling1169@github' })
+      expect(JSON.parse(await readFile(t.path, 'utf8'))).toEqual({ allowedLogins: ['duckling1169@github'] })
+      // Once written, the file wins and Tailscale is not asked again.
+      const again = await loadConfig(t.path, { owner: async () => 'someone-else@github' })
+      expect(again).toEqual({ allowedLogins: ['duckling1169@github'], trustedOwner: null })
     } finally {
-      await rm(dir, { recursive: true, force: true })
+      await t.done()
+    }
+  })
+
+  it('writes an empty list when Tailscale has no owner, and asks again next start', async () => {
+    const t = await temp()
+    try {
+      expect(await loadConfig(t.path, { owner: async () => null })).toEqual({ allowedLogins: [], trustedOwner: null })
+      expect(JSON.parse(await readFile(t.path, 'utf8'))).toEqual({ allowedLogins: [] })
+      expect((await loadConfig(t.path, { owner: async () => 'duckling1169@github' })).allowedLogins).toEqual(['duckling1169@github'])
+    } finally {
+      await t.done()
+    }
+  })
+
+  it('keeps logins listed by hand and refuses a malformed list', async () => {
+    const t = await temp()
+    try {
+      await writeFile(t.path, JSON.stringify({ allowedLogins: [' duckling1169@github ', ''] }))
+      expect((await loadConfig(t.path)).allowedLogins).toEqual(['duckling1169@github'])
+      await writeFile(t.path, JSON.stringify({ allowedLogins: 'duckling1169@github' }))
+      await expect(loadConfig(t.path)).rejects.toThrow('allowedLogins must be a list')
+    } finally {
+      await t.done()
     }
   })
 })

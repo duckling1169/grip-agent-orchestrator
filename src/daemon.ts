@@ -14,6 +14,7 @@ import { CliQuotaReaders } from './quota/readers.js'
 import type { QuotaReaders } from './quota/readers.js'
 import { RunManager } from './runs/manager.js'
 import { RunStore } from './runs/store.js'
+import { tailscaleOwner } from './tailscale.js'
 import { DEFAULT_WEB_PORT, startWebHttp } from './web/server.js'
 
 export type DaemonOptions = {
@@ -43,7 +44,8 @@ export async function startDaemon(options: DaemonOptions = {}) {
   const log = options.log ?? ((line: string) => console.log(`[grip] ${line}`))
   const paths = gripPaths(options.home)
   if (!options.testing) await assertNotElevated()
-  const config = await loadConfig(paths.config)
+  const config = await loadConfig(paths.config, options.testing ? {} : { owner: () => tailscaleOwner() })
+  if (config.trustedOwner) log(`trusting ${config.trustedOwner}, the Tailscale account this machine is signed in to`)
   const keepAwake = new KeepAwake({ ...(options.testing ? { command: null } : {}), log })
   const store = await RunStore.open(paths.home)
   const quota = await Quota.open({ path: paths.quota, readers: options.quotaReaders ?? new CliQuotaReaders() })
@@ -93,7 +95,8 @@ export async function startDaemon(options: DaemonOptions = {}) {
     port: options.webPort ?? DEFAULT_WEB_PORT,
   })
   log(`web API on http://127.0.0.1:${web.port} (publish it with tailscale serve)`)
-  if (config.allowedLogins.length === 0) log(`no Tailscale logins are allowed yet; add yours to allowedLogins in ${paths.config}`)
+  if (config.allowedLogins.length === 0)
+    log(`Tailscale isn't signed in here, so no device can use the web app yet. Sign in to Tailscale and restart Grip.`)
   // The free reads, so the first quota call has something to show.
   void quota.refresh().then(s => log(`quota: ${s.verdict.text}`))
 
