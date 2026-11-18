@@ -26,6 +26,8 @@ export type ClawSetupOptions = {
   engines?: readonly ClawEngine[]
   env?: NodeJS.ProcessEnv
   isIdle?: () => Promise<boolean>
+  /** How often to look for a newer Claw (settings.clawUpdateCheckHours). */
+  checkEveryMs?: number
 }
 
 /** The real Claw supervisor: npm for packages, `~/.grip` for state, loopback for the server. */
@@ -55,6 +57,7 @@ export async function createClawSupervisor(options: ClawSetupOptions = {}) {
       healthGate({ client, expectedVersion, engines: options.engines ?? ['claude', 'codex-app', 'agy'], cwd: gateCwd }),
     // Until Grip's run store exists: idle means Claw holds no sessions.
     isIdle: options.isIdle ?? (async () => (await client.listSessions().catch(() => [])).length === 0),
+    ...(options.checkEveryMs ? { checkEveryMs: options.checkEveryMs } : {}),
   })
 
   return { supervisor, client, runner, paths }

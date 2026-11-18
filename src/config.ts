@@ -1,9 +1,13 @@
 import { readJson, writeFileAtomic } from './fs-util.js'
+import { readSettings } from './settings.js'
+import type { Settings } from './settings.js'
 
 /** `~/.grip/config.json`. Read when Grip starts; restart Grip after editing it. */
 export type GripConfig = {
   /** Tailscale logins the web app answers, exactly as `tailscale status` shows them, e.g. `you@github`. */
   allowedLogins: string[]
+  /** Timings; any left out use the defaults in settings.ts. */
+  settings?: Partial<Settings>
 }
 
 export type LoadConfigOptions = {
@@ -16,17 +20,21 @@ export type LoadConfigOptions = {
  * signed in to and writes it into the file, so nothing needs editing by hand. Edit the list
  * afterwards to allow other logins.
  */
-export async function loadConfig(path: string, options: LoadConfigOptions = {}): Promise<GripConfig & { trustedOwner: string | null }> {
+export async function loadConfig(
+  path: string,
+  options: LoadConfigOptions = {},
+): Promise<{ allowedLogins: string[]; settings: Settings; trustedOwner: string | null }> {
   const raw = await readJson<Partial<GripConfig>>(path)
   const logins = raw?.allowedLogins
   if (logins !== undefined && !(Array.isArray(logins) && logins.every(l => typeof l === 'string'))) {
     throw new Error(`${path}: allowedLogins must be a list of Tailscale logins`)
   }
+  const settings = readSettings(raw?.settings, path)
   const allowedLogins = (logins ?? []).map(l => l.trim()).filter(Boolean)
-  if (allowedLogins.length) return { allowedLogins, trustedOwner: null }
+  if (allowedLogins.length) return { allowedLogins, settings, trustedOwner: null }
 
   const owner = (await options.owner?.()) ?? null
   const config: GripConfig = { ...raw, allowedLogins: owner ? [owner] : [] }
   if (owner || raw === null) await writeFileAtomic(path, `${JSON.stringify(config, null, 2)}\n`)
-  return { allowedLogins: config.allowedLogins, trustedOwner: owner }
+  return { allowedLogins: config.allowedLogins, settings, trustedOwner: owner }
 }

@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import { loadConfig } from '../config.js'
+import { DEFAULT_SETTINGS } from '../settings.js'
 import { crossSiteWrite, identify } from './identity.js'
 
 describe('identify', () => {
@@ -57,11 +58,11 @@ describe('loadConfig', () => {
     const t = await temp()
     try {
       const config = await loadConfig(t.path, { owner: async () => 'duckling1169@github' })
-      expect(config).toEqual({ allowedLogins: ['duckling1169@github'], trustedOwner: 'duckling1169@github' })
+      expect(config).toEqual({ allowedLogins: ['duckling1169@github'], settings: DEFAULT_SETTINGS, trustedOwner: 'duckling1169@github' })
       expect(JSON.parse(await readFile(t.path, 'utf8'))).toEqual({ allowedLogins: ['duckling1169@github'] })
       // Once written, the file wins and Tailscale is not asked again.
       const again = await loadConfig(t.path, { owner: async () => 'someone-else@github' })
-      expect(again).toEqual({ allowedLogins: ['duckling1169@github'], trustedOwner: null })
+      expect(again).toEqual({ allowedLogins: ['duckling1169@github'], settings: DEFAULT_SETTINGS, trustedOwner: null })
     } finally {
       await t.done()
     }
@@ -70,7 +71,11 @@ describe('loadConfig', () => {
   it('writes an empty list when Tailscale has no owner, and asks again next start', async () => {
     const t = await temp()
     try {
-      expect(await loadConfig(t.path, { owner: async () => null })).toEqual({ allowedLogins: [], trustedOwner: null })
+      expect(await loadConfig(t.path, { owner: async () => null })).toEqual({
+        allowedLogins: [],
+        settings: DEFAULT_SETTINGS,
+        trustedOwner: null,
+      })
       expect(JSON.parse(await readFile(t.path, 'utf8'))).toEqual({ allowedLogins: [] })
       expect((await loadConfig(t.path, { owner: async () => 'duckling1169@github' })).allowedLogins).toEqual(['duckling1169@github'])
     } finally {
@@ -85,6 +90,12 @@ describe('loadConfig', () => {
       expect((await loadConfig(t.path)).allowedLogins).toEqual(['duckling1169@github'])
       await writeFile(t.path, JSON.stringify({ allowedLogins: 'duckling1169@github' }))
       await expect(loadConfig(t.path)).rejects.toThrow('allowedLogins must be a list')
+      await writeFile(t.path, JSON.stringify({ allowedLogins: ['a@github'], settings: { quotaRefreshMinutes: 0, turnTimeoutMinutes: 30 } }))
+      expect((await loadConfig(t.path)).settings).toEqual({ ...DEFAULT_SETTINGS, quotaRefreshMinutes: 0, turnTimeoutMinutes: 30 })
+      await writeFile(t.path, JSON.stringify({ allowedLogins: ['a@github'], settings: { quotaRefreshMinute: 5 } }))
+      await expect(loadConfig(t.path)).rejects.toThrow('unknown setting quotaRefreshMinute')
+      await writeFile(t.path, JSON.stringify({ allowedLogins: ['a@github'], settings: { turnTimeoutMinutes: 0 } }))
+      await expect(loadConfig(t.path)).rejects.toThrow('settings.turnTimeoutMinutes must be a number above 0')
     } finally {
       await t.done()
     }

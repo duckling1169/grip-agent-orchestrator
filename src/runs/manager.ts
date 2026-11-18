@@ -7,6 +7,7 @@ import type { GitFacts, Worktrees, WorktreeDiff } from '../git/worktrees.js'
 import { resolveBrief } from './briefs.js'
 import { protectedFolderOf } from './protected.js'
 import type { Engine, Reader, Run, RunStatus, RunStore } from './store.js'
+import { DEFAULT_SETTINGS, minutes } from '../settings.js'
 
 /** The part of Claw's API runs need; the tests stand a fake in for it. */
 export interface ClawApi {
@@ -65,7 +66,7 @@ export type RunManagerOptions = {
   clawReady?: () => Promise<void>
 }
 
-const DEFAULT_TURN_TIMEOUT_MS = 2 * 60 * 60 * 1000
+const DEFAULT_TURN_TIMEOUT_MS = minutes(DEFAULT_SETTINGS.turnTimeoutMinutes)
 /** How long Stop all gives Claw to stop each session before it kills every worker. */
 const STOP_ALL_GRACE_MS = 5000
 const MAX_PATCH_CHARS = 200_000

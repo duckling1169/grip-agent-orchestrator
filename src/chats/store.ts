@@ -54,6 +54,7 @@ export type ChatEvent =
   | { t: 'turn-ended'; at: string; id: string; turn: number; error: string | null; sessionId?: string }
   | { t: 'stopped'; at: string; id: string }
   | { t: 'interrupted'; at: string; id: string; reason: string }
+  | { t: 'deleted'; at: string; id: string }
 
 export type ChatStoreEvents = { change: [Chat] }
 
@@ -65,6 +66,8 @@ export class ChatStore extends EventEmitter<ChatStoreEvents> {
   private readonly chats = new Map<string, Chat>()
   private readonly events = new Map<string, ChatEvent[]>()
   private readonly order = new Map<string, number>()
+  /** Chats you deleted. Their log lines and turn files stay; Grip stops showing them. */
+  private readonly deleted = new Set<string>()
   private seq = 0
   private readonly log: JsonlAppender
 
@@ -129,6 +132,10 @@ export class ChatStore extends EventEmitter<ChatStoreEvents> {
         chat.error = e.reason
         chat.waiting = false
         break
+      case 'deleted':
+        this.deleted.add(e.id)
+        chat.waiting = false
+        break
     }
     return chat
   }
@@ -143,7 +150,7 @@ export class ChatStore extends EventEmitter<ChatStoreEvents> {
   }
 
   private must(id: string): Chat {
-    const chat = this.chats.get(id)
+    const chat = this.deleted.has(id) ? undefined : this.chats.get(id)
     if (!chat) throw new Error(`unknown chat ${id}`)
     return chat
   }
@@ -215,6 +222,16 @@ export class ChatStore extends EventEmitter<ChatStoreEvents> {
     return this.record({ t: 'stopped', at: this.stamp(), id })
   }
 
+  /** Stop showing a chat. Stop it and its workers first; this only hides it. */
+  async delete(id: string): Promise<void> {
+    this.must(id)
+    await this.record({ t: 'deleted', at: this.stamp(), id })
+  }
+
+  isDeleted(id: string): boolean {
+    return this.deleted.has(id)
+  }
+
   /** Waiting in `wait_any` or not. Shown live in the app, never logged. */
   setWaiting(id: string, waiting: boolean): void {
     const chat = this.chats.get(id)
@@ -232,13 +249,17 @@ export class ChatStore extends EventEmitter<ChatStoreEvents> {
   }
 
   get(id: string): Chat | null {
+    if (this.deleted.has(id)) return null
     const chat = this.chats.get(id)
     return chat ? structuredClone(chat) : null
   }
 
   /** Chats, newest first. */
   list(): Chat[] {
-    return [...this.chats.values()].sort((a, b) => (this.order.get(b.id) ?? 0) - (this.order.get(a.id) ?? 0)).map(c => structuredClone(c))
+    return [...this.chats.values()]
+      .filter(c => !this.deleted.has(c.id))
+      .sort((a, b) => (this.order.get(b.id) ?? 0) - (this.order.get(a.id) ?? 0))
+      .map(c => structuredClone(c))
   }
 
   /** Grip chats in a turn now. They count as activity, like running workers. */

@@ -18,3 +18,22 @@ npm run web:preview
 Open the printed loopback URL. The preview uses temporary data and a fake Claw; it does not launch models or read your Grip state. Stop it with Ctrl+C. Its identity-injecting proxy is for local development only. For hot reload, keep that preview running and launch `npm run web:dev` in a second terminal; Vite proxies API calls to the isolated preview.
 
 Run `npm run format:check`, `npm run typecheck`, `npm test`, and `npm run build` before delivering changes. Tests use source files only, so running a build first does not duplicate compiled tests. Browser screenshots in `web/shots` and design-tool state in `.taste-skill` are ignored.
+
+## Settings
+
+`~/.grip/config.json` holds the Tailscale logins that may use the web app and, optionally, Grip's timings. Restart Grip after editing it. Leave out any setting to keep its default:
+
+```json
+{
+  "allowedLogins": ["you@github"],
+  "settings": {
+    "quotaRefreshMinutes": 5,
+    "modelListRefreshMinutes": 60,
+    "clawUpdateCheckHours": 24,
+    "turnTimeoutMinutes": 120,
+    "mcpSessionIdleDays": 7
+  }
+}
+```
+
+The quota timer reads Claude too, with a one-line Haiku turn each time. Set `quotaRefreshMinutes` to 0 to turn the timer off. The defaults live in `src/settings.ts`.

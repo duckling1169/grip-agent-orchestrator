@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { Quota } from './quota.js'
 import type { QuotaReaders } from './readers.js'
@@ -14,7 +14,7 @@ const iso = (ms: number) => new Date(ms).toISOString()
 
 const cleanups: string[] = []
 afterEach(async () => {
-  for (const dir of cleanups.splice(0)) await rm(dir, { recursive: true, force: true })
+  for (const dir of cleanups.splice(0)) await rm(dir, { recursive: true, force: true, maxRetries: 5 })
 })
 
 const reading = (provider: ToolId, used: number, resetsAt = iso(T0 + 2 * HOUR)): ProviderUsage => ({
@@ -64,6 +64,26 @@ describe('Quota', () => {
     await quota.refresh(['claude'])
     expect(calls).toEqual(['claude'])
     expect(quota.snapshot().verdict.text).toBe('Claude is out, back in 2 h')
+  })
+
+  it('reads every provider, Claude included, on its timer', async () => {
+    vi.useFakeTimers()
+    try {
+      const { quota, calls } = await setup()
+      quota.startTimer(5 * 60_000)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(calls.sort()).toEqual(['agy', 'claude', 'codex'])
+      await vi.advanceTimersByTimeAsync(5 * 60_000)
+      expect(calls).toHaveLength(6)
+      quota.stopTimer()
+      await vi.advanceTimersByTimeAsync(15 * 60_000)
+      expect(calls).toHaveLength(6)
+      quota.startTimer(0)
+      await vi.advanceTimersByTimeAsync(15 * 60_000)
+      expect(calls).toHaveLength(6)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('keeps the last good reading beside a failure', async () => {

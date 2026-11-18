@@ -73,6 +73,8 @@ export function createGripMcpServer(manager: RunManager, quota: Quota, version =
   async function chatForDelegation(folder: string, title?: string): Promise<string | undefined> {
     const { chats } = caller
     if (!chats) return caller.chatId
+    // You deleted this session's chat in the app; its next delegation starts a new one.
+    if (caller.chatId && caller.host && !chats.get(caller.chatId)) caller.chatId = undefined
     if (!caller.chatId && !creatingChat) {
       // Concurrent first delegations must use the same chat creation.
       creatingChat = chats.externalChat({ folder, host: caller.host, title }).then(chat => {

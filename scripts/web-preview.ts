@@ -14,6 +14,7 @@ import { RunManager } from '../src/runs/manager.js'
 import type { Engine } from '../src/runs/store.js'
 import { RunStore } from '../src/runs/store.js'
 import { FakeClaw } from '../src/testing/fake-claw.js'
+import { CLAUDE_MODELS } from '../src/models.js'
 import { startWebHttp } from '../src/web/server.js'
 
 const login = 'preview@local'
@@ -95,6 +96,57 @@ const web = await startWebHttp({
   allowedLogins: [login],
   port: 0,
   host: 'preview',
+  // Fixed machines, so the preview never reads Tailscale or calls other machines.
+  machines: async () => ({
+    machines: [
+      {
+        name: 'preview',
+        dnsName: 'preview.example.ts.net',
+        ips: ['100.64.0.1'],
+        os: 'windows',
+        online: true,
+        self: true,
+        grip: 'yes',
+        url: 'https://preview.example.ts.net/',
+      },
+      {
+        name: 'linux-box',
+        dnsName: 'linux-box.example.ts.net',
+        ips: ['100.64.0.2'],
+        os: 'linux',
+        online: true,
+        self: false,
+        grip: 'yes',
+        url: 'https://linux-box.example.ts.net/',
+      },
+      {
+        name: 'macbook-air',
+        dnsName: 'macbook-air.example.ts.net',
+        ips: ['100.64.0.3'],
+        os: 'macOS',
+        online: false,
+        self: false,
+        grip: 'unknown',
+        url: null,
+      },
+    ],
+  }),
+  // Fixed lists, so the preview never runs the Codex or agy CLIs.
+  models: {
+    list: async () => [
+      { engine: 'claude', models: CLAUDE_MODELS, error: null },
+      {
+        engine: 'codex',
+        models: [{ id: 'gpt-preview', label: 'GPT Preview', efforts: ['low', 'medium', 'high'], defaultEffort: 'low', isDefault: true }],
+        error: null,
+      },
+      {
+        engine: 'agy',
+        models: [{ id: 'gemini-preview-high', label: 'Gemini Preview (High)', efforts: [], defaultEffort: null, isDefault: false }],
+        error: null,
+      },
+    ],
+  },
 })
 const proxy = createServer((incoming, outgoing) => {
   const upstream = request(

@@ -4,6 +4,7 @@ import { ChatManager } from './chats/manager.js'
 import { ChatStore } from './chats/store.js'
 import { createClawSupervisor } from './claw/index.js'
 import { loadConfig } from './config.js'
+import { ModelCatalog } from './models.js'
 import type { ClawEngine } from './claw/index.js'
 import { loadOrCreateToken } from './fs-util.js'
 import { Worktrees } from './git/worktrees.js'
@@ -16,6 +17,7 @@ import { CliQuotaReaders } from './quota/readers.js'
 import type { QuotaReaders } from './quota/readers.js'
 import { RunManager } from './runs/manager.js'
 import { RunStore } from './runs/store.js'
+import { days, hours, minutes } from './settings.js'
 import { tailscaleOwner } from './tailscale.js'
 import { DEFAULT_WEB_PORT, startWebHttp } from './web/server.js'
 
@@ -59,6 +61,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
     ...(options.engines ? { engines: options.engines } : {}),
     env: { OPENCLAW_SERVE_MAX_SESSIONS: CLAW_MAX_SESSIONS },
     isIdle: async () => store.running().length === 0 && chatStore.working().length === 0,
+    checkEveryMs: hours(config.settings.clawUpdateCheckHours),
   })
   supervisor.on('status', s => log(`claw ${s}${supervisor.version ? ` (${supervisor.version})` : ''}`))
   supervisor.on('rolled-back', e => log(`claw ${e.attempted} failed checks (${e.reason}); back on ${e.to}`))
@@ -82,6 +85,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
     clawReady: () => supervisor.whenReady(),
     onActivityChange: activityChanged,
     onTurnEnded: engine => quota.afterTurn(engine),
+    turnTimeoutMs: minutes(config.settings.turnTimeoutMinutes),
     // Restarting Claw takes every engine process it started with it.
     killWorkers,
   })
@@ -103,11 +107,19 @@ export async function startDaemon(options: DaemonOptions = {}) {
     killWorkers,
     onActivityChange: activityChanged,
     onTurnEnded: engine => quota.afterTurn(engine),
+    turnTimeoutMs: minutes(config.settings.turnTimeoutMinutes),
   })
   const recoveredChats = await chats.recover()
   if (recoveredChats.length) log(`marked ${recoveredChats.length} interrupted chat(s) as failed`)
 
-  const mcp = await startMcpHttp({ manager, quota, chats, token: mcpToken, port: mcpPort })
+  const mcp = await startMcpHttp({
+    manager,
+    quota,
+    chats,
+    token: mcpToken,
+    port: mcpPort,
+    sessionIdleMs: days(config.settings.mcpSessionIdleDays),
+  })
   mcpPort = mcp.port
   log(`orchestrator MCP on http://127.0.0.1:${mcp.port}/mcp`)
   const web = await startWebHttp({
@@ -121,12 +133,18 @@ export async function startDaemon(options: DaemonOptions = {}) {
     allowedLogins: config.allowedLogins,
     keepAwake: () => ({ supported: keepAwake.supported, holding: keepAwake.holding }),
     port: options.webPort ?? DEFAULT_WEB_PORT,
+    models: new ModelCatalog(undefined, undefined, minutes(config.settings.modelListRefreshMinutes)),
   })
   log(`web API on http://127.0.0.1:${web.port} (publish it with tailscale serve)`)
   if (config.allowedLogins.length === 0)
     log(`Tailscale isn't signed in here, so no device can use the web app yet. Sign in to Tailscale and restart Grip.`)
-  // The free reads, so the first quota call has something to show.
-  void quota.refresh().then(s => log(`quota: ${s.verdict.text}`))
+  // Every provider now and on the timer; with the timer off, the free reads so there is something to show.
+  const every = config.settings.quotaRefreshMinutes
+  if (options.testing) void quota.refresh()
+  else if (every > 0) {
+    quota.startTimer(minutes(every))
+    log(`reading quota every ${every} min, Claude included (a one-line Haiku turn each time)`)
+  } else void quota.refresh().then(s => log(`quota: ${s.verdict.text}`))
 
   let stopping: Promise<void> | null = null
   const stop = () =>
@@ -136,6 +154,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
       // Suppress chat wakeups before stopping workers, while closing long-lived HTTP requests.
       await Promise.all([chats.stopAll({ kill: false }), manager.stopAll({ kill: false }), mcp.close(), web.close()])
       await supervisor.stop()
+      quota.stopTimer()
       keepAwake.release()
     })())
 

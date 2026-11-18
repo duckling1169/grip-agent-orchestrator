@@ -262,9 +262,9 @@ Grip has its own TypeScript quota module. The parsers are ported from alethe-orc
 - Codex's `rateLimits/updated` notification
 - after any worker turn
 - the refresh button in the app
-- a light timer only for agy (for example every 15 minutes while the app is open)
+- a timer that reads every provider, every 5 minutes by default (`settings.quotaRefreshMinutes` in `~/.grip/config.json`, 0 for off)
 
-There's never an automatic paid probe on a timer.
+The timer includes Claude's probe, a one-line Haiku turn each time. The user chose this (November 18, 2026): current Claude quota on the phone is worth the small cost.
 
 The output type stays `ProviderUsage` / `UsageWindow` from `agent-usage/types`, so the wording helpers work unchanged.
 
@@ -340,6 +340,10 @@ The plugin stays unchanged; it's still useful for local Claude Code on the PC. G
 
 The agreed screens are in the design canvas (claude.ai artifact `JktKuQYLVZ7S8FvLmixduy`, "Grip, chats first"). This section fixes what the app must show and do.
 
+- **Components:** React with Tailwind and shadcn/ui (chosen November 18, 2026), so the app follows one maintained standard instead of custom styling. The agent colours are the only custom colours.
+- **Header:** the Grip mark once, a **machine switcher** and a **settings menu** (worktrees, Claw updates, settings, Stop all). Nothing else.
+- **Machine switcher:** lists tailnet machines from `tailscale status`, marks this one, and asks each online computer whether Grip answers on its `/health`. Choosing another machine opens that machine's own Grip. Each Grip stays independent; one Grip never shows or starts another machine's work.
+- **Sections:** Needs you (only when something does), Chats and Independent workers are collapsible with a count. Quota is a footer that always shows each agent's 5-hour and weekly windows, with no summary sentence.
 - **An installable web app** (Add to Home Screen) served by Grip. It must work well on a phone in portrait and on landscape screens (iPad, desktop).
 - **Layout:**
   - landscape: a sidebar of chats, each with its workers indented under it, and the selected chat as the main view
@@ -351,7 +355,8 @@ The agreed screens are in the design canvas (claude.ai artifact `JktKuQYLVZ7S8Fv
   - **A Grip chat:** the conversation, with each hand-off shown inline as a card for that worker and its live status, plus a message box. Action: **Stop this chat**, which also stops its workers.
   - **A Claude Code chat:** the thread of briefs, messages and results Grip saw (§5.1), the *Needs you* block for its workers, and a note that you reply to it in its own host.
   - **Worker detail:** everything in §7.1, plus the chat it works for. Actions: **Message** (its chat sees it too), **Stop**, **Retry with another agent**, **Copy the folder path**.
-  - **Start a chat:** the model that runs it, with each one's quota left, a folder (recent first) and a first message.
+  - **Start a chat:** the model that runs it, with each one's quota left, a folder (typed, recent, or browsed), model and effort from each agent's own list. No first message: you write it in the chat.
+  - **Delete a chat:** swipe, long-press or right-click, then a small confirm. It stops anything still working and hides the chat and its workers; files stay on disk.
   - **Start one worker:** folder, engine, model and effort, brief (text or path). The same call as `delegate`, for work that needs no chat.
   - **Global:** quota, **Stop all runs**, worktree cleanup list, Claw status and update history, notification settings.
 - **Live updates:** Grip serves its own SSE stream of run and quota changes to the app. The app never polls Claw.
@@ -359,6 +364,8 @@ The agreed screens are in the design canvas (claude.ai artifact `JktKuQYLVZ7S8Fv
 
 **Web API** (`127.0.0.1:18798`, behind `tailscale serve`, identity-checked). Writes must be JSON, and any `Origin` must be Grip's own, because `tailscale serve` adds your identity to requests from every page in your browser:
 - `GET /api/state` (chats, runs, quota, Claw)
+- `GET /api/models`, `GET /api/folders?path=`, `GET /api/machines`
+- `DELETE /api/chats/:id`
 - `GET /api/chats/:id`
 - `POST /api/chats` (start a Grip chat)
 - `POST /api/chats/:id/message`
@@ -443,7 +450,7 @@ Wake-on-LAN is not planned. A sleeping principal shows as offline.
 ## 18. Open questions to verify during the build
 
 - Tailscale Service hosts: is tagging required, and do identity headers arrive through a Service?
-- ~~Does Claw expose Claude's `rate_limit_event`?~~ No. Claw 7.23.4 reads it only to rotate accounts and keeps just the highest utilization. Grip reads Claude with its own on-demand probe (a one-line Haiku turn), never after turns or on a timer.
+- ~~Does Claw expose Claude's `rate_limit_event`?~~ No. Claw 7.23.4 reads it only to rotate accounts and keeps just the highest utilization. Grip reads Claude with its own probe (a one-line Haiku turn) on the quota timer and when asked, never after turns.
 - Can Claw's per-engine permission settings enforce the protected paths for all three engines, or does Grip need an extra guard for some engines?
 - ~~Can Grip issue `account/rateLimits/read` on Claw's Codex connection?~~ Grip keeps its own short-lived app-server client (initialize, read, exit). `account/rateLimits/updated` arrives only on the connection running a turn, which is Claw's, so Grip reads again after each Codex turn instead.
 - The status of Google's terms on third-party orchestration of `agy -p`.

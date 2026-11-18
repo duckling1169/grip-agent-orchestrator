@@ -14,6 +14,7 @@ import type { Quota } from '../quota/quota.js'
 import type { RunManager } from '../runs/manager.js'
 import { createGripMcpServer } from './tools.js'
 import type { McpCaller } from './tools.js'
+import { DEFAULT_SETTINGS, days } from '../settings.js'
 
 export const DEFAULT_MCP_PORT = 18797
 
@@ -51,7 +52,7 @@ export async function startMcpHttp(options: McpHttpOptions): Promise<{ server: S
   // Each session is one chat (design §5.1). An expired session makes its client start a new one,
   // which shows up as a new chat, so idle sessions live for days rather than minutes.
   const maxSessions = options.maxSessions ?? 512
-  const idleMs = options.sessionIdleMs ?? 7 * 24 * 60 * 60_000
+  const idleMs = options.sessionIdleMs ?? days(DEFAULT_SETTINGS.mcpSessionIdleDays)
   if (!Number.isInteger(maxSessions) || maxSessions < 1 || !Number.isFinite(idleMs) || idleMs < 1)
     throw new Error('MCP session limits must be positive')
   const expected = Buffer.from(options.token)

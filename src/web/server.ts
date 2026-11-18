@@ -11,6 +11,7 @@ import type { ClawHistoryEntry } from '../claw/state.js'
 import { diskUsage, samePath } from '../git/worktrees.js'
 import type { Worktrees } from '../git/worktrees.js'
 import { readJsonBody, sendJson } from '../http-util.js'
+import { ModelCatalog } from '../models.js'
 import type { Quota, QuotaSnapshot } from '../quota/quota.js'
 import { TOOLS } from '../quota/usage.js'
 import type { ToolId } from '../quota/usage.js'
@@ -18,6 +19,9 @@ import type { RunManager } from '../runs/manager.js'
 import { present, summarize } from '../runs/present.js'
 import { ENGINES } from '../runs/store.js'
 import type { Engine, Run, RunStore } from '../runs/store.js'
+import { listFolders } from './folders.js'
+import { listMachines } from './machines.js'
+import type { MachineList } from './machines.js'
 import { crossSiteWrite, identify } from './identity.js'
 import { serveStatic } from './static.js'
 
@@ -49,6 +53,10 @@ export type WebOptions = {
   host?: string
   /** Built web app directory; defaults to web/dist in the project. */
   staticDir?: string
+  /** Each agent's models for the app's pickers. */
+  models?: Pick<ModelCatalog, 'list'>
+  /** Tailnet machines for the app's machine switcher. */
+  machines?: () => Promise<MachineList>
 }
 
 class HttpError extends Error {
@@ -76,7 +84,7 @@ const ChatBody = z.object({
   engine,
   model: z.string().optional(),
   effort: z.string().optional(),
-  message: z.string(),
+  message: z.string().optional(),
 })
 const RetryBody = z.object({ engine: engine.optional(), model: z.string().optional(), effort: z.string().optional() })
 const RefreshBody = z.object({ providers: z.array(provider).optional() })
@@ -95,6 +103,7 @@ function parse<T>(schema: z.ZodType<T>, body: unknown): T {
  */
 export async function startWebHttp(options: WebOptions): Promise<{ server: Server; port: number; close: () => Promise<void> }> {
   const { manager, store, chats, chatStore, quota, worktrees, claw } = options
+  const models = options.models ?? new ModelCatalog()
   const host = options.host ?? hostname()
   const streams = new Set<ServerResponse>()
 
@@ -110,7 +119,11 @@ export async function startWebHttp(options: WebOptions): Promise<{ server: Serve
     keepAwake: options.keepAwake?.() ?? { supported: false, holding: false },
     quota: quota.snapshot(),
     chats: chats.list().map(chat => ({ ...chat, runs: manager.list({ chatId: chat.id }).map(summarize) })),
-    runs: manager.list().map(summarize),
+    // A deleted chat's workers leave with it.
+    runs: manager
+      .list()
+      .filter(run => !run.chatId || !chatStore.isDeleted(run.chatId))
+      .map(summarize),
   })
 
   async function delegate(input: z.infer<typeof DelegateBody> & { chatId?: string }) {
@@ -169,6 +182,14 @@ export async function startWebHttp(options: WebOptions): Promise<{ server: Serve
     const chatMatch = /^\/api\/chats\/([\w-]+)(?:\/(message|stop))?$/.exec(path)
 
     if (method === 'GET' && path === '/api/state') return state(login)
+    if (method === 'GET' && path === '/api/models') return models.list()
+    if (method === 'GET' && path === '/api/machines') return (options.machines ?? listMachines)()
+    if (method === 'GET' && path === '/api/folders') {
+      const at = new URL(req.url ?? '/', 'http://127.0.0.1').searchParams.get('path')
+      return listFolders(at).catch(error => {
+        throw new HttpError(404, (error as Error).message)
+      })
+    }
     if (method === 'GET' && path === '/api/events') return openStream(res, login)
     if (method === 'POST' && path === '/api/runs') return delegate(parse(DelegateBody, await readJsonBody(req)))
     if (method === 'POST' && path === '/api/chats') return chats.startChat(parse(ChatBody, await readJsonBody(req)))
@@ -192,6 +213,7 @@ export async function startWebHttp(options: WebOptions): Promise<{ server: Serve
         return { chat, runs: manager.list({ chatId: id }).map(summarize), timeline: await chats.timeline(id) }
       if (method === 'POST' && action === 'message') return chats.message(id, parse(MessageBody, await readJsonBody(req)).text)
       if (method === 'POST' && action === 'stop') return chats.stop(id)
+      if (method === 'DELETE' && !action) return chats.delete(id)
     }
     if (runMatch) {
       const [, id, action] = runMatch as unknown as [string, string, string | undefined]
@@ -229,9 +251,13 @@ export async function startWebHttp(options: WebOptions): Promise<{ server: Serve
   function openStream(res: ServerResponse, login: string): typeof STREAMING {
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive' })
     const write = (event: string, data: unknown) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+    // Ask the browser to come back within a second after a dropped stream.
+    res.write('retry: 1000\n\n')
     write('state', state(login))
-    const onRun = (run: Run) => write('run', summarize(run))
-    const onChat = (chat: Chat) => write('chat', chat)
+    const onRun = (run: Run) => {
+      if (!run.chatId || !chatStore.isDeleted(run.chatId)) write('run', summarize(run))
+    }
+    const onChat = (chat: Chat) => (chatStore.isDeleted(chat.id) ? write('chat-deleted', { id: chat.id }) : write('chat', chat))
     const onQuota = (snapshot: QuotaSnapshot) => write('quota', snapshot)
     const onClaw = () => write('claw', clawState())
     store.on('change', onRun)
@@ -261,7 +287,7 @@ export async function startWebHttp(options: WebOptions): Promise<{ server: Serve
 
   async function handle(req: IncomingMessage, res: ServerResponse) {
     const path = new URL(req.url ?? '/', 'http://127.0.0.1').pathname
-    if (req.method === 'GET' && path === '/health') return sendJson(res, 200, { ok: true })
+    if (req.method === 'GET' && path === '/health') return sendJson(res, 200, { ok: true, app: 'grip' })
     const who = identify(req.headers, options.allowedLogins)
     if (!who.ok) return sendJson(res, who.status, { error: who.error })
     const refused = crossSiteWrite(req.method ?? 'GET', req.headers)

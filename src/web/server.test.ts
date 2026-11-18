@@ -90,6 +90,7 @@ async function setup(withStatic = false) {
     port: 0,
     host: 'windows-pc',
     staticDir,
+    models: { list: async () => [{ engine: 'codex', models: [], error: null }] },
   })
   cleanups.push(() => web.close())
   cleanups.push(() => chats.stopAll())
@@ -221,6 +222,23 @@ describe('web API runs', () => {
 })
 
 describe('web API chats', () => {
+  it('lists models and browses folders', async () => {
+    const t = await setup()
+    expect((await t.api('GET', '/api/models')).body).toEqual([{ engine: 'codex', models: [], error: null }])
+    const roots = await t.api('GET', '/api/folders')
+    expect(roots.body.path).toBeNull()
+    expect(roots.body.folders[0].name).toBe('Home')
+    const listing = await t.api('GET', `/api/folders?path=${encodeURIComponent(t.base)}`)
+    expect(listing.body.folders).toEqual(
+      expect.arrayContaining([
+        { name: 'app', path: join(t.base, 'app'), repo: true },
+        { name: 'notes', path: join(t.base, 'notes'), repo: false },
+      ]),
+    )
+    expect((await t.api('GET', `/api/folders?path=${encodeURIComponent(join(t.base, 'missing'))}`)).status).toBe(404)
+    expect((await fetch(`${t.url}/api/folders`)).status).toBe(401)
+  })
+
   it('starts, lists, reads, messages and stops a chat', async () => {
     const t = await setup()
     const made = await t.api('POST', '/api/chats', { folder: t.plain, engine: 'claude', message: 'Hello' })
@@ -235,6 +253,20 @@ describe('web API chats', () => {
     expect((await t.api('GET', '/api/chats/c-nope')).status).toBe(404)
     expect((await t.api('POST', '/api/chats/c-nope/message', { text: 'x' })).status).toBe(404)
     expect((await t.api('POST', '/api/chats', { folder: t.plain, engine: 'invalid', message: 'x' })).status).toBe(400)
+  })
+
+  it('deletes a chat and hides its workers', async () => {
+    const t = await setup()
+    const chat = (await t.api('POST', '/api/chats', { folder: t.plain, engine: 'claude' })).body
+    const run = await t.manager.delegate({ folder: t.plain, engine: 'codex', brief: { text: 'Fix it' }, chatId: chat.id })
+    await t.claw.waitForSend(run.session)
+    expect((await t.api('DELETE', `/api/chats/${chat.id}`, {})).body).toEqual({ deleted: chat.id })
+    expect(t.store.get(run.id)?.status).toBe('stopped')
+    const state = (await t.api('GET', '/api/state')).body
+    expect(state.chats).toEqual([])
+    expect(state.runs).toEqual([])
+    expect((await t.api('GET', `/api/chats/${chat.id}`)).status).toBe(404)
+    expect((await t.api('DELETE', `/api/chats/${chat.id}`, {})).status).toBe(404)
   })
 
   it('stops working chats with stop-all', async () => {

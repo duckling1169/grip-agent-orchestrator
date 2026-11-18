@@ -20,16 +20,20 @@ const AFTER_TURN_GAP_MS = 60_000
 
 export type QuotaOptions = { path: string; readers: QuotaReaders; now?: () => number }
 
+/** Every provider, the paid Claude probe included: what the timer reads. */
+export const ALL_PROVIDERS: readonly ToolId[] = TOOLS
+
 /**
- * Quota windows for every provider (§8 of the design). Readings refresh after worker turns and
- * when asked, never on a paid timer. Claude is the only paid read, so it runs only when asked for
- * by name. The last readings are saved, so a restart shows them at once.
+ * Quota windows for every provider (§8 of the design). Readings refresh on a timer (every
+ * provider, Claude's one-line probe included), after worker turns, and when asked. The last
+ * readings are saved, so a restart shows them at once.
  */
 export class Quota extends EventEmitter<{ change: [QuotaSnapshot] }> {
   private readonly state = new Map<ToolId, { windows: UsageWindow[]; checkedAt: string | null; error: string | null }>()
   private readonly inFlight = new Map<ToolId, Promise<void>>()
   private readonly lastAuto = new Map<ToolId, number>()
   private readonly now: () => number
+  private timer: ReturnType<typeof setInterval> | null = null
 
   private constructor(private readonly options: QuotaOptions) {
     super()
@@ -75,6 +79,20 @@ export class Quota extends EventEmitter<{ change: [QuotaSnapshot] }> {
     if (now - (this.lastAuto.get(provider) ?? -Infinity) < AFTER_TURN_GAP_MS) return
     this.lastAuto.set(provider, now)
     void this.read(provider)
+  }
+
+  /** Read every provider now and then every `ms`. 0 or less leaves the timer off. */
+  startTimer(ms: number): void {
+    this.stopTimer()
+    if (ms <= 0) return
+    void this.refresh(ALL_PROVIDERS)
+    this.timer = setInterval(() => void this.refresh(ALL_PROVIDERS), ms)
+    this.timer.unref()
+  }
+
+  stopTimer(): void {
+    if (this.timer) clearInterval(this.timer)
+    this.timer = null
   }
 
   /** A line for `delegate` when this provider is low or out. Information only, never a block. */

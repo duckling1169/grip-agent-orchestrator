@@ -55,6 +55,33 @@ it('starts Claude with a chat token and queues messages for the resumed turn', a
   await until(() => t.chats.get(chat.id)?.status === 'idle')
 })
 
+it('starts a chat without a message and titles it from the first one', async () => {
+  const t = await setup()
+  const chat = await t.manager.startChat({ folder: t.dir, engine: 'claude' })
+  expect(chat).toMatchObject({ status: 'idle', turns: 0, title: `New chat in ${basename(t.dir)}` })
+  expect(t.claw.starts).toHaveLength(0)
+  await t.manager.message(chat.id, 'Fix the login page\nDetails')
+  expect(t.chats.get(chat.id)?.title).toBe('Fix the login page')
+  await t.claw.waitForSend(chat.session!)
+  t.claw.answer(chat.session!, { output: 'On it' })
+  await until(() => t.chats.get(chat.id)?.status === 'idle')
+  await t.manager.message(chat.id, 'Second')
+  expect(t.chats.get(chat.id)?.title).toBe('Fix the login page')
+})
+
+it('deletes a working chat: stops its turn, and stays deleted after a restart', async () => {
+  const t = await setup()
+  const chat = await t.manager.startChat({ folder: t.dir, engine: 'claude', message: 'Hello' })
+  await t.claw.waitForSend(chat.session!)
+  await t.manager.delete(chat.id)
+  expect((await t.claw.listSessions()).map(session => session.name)).not.toContain(chat.session)
+  expect(t.chats.get(chat.id)).toBeNull()
+  expect(t.chats.list()).toEqual([])
+  const reopened = await ChatStore.open(join(t.dir, 'home'))
+  expect(reopened.get(chat.id)).toBeNull()
+  expect(reopened.isDeleted(chat.id)).toBe(true)
+})
+
 it('notes an unread worker once to an idle chat', async () => {
   const t = await setup()
   const chat = await t.manager.startChat({ folder: t.dir, engine: 'claude', message: 'Hello' })

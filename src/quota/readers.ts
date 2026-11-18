@@ -38,18 +38,8 @@ export class CliQuotaReaders implements QuotaReaders {
     this.now = options.now ?? (() => new Date())
   }
 
-  /**
-   * The standalone Codex CLI from npm, run with Node. On Windows the first `codex` on PATH can be
-   * the desktop app's bundled binary, which is not a usable CLI.
-   */
   private resolveCodex(): Promise<[string, string[]]> {
-    this.codexCommand ??= execOk(this.run, 'npm', ['root', '-g'], 30_000).then(
-      out => {
-        const cli = join(out.trim(), '@openai', 'codex', 'bin', 'codex.js')
-        return existsSync(cli) ? [process.execPath, [cli]] : ['codex', []]
-      },
-      () => ['codex', []],
-    )
+    this.codexCommand ??= codexCli(this.run)
     return this.codexCommand
   }
 
@@ -89,6 +79,20 @@ export class CliQuotaReaders implements QuotaReaders {
     if (!usage && out.code !== 0) throw new Error(`claude probe: ${lastLine(out.stderr) || `exit ${out.code}`}`)
     return usage
   }
+}
+
+/**
+ * The standalone Codex CLI from npm, run with Node. On Windows the first `codex` on PATH can be
+ * the desktop app's bundled binary, which is not a usable CLI.
+ */
+export function codexCli(run: Exec): Promise<[string, string[]]> {
+  return execOk(run, 'npm', ['root', '-g'], 30_000).then(
+    out => {
+      const cli = join(out.trim(), '@openai', 'codex', 'bin', 'codex.js')
+      return existsSync(cli) ? [process.execPath, [cli]] : ['codex', []]
+    },
+    () => ['codex', []],
+  )
 }
 
 const lastLine = (text: string) => text.trim().split(/\r?\n/).pop() ?? ''

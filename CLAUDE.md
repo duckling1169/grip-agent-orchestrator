@@ -16,6 +16,8 @@ Grip lets any orchestrator model delegate to coding agents (Claude Code, Codex, 
 - `src/mcp/`: the orchestrator MCP, stateful Streamable HTTP on `127.0.0.1:18797/mcp`. Each session is bound to its opening install/chat token; tools associate workers with their chat (DESIGN §5.1). Session handling follows the official TypeScript SDK v1.x examples.
 - `src/web/`: the device web API and SSE on `127.0.0.1:18798`, behind Tailscale identity (`Tailscale-User-Login` checked against `allowedLogins` in `~/.grip/config.json`, which Grip fills with this machine's Tailscale owner on first start). Writes must be JSON from Grip's own origin.
 - `web/`: Preact/Vite workbench, built into `web/dist` and served by that same identity-checked web server. Hash routes select chats and workers; EventSource keeps state current. No runtime demo mode, transcript cache, or exposed MCP token. Native handoff and Web Push remain follow-up work.
+- `src/settings.ts`: every tunable timing (quota timer, model list refresh, Claw update checks, turn timeout, MCP session idle) with its default. `~/.grip/config.json` overrides them under `settings`. Add new timings here, not as constants in the module that uses them.
+- `src/models.ts`: each agent's models for the app's pickers. Codex through app-server `model/list`, agy through `agy models`, Claude from a fixed list because Claude Code has no list command.
 - `src/power/`: keep-awake while runs work (a PowerShell helper holds `SetThreadExecutionState` on Windows, `caffeinate` on macOS) and the never-elevated check.
 - `src/daemon.ts`, `src/cli.ts`: `grip serve` and `grip mcp-config`.
 - `src/testing/`: fakes for tests.

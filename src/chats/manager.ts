@@ -8,6 +8,18 @@ import type { Engine, RunStore } from '../runs/store.js'
 import type { Chat, ChatSender, ChatStore } from './store.js'
 import { buildTimeline } from './timeline.js'
 import { chatToken } from './token.js'
+import { DEFAULT_SETTINGS, minutes } from '../settings.js'
+
+/** A chat's title: the first line of its first message. */
+const titleOf = (message: string) =>
+  message
+    .split(/\r?\n/)
+    .find(line => line.trim())!
+    .trim()
+    .slice(0, 60)
+
+/** A chat started without a message keeps this title until its first one. */
+const newChatTitle = (folder: string) => `New chat in ${basename(folder) || folder}`
 
 type Options = {
   chats: ChatStore
@@ -37,20 +49,17 @@ export class ChatManager {
     })
   }
 
-  async startChat(input: { folder: string; engine: Engine; model?: string; effort?: string; message: string }): Promise<Chat> {
+  /** A new Grip chat in a folder. With a message its first turn starts at once; without, it waits for one. */
+  async startChat(input: { folder: string; engine: Engine; model?: string; effort?: string; message?: string }): Promise<Chat> {
     if (input.engine !== 'claude') throw new Error('Only Claude can host a chat today: Claw passes an MCP config to Claude sessions only.')
-    if (!input.message.trim()) throw new Error('message is empty')
+    const message = input.message?.trim() ? input.message : null
     const folder = await realpath(resolve(input.folder)).catch(() => {
       throw new Error(`folder not found: ${input.folder}`)
     })
     if (!(await stat(folder)).isDirectory()) throw new Error(`not a folder: ${input.folder}`)
     const guarded = protectedFolderOf(folder)
     if (guarded) throw new Error(`refusing to run a chat in ${folder}: it is inside protected folder ${guarded}`)
-    const title = input.message
-      .split(/\r?\n/)
-      .find(line => line.trim())!
-      .trim()
-      .slice(0, 60)
+    const title = message ? titleOf(message) : newChatTitle(folder)
     const chat = await this.o.chats.create({ kind: 'grip', title, folder, engine: input.engine, model: input.model, effort: input.effort })
     await writeFile(
       join(this.o.chats.chatDir(chat.id), 'mcp.json'),
@@ -60,7 +69,7 @@ export class ChatManager {
         },
       }),
     )
-    return this.beginTurn(chat, input.message, 'user')
+    return message ? this.beginTurn(chat, message, 'user') : chat
   }
 
   async message(id: string, text: string): Promise<Chat> {
@@ -74,7 +83,9 @@ export class ChatManager {
       this.queued.set(id, queued)
       return chat
     }
-    return this.beginTurn(chat, text, 'user')
+    // A chat started without a message takes its title from the first one.
+    if (chat.turns === 0 && chat.folder && chat.title === newChatTitle(chat.folder)) await this.o.chats.rename(id, titleOf(text))
+    return this.beginTurn(this.must(id), text, 'user')
   }
 
   async stop(id: string): Promise<Chat> {
@@ -89,6 +100,16 @@ export class ChatManager {
     } else if (chat.status !== 'stopped') chat = await this.o.chats.markStopped(id)
     await Promise.all(this.o.runStore.list({ chatId: id, status: 'running' }).map(run => this.o.runs.stop(run.id)))
     return chat
+  }
+
+  /** Delete a chat: stop it and its workers if they are working, then stop showing it. */
+  async delete(id: string): Promise<{ deleted: string }> {
+    const chat = this.must(id)
+    if (chat.kind === 'grip' && (chat.status === 'working' || this.busy.has(id))) await this.stop(id)
+    else await Promise.all(this.o.runStore.list({ chatId: id, status: 'running' }).map(run => this.o.runs.stop(run.id)))
+    this.queued.delete(id)
+    await this.o.chats.delete(id)
+    return { deleted: id }
   }
 
   async stopAll(options: { graceMs?: number; kill?: boolean } = {}): Promise<{ stopped: Chat[]; killed: boolean }> {
@@ -211,7 +232,7 @@ export class ChatManager {
       })
       if (this.stopping.has(chat.id)) throw new Error('stopped before the turn began')
       const sent = await this.o.claw.sendMessage(session, message, {
-        timeoutMs: this.o.turnTimeoutMs ?? 2 * 60 * 60 * 1000,
+        timeoutMs: this.o.turnTimeoutMs ?? minutes(DEFAULT_SETTINGS.turnTimeoutMinutes),
         ...(chat.effort ? { effort: chat.effort } : {}),
       })
       const denied = sent.permissionDenials?.length
