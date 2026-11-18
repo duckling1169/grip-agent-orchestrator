@@ -67,6 +67,15 @@ it('starts a session with Grip over HTTP, tells a new conversation about Grip an
   expect(log.killed).toBe(1)
 })
 
+it("gives Grip's chat prompt as an appended system prompt where the agent takes one", async () => {
+  const { turns, log, input } = setup({ http: true, systemPrompt: true, loadSession: true })
+  await turns.run(input())
+  await turns.run(input({ chat: chat({ engineSessionId: 'fake-1' }), message: 'Next' }))
+  expect(log.newSessions[0]?.systemPrompt).toBe(`append: ${HOSTED_CHAT_PROMPT}`)
+  expect(log.loads[0]?.systemPrompt).toBe(`append: ${HOSTED_CHAT_PROMPT}`)
+  expect(log.prompts.map(p => p.text)).toEqual(['Fix the bug', 'Next'])
+})
+
 it('reaches Grip through the stdio bridge when the agent takes no HTTP servers', async () => {
   const { turns, log, input } = setup({ http: false })
   await turns.run(input())

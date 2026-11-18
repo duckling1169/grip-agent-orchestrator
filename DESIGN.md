@@ -183,10 +183,10 @@ So leaders other than Claude don't run through Claw. Grip runs them as ACP sessi
   - Codex through `@agentclientprotocol/codex-acp`, the open-source adapter from the ACP project, pinned as a dependency
   - Kimi, DeepSeek (`dsh`) and other ACP agents through their own `acp` commands, listed in `config.json`
   - Claude stays on Claw until the ACP path has proved itself, then may move to `@agentclientprotocol/claude-agent-acp`
-- **Grip's MCP for the session:** passed in `session/new`. It goes as HTTP when the agent advertises `mcpCapabilities.http`, and otherwise through a pinned stdio bridge (`mcp-remote` or `supergateway`) that adds the chat's token from an environment variable.
+- **Grip's MCP for the session:** passed in `session/new`. It goes as HTTP when the agent advertises `mcpCapabilities.http`, and otherwise through `mcp-remote`, pinned, as a stdio bridge. It expands its `Authorization` header from its own environment, so the chat's token is never in a process's arguments. Codex takes HTTP; agy needs the bridge.
 - **A turn** is the same as on Claw: start the agent, then `session/load` with the stored session id, or `session/new`. Then set the model, `session/prompt`, collect the reply, and close the process when the turn ends. Stop sends `session/cancel`.
 - **Permissions:** Grip answers `session/request_permission` with allow, the same as Claude chats' permission mode. The protected-path refusal on the chat's folder still applies.
-- **Grip's chat prompt** goes in as an appended system prompt where the agent supports one (agy advertises it). Otherwise it is prepended to the first message. Only Claude's own subagent tool can be denied; other leaders are only told.
+- **Grip's chat prompt** goes in as ACP's appended `systemPrompt` on `session/new` and `session/load` where the agent advertises it (Codex does). Otherwise it is prepended to a new conversation's first message (agy, which offers it only in its own `_meta`). Only Claude's own subagent tool can be denied; other leaders are only told.
 - **Availability:** a leader counts as available when its command starts and answers `initialize`, which costs no model turn. The app greys out the rest with the reason.
 - **Tests:** a fake ACP agent built on the SDK's agent side, so no test calls a real model.
 
@@ -512,7 +512,7 @@ Wake-on-LAN is not planned. A sleeping principal shows as offline.
    - **Leaders through ACP** (§5.1), in this order:
      1. Done: `ChatTurns` runs a turn through Claw (Claude, as now) or ACP.
      2. Done: the ACP turn runner (`src/chats/acp-turns.ts`), tested against a fake ACP agent.
-     3. Leader presets: agy, Codex through `codex-acp`, and ACP agents from `config.json`, plus the stdio bridge.
+     3. Done: presets for agy (`agy acp`) and Codex (`codex-acp` 2.7.0, with its own pinned Codex sharing your `~/.codex` login), the `mcp-remote` bridge and a leader check that only sends `initialize`. ACP agents from `config.json` come with the workers below, which need the same wider engine list.
      4. The app offers every available leader when you start a chat.
      5. On the PC: one agy-led chat and one Codex-led chat each delegate to a worker and review it.
    - **Workers through Claw.** Claw already runs `grok`, `opencode`, ACP agents (`-e acp --acp-agent`, with presets such as `dsh` for DeepSeek and `kimi-code`) and `custom` engines. Grip narrows this to three in `Engine` and `ClawEngine`. Pass the others through:

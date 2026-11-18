@@ -11,6 +11,8 @@ export type FakeAcpOptions = {
   /** Advertise HTTP MCP servers. */
   http?: boolean
   loadSession?: boolean
+  /** Take an appended system prompt on session/new and session/load. */
+  systemPrompt?: boolean
   configOptions?: SessionConfigOption[]
   /** The reply, sent as two chunks. */
   reply?: string
@@ -23,8 +25,8 @@ export type FakeAcpOptions = {
 /** What the fake agent was asked, for tests to check. */
 export type FakeAcpLog = {
   spawned: { command: string; args: readonly string[]; cwd?: string }[]
-  newSessions: { cwd: string; mcpServers: McpServer[] }[]
-  loads: { sessionId: string; mcpServers: McpServer[] }[]
+  newSessions: { cwd: string; mcpServers: McpServer[]; systemPrompt?: string }[]
+  loads: { sessionId: string; mcpServers: McpServer[]; systemPrompt?: string }[]
   prompts: { sessionId: string; text: string }[]
   configs: { configId: string; value: unknown }[]
   permission: RequestPermissionOutcome | null
@@ -65,14 +67,18 @@ export function fakeAcpAgent(options: FakeAcpOptions = {}): { spawn: SpawnPiped;
     const app = agent({ name: 'fake-acp' })
       .onRequest('initialize', ({ params }) => ({
         protocolVersion: params.protocolVersion,
-        agentCapabilities: { loadSession: options.loadSession ?? false, mcpCapabilities: { http: options.http ?? false } },
+        agentCapabilities: {
+          loadSession: options.loadSession ?? false,
+          mcpCapabilities: { http: options.http ?? false },
+          ...(options.systemPrompt ? { sessionCapabilities: { systemPrompt: {} } } : {}),
+        },
       }))
       .onRequest('session/new', ({ params }) => {
-        log.newSessions.push({ cwd: params.cwd, mcpServers: params.mcpServers })
+        log.newSessions.push({ cwd: params.cwd, mcpServers: params.mcpServers, ...promptOf(params.systemPrompt) })
         return { sessionId: `fake-${++sessions}`, configOptions: options.configOptions ?? [] }
       })
       .onRequest('session/load', async ({ params, client }) => {
-        log.loads.push({ sessionId: params.sessionId, mcpServers: params.mcpServers })
+        log.loads.push({ sessionId: params.sessionId, mcpServers: params.mcpServers, ...promptOf(params.systemPrompt) })
         // A load replays the conversation so far, which is not part of the next reply.
         await client.notify('session/update', {
           sessionId: params.sessionId,
@@ -121,3 +127,6 @@ export function fakeAcpAgent(options: FakeAcpOptions = {}): { spawn: SpawnPiped;
 
   return { spawn, log }
 }
+
+const promptOf = (prompt: { mode: string; content: { type: string; text?: string }[] } | null | undefined) =>
+  prompt ? { systemPrompt: `${prompt.mode}: ${prompt.content.map(block => block.text ?? '').join('')}` } : {}

@@ -7,7 +7,7 @@ Grip lets any orchestrator model delegate to coding agents (Claude Code, Codex, 
 ## Layout
 
 - `src/claw/`: Claw supervisor. Install within `>=7.23.4 <8`, run `clawo serve` on loopback with Grip's token, health gate, idle-only updates, rollback, crash restart. Also the Claw HTTP client.
-- `src/chats/`: chats (DESIGN §5.1). `turns.ts` is how a leader runs a turn: Claude through Claw, others through `acp-turns.ts`, an ACP client on the official SDK that gives the leader Grip's MCP in `session/new`.
+- `src/chats/`: chats (DESIGN §5.1). `turns.ts` is how a leader runs a turn: Claude through Claw, others through `acp-turns.ts`, an ACP client on the official SDK that gives the leader Grip's MCP in `session/new`. `leaders.ts` has the ACP presets (agy, Codex through `codex-acp`), the `mcp-remote` bridge and the leader check.
 - `src/runs/`:
   - `store.ts`: append-only `runs.jsonl` plus per-run turn files, and `waitAny`
   - `manager.ts`: delegate, message, stop, details, recovery

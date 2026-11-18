@@ -1,6 +1,7 @@
 import { hostname } from 'node:os'
 import { join } from 'node:path'
 
+import { acpLeaders } from './chats/leaders.js'
 import { ChatManager } from './chats/manager.js'
 import { ChatStore } from './chats/store.js'
 import { createClawSupervisor } from './claw/index.js'
@@ -106,6 +107,8 @@ export async function startDaemon(options: DaemonOptions = {}) {
     claw: client,
     secret: mcpToken,
     mcpUrl: () => `http://127.0.0.1:${mcpPort}/mcp`,
+    // Claude leads through Claw; Codex and agy through ACP, which gives them Grip's MCP (design §5.1).
+    leaders: acpLeaders(),
     clawReady: () => supervisor.whenReady(),
     killWorkers,
     onActivityChange: activityChanged,

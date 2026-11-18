@@ -1,7 +1,7 @@
 import { Readable, Writable } from 'node:stream'
 
 import { client, ndJsonStream, PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
-import type { ClientContext, McpServer, SessionConfigOption, StopReason } from '@agentclientprotocol/sdk'
+import type { ClientContext, McpServer, SessionConfigOption, StopReason, SystemPrompt } from '@agentclientprotocol/sdk'
 
 import { errorText } from '../errors.js'
 import { exec as defaultExec, spawnPiped } from '../exec.js'
@@ -88,7 +88,8 @@ export class AcpChatTurns implements ChatTurns {
     const turn = app.connectWith(stream, async agent => {
       const init = await agent.request('initialize', { protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
       const server = this.grip(mcp, init.agentCapabilities?.mcpCapabilities?.http === true)
-      const opened = await openSession(agent, chat, server, init.agentCapabilities?.loadSession === true)
+      const systemPrompt = Boolean(init.agentCapabilities?.sessionCapabilities?.systemPrompt)
+      const opened = await openSession(agent, chat, server, { load: init.agentCapabilities?.loadSession === true, systemPrompt })
       sessionId = opened.sessionId
       cancel = async () => {
         await agent.notify('session/cancel', { sessionId: opened.sessionId }).catch(() => undefined)
@@ -96,8 +97,9 @@ export class AcpChatTurns implements ChatTurns {
       await configure(agent, opened.sessionId, opened.configOptions, chat)
       if (stopped()) throw new Error('stopped before the turn began')
       replying = true
-      // A new conversation learns how Grip works from its first message; a loaded one already has it.
-      const text = opened.loaded ? message : `${HOSTED_CHAT_PROMPT}\n\n${message}`
+      // Without a system prompt, a new conversation learns how Grip works from its first message,
+      // and a loaded one already has it.
+      const text = systemPrompt || opened.loaded ? message : `${HOSTED_CHAT_PROMPT}\n\n${message}`
       const response = await agent.request('session/prompt', { sessionId: opened.sessionId, prompt: [{ type: 'text', text }] })
       return response.stopReason
     })
@@ -155,17 +157,30 @@ export class AcpChatTurns implements ChatTurns {
 
 type Opened = { sessionId: string; configOptions: SessionConfigOption[]; loaded: boolean }
 
-/** Load the chat's earlier conversation when the agent can, else start a new one. */
-async function openSession(agent: ClientContext, chat: Chat, server: McpServer, canLoad: boolean): Promise<Opened> {
+/**
+ * Load the chat's earlier conversation when the agent can, else start a new one. Grip's chat
+ * prompt goes in as an appended system prompt where the agent takes one, on every load too.
+ */
+async function openSession(
+  agent: ClientContext,
+  chat: Chat,
+  server: McpServer,
+  can: { load: boolean; systemPrompt: boolean },
+): Promise<Opened> {
   const cwd = chat.folder!
-  if (chat.engineSessionId && canLoad) {
-    const loaded = await agent.request('session/load', { sessionId: chat.engineSessionId, cwd, mcpServers: [server] }).then(
-      response => response,
-      () => null,
-    )
+  const systemPrompt: SystemPrompt | null = can.systemPrompt
+    ? { mode: 'append', content: [{ type: 'text', text: HOSTED_CHAT_PROMPT }] }
+    : null
+  if (chat.engineSessionId && can.load) {
+    const loaded = await agent
+      .request('session/load', { sessionId: chat.engineSessionId, cwd, mcpServers: [server], systemPrompt: systemPrompt ?? undefined })
+      .then(
+        response => response,
+        () => null,
+      )
     if (loaded) return { sessionId: chat.engineSessionId, configOptions: loaded.configOptions ?? [], loaded: true }
   }
-  const created = await agent.request('session/new', { cwd, mcpServers: [server] })
+  const created = await agent.request('session/new', { cwd, mcpServers: [server], systemPrompt: systemPrompt ?? undefined })
   return { sessionId: created.sessionId, configOptions: created.configOptions ?? [], loaded: false }
 }
 
