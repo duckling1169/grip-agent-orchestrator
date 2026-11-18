@@ -1,14 +1,14 @@
-import { ArrowUpRight, ChevronRight, Plus, RefreshCw } from 'lucide-react'
-import { useState, type ReactNode } from 'react'
+import { ArrowUpRight, ChevronRight, Plus, RefreshCw, TimerReset } from 'lucide-react'
+import { Fragment, useState, type ReactNode } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Progress } from '@/components/ui/progress'
 import { Separator } from '@/components/ui/separator'
 
-import { untilText, WINDOW_LABELS, type UsageWindow } from '../../../src/quota/usage.js'
+import { untilText, WINDOW_LABELS, windowLevel, type Tone, type UsageWindow } from '../../../src/quota/usage.js'
 import { api } from '../api.js'
-import { pickQuotaWindows, QUOTA_WINDOWS } from '../quota.js'
+import { pickQuotaWindows, QUOTA_WINDOWS, resetText } from '../quota.js'
 import { chatHref, runHref } from '../state.js'
 import type { AppState, QuotaSnapshot, Route, RunSummary } from '../types.js'
 import { RowMenu } from './row-menu.js'
@@ -305,7 +305,14 @@ export function Navigation({
   )
 }
 
-function QuotaWindow({
+/** A window running low (20% or less) turns amber, and one that is out (5% or less) turns red. */
+const levelLooks: Partial<Record<Tone, { bar: string; text: string }>> = {
+  warn: { bar: '[&_[data-slot=progress-indicator]]:bg-amber-500', text: 'text-amber-700 dark:text-amber-400' },
+  alert: { bar: '[&_[data-slot=progress-indicator]]:bg-destructive', text: 'text-destructive' },
+}
+
+/** One window's reading: a bar, what is left, and when it resets, with the long wording on hover. */
+function QuotaCell({
   name,
   reading,
   now,
@@ -317,28 +324,43 @@ function QuotaWindow({
   provider: string
 }) {
   const labels = WINDOW_LABELS[name]!
-  const expired = reading?.resetsAt && Date.parse(reading.resetsAt) <= now
+  const stale = reading?.stale || (reading?.resetsAt && Date.parse(reading.resetsAt) <= now)
   const remaining = reading ? Math.max(0, Math.min(100, Math.round(100 - reading.usedPercent))) : undefined
-  const reset = reading?.resetsAt ? untilText(reading.resetsAt, now) : ''
+  const looks = (remaining !== undefined && levelLooks[windowLevel(remaining)]) || { bar: '', text: '' }
+  const reset = resetText(reading?.resetsAt ?? null, now)
+  const until = reading?.resetsAt ? untilText(reading.resetsAt, now) : ''
+  const said =
+    remaining === undefined
+      ? `${provider} ${labels.long}: no reading`
+      : `${provider} ${labels.long}: ${remaining}% left${until ? `, resets ${until}` : ''}${stale ? ' (stale reading)' : ''}`
   return (
-    <div className="grid min-w-0 content-start gap-1" title={reading?.stale || expired ? 'Stale reading' : undefined}>
-      <div className="flex flex-wrap items-baseline justify-between gap-x-1">
-        <span className="text-muted-foreground">{labels.short}</span>
-        <span className="font-medium whitespace-nowrap tabular-nums">{remaining === undefined ? '—' : `${remaining}% left`}</span>
-      </div>
+    <div className={`flex min-w-0 items-center gap-1.5 ${stale ? 'opacity-50' : ''}`} title={said}>
       <Progress
-        className={`h-1 ${reading?.stale || expired ? 'opacity-50' : ''}`}
+        className={`h-1 min-w-3 flex-1 ${looks.bar}`}
         value={remaining ?? 0}
-        aria-hidden={remaining === undefined ? true : undefined}
         aria-label={`${provider} ${labels.long} quota remaining`}
         aria-valuenow={remaining}
-        aria-valuetext={remaining === undefined ? undefined : `${remaining}% left`}
+        aria-valuetext={said}
       />
-      {reset && <p className="leading-tight text-muted-foreground">{reset === 'reset due' ? 'Reset due' : `Resets ${reset}`}</p>}
+      <span className={`w-[4ch] text-right font-medium tabular-nums ${looks.text}`} aria-hidden="true">
+        {remaining === undefined ? '—' : `${remaining}%`}
+      </span>
+      <span className="inline-flex w-[4.5ch] items-center gap-0.5 text-muted-foreground tabular-nums" aria-hidden="true">
+        {reset && (
+          <>
+            <TimerReset className="size-3 shrink-0" />
+            {reset}
+          </>
+        )}
+      </span>
     </div>
   )
 }
 
+/**
+ * Quota as a small table: one row per agent and one column per window, so another model family
+ * adds a row rather than squeezing the others. The window names are said once, as column heads.
+ */
 export function QuotaStrip({ snapshot, now, offline }: { snapshot: QuotaSnapshot; now: number; offline: boolean }) {
   const action = useAction()
   const busy = action.busy || snapshot.providers.some(provider => provider.busy)
@@ -350,38 +372,41 @@ export function QuotaStrip({ snapshot, now, offline }: { snapshot: QuotaSnapshot
     })
 
   return (
-    <section className="grid min-w-0 gap-2" aria-label="Quota">
-      <div className="flex items-center justify-between">
-        <h2 className={sectionLabel}>Quota</h2>
-        <Button
-          className="size-11 md:size-7"
-          variant="ghost"
-          size="icon"
-          type="button"
-          title="Refresh quota"
-          aria-label="Refresh quota"
-          disabled={offline || busy}
-          onClick={refresh}
-        >
-          <RefreshCw className={busy ? 'motion-safe:animate-spin' : undefined} aria-hidden="true" />
-        </Button>
-      </div>
-      <div className="grid min-w-0 grid-cols-3 gap-2 text-xs">
+    <section className="grid min-w-0 gap-1" aria-label="Quota">
+      <div className="grid min-w-0 grid-cols-[minmax(4.5rem,auto)_minmax(0,1fr)_minmax(0,1fr)] items-center gap-x-3 gap-y-1.5 text-xs">
+        <div className="flex min-w-0 items-center gap-0.5">
+          <h2 className={sectionLabel}>Quota</h2>
+          <Button
+            className="size-11 md:size-6"
+            variant="ghost"
+            size="icon"
+            type="button"
+            title="Refresh quota"
+            aria-label="Refresh quota"
+            disabled={offline || busy}
+            onClick={refresh}
+          >
+            <RefreshCw className={`size-3.5 ${busy ? 'motion-safe:animate-spin' : ''}`} aria-hidden="true" />
+          </Button>
+        </div>
+        {QUOTA_WINDOWS.map(name => (
+          <span key={name} className="text-muted-foreground" title={WINDOW_LABELS[name]!.long}>
+            {WINDOW_LABELS[name]!.short}
+          </span>
+        ))}
         {engines.map(engine => {
           const provider = snapshot.providers.find(item => item.provider === engine)
           const readings = pickQuotaWindows(provider?.windows)
           return (
-            <div key={engine} className="row-span-3 grid min-w-0 grid-rows-subgrid" title={provider?.error ?? undefined}>
-              <h3 className="flex min-w-0 items-center gap-1 font-medium">
+            <Fragment key={engine}>
+              <h3 className="flex min-w-0 items-center gap-1 font-medium" title={provider?.error ?? engineNames[engine]}>
                 <EngineMark engine={engine} />
-                <span className="truncate" title={engineNames[engine]}>
-                  {engineNames[engine]}
-                </span>
+                <span className="truncate">{engineNames[engine]}</span>
               </h3>
               {QUOTA_WINDOWS.map(name => (
-                <QuotaWindow key={name} name={name} reading={readings[name]} now={now} provider={engineNames[engine]} />
+                <QuotaCell key={name} name={name} reading={readings[name]} now={now} provider={engineNames[engine]} />
               ))}
-            </div>
+            </Fragment>
           )
         })}
       </div>
