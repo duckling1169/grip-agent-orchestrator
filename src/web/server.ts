@@ -71,6 +71,11 @@ export type WebOptions = {
   /** Web Push to devices that turned notifications on (DESIGN §13). */
   push?: Pick<PushNotifier, 'publicKey' | 'device' | 'subscribe' | 'setMuted' | 'unsubscribe' | 'test'>
   /**
+   * Stops this Grip, for `grip stop` and `grip restart`. Only `grip` on this machine may ask, since
+   * a device could not start Grip again.
+   */
+  shutdown?: () => void
+  /**
    * Lets `grip status` and `grip stop-all` on this machine call the API: a request with no
    * Tailscale identity that carries this token as a bearer acts as the local user.
    */
@@ -249,6 +254,14 @@ export async function startWebHttp(options: WebOptions): Promise<{ server: Serve
     if (method === 'GET' && path === '/api/events') return openStream(res, login)
     if (method === 'POST' && path === '/api/runs') return delegate(parse(DelegateBody, await readJsonBody(req)))
     if (method === 'POST' && path === '/api/chats') return chats.startChat(parse(ChatBody, await readJsonBody(req)))
+    if (method === 'POST' && path === '/api/shutdown') {
+      if (login !== LOCAL_LOGIN) throw new HttpError(403, 'Only grip on this machine can stop Grip')
+      const shutdown = options.shutdown
+      if (!shutdown) throw new HttpError(404, 'This Grip cannot be stopped through its API')
+      // After the answer is sent: stopping closes this server.
+      setImmediate(shutdown)
+      return { stopping: true, pid: process.pid }
+    }
     if (method === 'POST' && path === '/api/stop-all') {
       // Stop chat supervision first so a finishing worker cannot wake its parent during Stop all.
       const [chatResult, { stopped, killed }] = await Promise.all([chats.stopAll(), manager.stopAll()])

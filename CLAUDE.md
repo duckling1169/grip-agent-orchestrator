@@ -24,7 +24,7 @@ Grip lets any orchestrator model delegate to coding agents (Claude Code, Codex, 
   - keep-awake while runs work: a PowerShell helper holds `SetThreadExecutionState` on Windows, `caffeinate` on macOS
   - the sleep and shutdown watcher (`SystemEvents` through PowerShell) for the going-offline push
   - the never-elevated check
-- `src/install/`: `grip install`, `uninstall`, `status` and `stop-all` (DESIGN §15):
+- `src/install/`: `grip install`, `uninstall`, `status`, `stop-all`, `stop` and `restart` (DESIGN §15):
   - the `schtasks` logon task, run through `conhost --headless`
   - `tailscale serve`, set only when nothing serves the HTTPS root
   - the local API client, which uses the MCP token as a bearer
@@ -39,7 +39,7 @@ Grip lets any orchestrator model delegate to coding agents (Claude Code, Codex, 
 - `npm run build`: compile the daemon and build the web app. Node 22.12+ is required by the frontend toolchain. `npm run typecheck` checks both backend and frontend; `npm test` explicitly excludes compiled test copies.
 - `npm run web:preview`: isolated loopback preview at port 18799 with fake Claw and temporary data; never use this identity-injecting development proxy in the daemon. `npm run web:dev` starts Vite with the preview as its API proxy.
 - `npm run dev -- serve`: run Grip. `npm run dev -- mcp-config`: print the orchestrator setup.
-- `npm run build`, then `node dist/src/cli.js install`: register the logon task. Its definition records this Node and this `cli.js`, so rebuild after changes and restart the task with `schtasks /End /TN Grip` and then `schtasks /Run /TN Grip`, when no runs are working.
+- `npm run build`, then `node dist/src/cli.js install`: register the logon task. Its definition records this Node and this `cli.js`, so rebuild after changes and run `node dist/src/cli.js restart` (with `--home` or `GRIP_HOME` when the task uses one). It refuses while runs or chats work. `schtasks /End` does not stop Grip: Grip keeps running after its headless console is gone.
 - `npm run smoke:supervisor`: supervisor against real Claw. `npx tsx scripts/mcp-e2e.ts <repo>`: delegate to every engine through a running `grip serve`.
 
 ## Rules

@@ -3,6 +3,16 @@ import { join } from 'node:path'
 
 import { DEFAULT_WEB_PORT } from '../web/server.js'
 
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    // EPERM: the process exists but belongs to someone else.
+    return (error as NodeJS.ErrnoException).code === 'EPERM'
+  }
+}
+
 /** Grip's web API on this machine, as `grip status` and `grip stop-all` call it. */
 export class LocalApi {
   constructor(
@@ -51,6 +61,19 @@ export class LocalApi {
     const body = (await response.json().catch(() => null)) as { error?: unknown } | null
     if (!response.ok) throw new Error(typeof body?.error === 'string' ? body.error : `Grip returned HTTP ${response.status}`)
     return body as T
+  }
+
+  /**
+   * Wait until the Grip process has exited, which it does only once Claw has stopped too, or give
+   * up after the limit.
+   */
+  async waitUntilExited(pid: number, limitMs: number): Promise<boolean> {
+    const until = Date.now() + limitMs
+    while (Date.now() < until) {
+      if (!alive(pid)) return true
+      await new Promise(resolve => setTimeout(resolve, 500))
+    }
+    return !alive(pid)
   }
 
   /** Wait until Grip answers, or give up after the limit. */

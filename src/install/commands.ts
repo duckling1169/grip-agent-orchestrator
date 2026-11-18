@@ -24,6 +24,8 @@ import type { ServeState } from './tailscale-serve.js'
 const CODEX_PACKAGE = '@openai/codex'
 /** Claw installs and its health gate run before Grip's web port opens on a first start. */
 const FIRST_START_MS = 3 * 60 * 1000
+/** Grip stops its turns and Claw's whole process tree before it exits. */
+const STOP_MS = 60 * 1000
 
 export type CommandContext = {
   home: string
@@ -33,6 +35,8 @@ export type CommandContext = {
   cli: string
   out?: (line: string) => void
   run?: Exec
+  /** This machine's Grip; tests stand in for it. */
+  api?: Pick<LocalApi, 'running' | 'call' | 'waitUntilExited' | 'waitUntilRunning'>
 }
 
 /** How to add Grip to an orchestrator, and what to take out (design §15). */
@@ -148,7 +152,7 @@ export async function uninstall(context: CommandContext): Promise<void> {
   await task.remove()
   out(`removed the "${TASK_NAME}" logon task`)
   out(`kept ${context.home}, Claw and tailscale serve; remove them yourself if you no longer want them`)
-  if (await new LocalApi(context.home).running()) out(`a Grip still answers on this machine, probably one you started in a terminal`)
+  if (await (context.api ?? new LocalApi(context.home)).running()) out(`Grip is still running until you stop it (grip stop) or log off`)
 }
 
 type Summary = { title: string; engine: string; status: string; createdAt: string }
@@ -166,9 +170,7 @@ export function statusLines(state: State, now = Date.now()): string[] {
     return minutes < 60 ? `${minutes}m` : `${Math.floor(minutes / 60)}h ${minutes % 60}m`
   }
   const line = (s: Summary) => `  ${s.title} (${ENGINE_NAMES[s.engine as Engine] ?? s.engine}, ${age(s.createdAt)})`
-  const workingChats = state.chats.filter(c => c.status === 'working')
-  const workingRuns = [...state.runs, ...state.chats.flatMap(c => c.runs)].filter(r => r.status === 'running')
-  const unique = [...new Map(workingRuns.map(r => [`${r.title}${r.createdAt}`, r])).values()]
+  const { chats: workingChats, workers: unique } = working(state)
   return [
     `Claw       ${state.claw.status}${state.claw.version ? ` (${state.claw.version})` : ''}`,
     `Awake      ${state.keepAwake.supported ? (state.keepAwake.holding ? 'kept awake while runs work' : 'normal sleep settings') : 'not managed here'}`,
@@ -176,6 +178,61 @@ export function statusLines(state: State, now = Date.now()): string[] {
     ...workingChats.map(line),
     ...unique.map(line),
   ]
+}
+
+/** What is working now, each worker once. */
+function working(state: State): { chats: Summary[]; workers: Summary[] } {
+  const runs = [...state.runs, ...state.chats.flatMap(c => c.runs)].filter(r => r.status === 'running')
+  return {
+    chats: state.chats.filter(c => c.status === 'working'),
+    workers: [...new Map(runs.map(r => [`${r.title}${r.createdAt}`, r])).values()],
+  }
+}
+
+const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`
+
+/**
+ * `grip stop`: ask this machine's Grip to stop, and wait until it and its Claw have exited.
+ * Ending the logon task does not stop Grip: it closes no console that Grip would notice.
+ */
+export async function stop(context: CommandContext, force = false): Promise<boolean> {
+  const out = context.out ?? (line => console.log(line))
+  const api = context.api ?? new LocalApi(context.home)
+  if (!(await api.running())) {
+    out(`Grip is not running`)
+    return false
+  }
+  if (!force) {
+    const now = working(await api.call<State>('/api/state'))
+    if (now.chats.length || now.workers.length)
+      throw new Error(
+        `${plural(now.workers.length, 'worker')} and ${plural(now.chats.length, 'chat')} are working. Wait for them, stop them (grip stop-all), or pass --force.`,
+      )
+  }
+  const { pid } = await api.call<{ pid: number }>('/api/shutdown', 'POST')
+  out(`stopping Grip…`)
+  if (!(await api.waitUntilExited(pid, STOP_MS)))
+    throw new Error(`Grip (process ${pid}) has not exited after ${STOP_MS / 1000} s; see ${join(context.home, 'logs', 'grip.log')}`)
+  out(`Grip stopped`)
+  return true
+}
+
+/** `grip restart`: stop Grip, then start it again through its logon task, as after a build. */
+export async function restart(context: CommandContext, force = false): Promise<void> {
+  const out = context.out ?? (line => console.log(line))
+  const task = new LogonTask(context.run ?? defaultExec)
+  if (!(await task.definition())) throw new Error(`there is no "${TASK_NAME}" logon task to start Grip again; run grip install`)
+  await stop(context, force)
+  // The task may still count as running after Grip exits; end it so /Run starts a new one.
+  await task.end()
+  await task.start()
+  out(`starting Grip…`)
+  const api = context.api ?? new LocalApi(context.home)
+  out(
+    (await api.waitUntilRunning(FIRST_START_MS))
+      ? `Grip is running`
+      : `! Grip has not answered yet; see ${join(context.home, 'logs', 'grip.log')}`,
+  )
 }
 
 /** `grip status`: Grip, its logon task, Tailscale and Claw, plus what is working now. */

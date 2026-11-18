@@ -14,7 +14,7 @@ node dist/src/cli.js install
 
 `install` adds what's missing (Claw, the Codex CLI, `tailscale serve`) and registers a logon task that runs Grip whenever you're logged on. It ends by printing the MCP config for your orchestrator. Open `https://<this machine>.<tailnet>.ts.net` on any of your devices; on iPhone, add it to the Home Screen for notifications.
 
-Other commands: `status`, `stop-all`, `uninstall`, `serve` (run in a terminal instead of the task) and `mcp-config`.
+Other commands: `status`, `stop-all`, `stop`, `restart` (after a build), `uninstall`, `serve` (run in a terminal instead of the task) and `mcp-config`.
 
 ## Settings
 

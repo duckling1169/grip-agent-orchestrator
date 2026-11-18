@@ -3,7 +3,8 @@ import { readFile } from 'node:fs/promises'
 import { describe, expect, it } from 'vitest'
 
 import type { Exec } from '../exec.js'
-import { statusLines } from './commands.js'
+import { restart, statusLines, stop } from './commands.js'
+import type { CommandContext } from './commands.js'
 import { LogonTask, taskXml } from './logon-task.js'
 import { ensureServe, serveState } from './tailscale-serve.js'
 
@@ -102,5 +103,54 @@ describe('grip status', () => {
       '  Auth work (Claude, 2h 0m)',
       '  Fix login (GPT, 45m)',
     ])
+  })
+})
+
+describe('grip stop and restart', () => {
+  const idle = { claw: { status: 'ready', version: null }, keepAwake: { supported: true, holding: false }, chats: [], runs: [] }
+  function machine(state: object = idle) {
+    const calls: string[] = []
+    let up = true
+    const api: NonNullable<CommandContext['api']> = {
+      running: async () => up,
+      call: async <T>(path: string, method?: 'GET' | 'POST') => {
+        calls.push(`${method ?? 'GET'} ${path}`)
+        if (path === '/api/shutdown') up = false
+        return (path === '/api/state' ? state : { stopping: true, pid: 4242 }) as T
+      },
+      waitUntilExited: async pid => (calls.push(`wait ${pid}`), true),
+      waitUntilRunning: async () => (calls.push('wait running'), (up = true)),
+    }
+    const run: Exec = async (cmd, args) => {
+      calls.push([cmd, ...args.slice(0, 3)].join(' '))
+      return { code: 0, stdout: '<Task/>', stderr: '' }
+    }
+    const lines: string[] = []
+    const context: CommandContext = { home: 'C:\grip-home', customHome: true, cli: 'cli.js', api, run, out: line => lines.push(line) }
+    return { context, calls, lines }
+  }
+
+  it('asks Grip to stop and waits for its process, then starts the task again', async () => {
+    const m = machine()
+    await restart(m.context)
+    expect(m.calls).toEqual([
+      'schtasks /Query /TN Grip',
+      'GET /api/state',
+      'POST /api/shutdown',
+      'wait 4242',
+      'schtasks /End /TN Grip',
+      'schtasks /Run /TN Grip',
+      'wait running',
+    ])
+    expect(m.lines).toEqual(['stopping Grip…', 'Grip stopped', 'starting Grip…', 'Grip is running'])
+  })
+
+  it('refuses while anything works, unless forced', async () => {
+    const run = { title: 'Fix login', engine: 'codex', status: 'running', createdAt: '2026-11-18T11:15:00Z' }
+    const m = machine({ ...idle, runs: [run] })
+    await expect(stop(m.context)).rejects.toThrow('1 worker and 0 chats are working')
+    expect(m.calls).not.toContain('POST /api/shutdown')
+    await expect(stop(m.context, true)).resolves.toBe(true)
+    expect(m.calls).toContain('POST /api/shutdown')
   })
 })

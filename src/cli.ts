@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 import type { ClawEngine } from './claw/index.js'
 import { startDaemon } from './daemon.js'
 import { loadOrCreateToken } from './fs-util.js'
-import { claudeMcpCommand, install, mcpConfigJson, status, stopAll, uninstall } from './install/commands.js'
+import { claudeMcpCommand, install, mcpConfigJson, restart, status, stop, stopAll, uninstall } from './install/commands.js'
 import type { CommandContext } from './install/commands.js'
 import { gripLogger } from './log.js'
 import { gripPaths } from './paths.js'
@@ -15,6 +15,8 @@ const USAGE = `grip <command>
   install                                  Set Grip up on this machine and start it at every logon (Windows)
   status                                   Grip, its logon task, Tailscale and Claw, and what is working
   stop-all                                 Stop every worker and chat, like the app's Stop all
+  stop [--force]                           Stop Grip and its Claw; refuses while anything works unless --force
+  restart [--force]                        Stop Grip, then start it again through its logon task (after a build)
   uninstall                                Remove the logon task; Grip's data, Claw and tailscale serve stay
   serve [--engines claude,codex-app,agy]   Run Grip: Claw supervisor, the orchestrator MCP and the web API
   mcp-config [--json]                      Print the command that adds Grip to Claude Code, or JSON for other MCP hosts
@@ -50,17 +52,26 @@ async function main(argv: string[]) {
       log(`crashed: ${error.stack ?? error.message}`)
       process.exit(1)
     })
-    const daemon = await startDaemon({ log, ...(engines ? { engines } : {}) }).catch((error: Error) => {
-      log(`could not start: ${error.message}`)
-      // Claw or the servers may have started; leave nothing running.
-      process.exit(1)
-    })
+    let daemon: Awaited<ReturnType<typeof startDaemon>> | undefined
     const shutdown = () => {
-      daemon.stop().then(
+      daemon?.stop().then(
         () => process.exit(0),
         () => process.exit(1),
       )
     }
+    daemon = await startDaemon({
+      log,
+      // grip stop and grip restart: ending the logon task closes no console Grip sees, so they ask.
+      onShutdownRequest: () => {
+        log('stop asked for by grip on this machine')
+        shutdown()
+      },
+      ...(engines ? { engines } : {}),
+    }).catch((error: Error) => {
+      log(`could not start: ${error.message}`)
+      // Claw or the servers may have started; leave nothing running.
+      process.exit(1)
+    })
     process.once('SIGINT', shutdown)
     process.once('SIGTERM', shutdown)
     // The console Grip runs in closing, as when the logon task is ended.
@@ -76,6 +87,8 @@ async function main(argv: string[]) {
   if (command === 'uninstall') return uninstall(context)
   if (command === 'status') return status(context)
   if (command === 'stop-all') return stopAll(context)
+  if (command === 'stop') return stop(context, rest.includes('--force'))
+  if (command === 'restart') return restart(context, rest.includes('--force'))
 
   process.stdout.write(USAGE)
   process.exitCode = command ? 1 : 0

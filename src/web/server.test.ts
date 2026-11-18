@@ -26,6 +26,7 @@ const git = (cwd: string, ...args: string[]) =>
   execFileSync('git', ['-c', 'user.name=grip-test', '-c', 'user.email=grip@test', '-C', cwd, ...args], { encoding: 'utf8' }).trim()
 
 const cleanups: (() => Promise<unknown>)[] = []
+const shutdowns: number[] = []
 afterEach(async () => {
   for (const c of cleanups.splice(0).reverse()) await c()
 })
@@ -41,6 +42,7 @@ class FakeClawStatus extends EventEmitter<{ status: [string] }> {
 }
 
 async function setup(withStatic = false) {
+  shutdowns.length = 0
   const base = await realpath(await mkdtemp(join(tmpdir(), 'grip-web-')))
   cleanups.push(() => rm(base, { recursive: true, force: true }))
   const repo = join(base, 'app')
@@ -109,6 +111,7 @@ async function setup(withStatic = false) {
     },
     trustedOrigin: origin => tailnetOrigin(origin, '.tail.ts.net'),
     localToken: LOCAL_TOKEN,
+    shutdown: () => shutdowns.push(Date.now()),
   })
   cleanups.push(() => web.close())
   cleanups.push(() => chats.stopAll())
@@ -174,6 +177,18 @@ describe('web API identity', () => {
     // tailscale serve adds the identity to every device request, so the token alone never counts.
     const device = await fetch(`${t.url}/api/state`, { headers: { ...local, 'Tailscale-User-Login': 'someone@github' } })
     expect(device.status).toBe(403)
+  })
+
+  it('stops only when grip on this machine asks', async () => {
+    const t = await setup()
+    expect((await t.api('POST', '/api/shutdown', {})).status).toBe(403)
+    const local = await fetch(`${t.url}/api/shutdown`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${LOCAL_TOKEN}`, 'Content-Type': 'application/json' },
+      body: '{}',
+    })
+    expect(await local.json()).toEqual({ stopping: true, pid: process.pid })
+    await expect.poll(() => shutdowns.length).toBe(1)
   })
 
   it('refuses cross-site writes', async () => {

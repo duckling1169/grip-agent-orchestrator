@@ -35,6 +35,8 @@ export type DaemonOptions = {
   log?: (line: string) => void
   /** Where quota readings come from; the CLIs on this machine unless a test stands in. */
   quotaReaders?: QuotaReaders
+  /** Called when `grip stop` or `grip restart` asks this Grip to stop; the caller stops it and exits. */
+  onShutdownRequest?: () => void
   /** Skip the elevation check and keep-awake. Tests only. */
   testing?: boolean
 }
@@ -165,6 +167,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
     models,
     push,
     localToken: mcpToken,
+    ...(options.onShutdownRequest ? { shutdown: options.onShutdownRequest } : {}),
   })
   log(`web API on http://127.0.0.1:${web.port} (publish it with tailscale serve)`)
   if (config.allowedLogins.length === 0)
