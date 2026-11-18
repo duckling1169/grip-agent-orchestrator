@@ -2,6 +2,9 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import { z } from 'zod'
 
+import type { Quota } from '../quota/quota.js'
+import { TOOLS } from '../quota/usage.js'
+import type { ToolId } from '../quota/usage.js'
 import type { RunDetails, RunManager } from '../runs/manager.js'
 import { ENGINES } from '../runs/store.js'
 import type { Run } from '../runs/store.js'
@@ -68,7 +71,7 @@ async function guarded(work: () => Promise<unknown>): Promise<CallToolResult> {
  * Grip's tools for orchestrators. Any model that speaks MCP can delegate with them: start runs,
  * follow up, stop, and take finished results one at a time with `wait_any`.
  */
-export function createGripMcpServer(manager: RunManager, version = '0.0.0'): McpServer {
+export function createGripMcpServer(manager: RunManager, quota: Quota, version = '0.0.0'): McpServer {
   const server = new McpServer({ name: 'grip', version })
 
   server.registerTool(
@@ -78,7 +81,8 @@ export function createGripMcpServer(manager: RunManager, version = '0.0.0'): Mcp
       description:
         'Start a worker (Claude Code, Codex or Antigravity) on a task. Returns at once with the run; use wait_any to get the result. ' +
         'In a git repo the worker gets its own worktree on a grip/ branch; elsewhere it works in the folder itself. ' +
-        'Give the brief as a file path (relative to folder, or absolute) or as text.',
+        'Give the brief as a file path (relative to folder, or absolute) or as text. ' +
+        "Adds quotaNote when that engine's provider is low or out; the run starts either way.",
       inputSchema: {
         folder: z.string().describe('Absolute path of the folder or repo to work in'),
         engine: z.enum(ENGINES as [string, ...string[]]).describe('Which worker: claude, codex or agy'),
@@ -90,18 +94,18 @@ export function createGripMcpServer(manager: RunManager, version = '0.0.0'): Mcp
       },
     },
     args =>
-      guarded(async () =>
-        summarize(
-          await manager.delegate({
-            folder: args.folder,
-            engine: args.engine as Run['engine'],
-            brief: { ...(args.brief_path ? { path: args.brief_path } : {}), ...(args.brief_text ? { text: args.brief_text } : {}) },
-            ...(args.model ? { model: args.model } : {}),
-            ...(args.effort ? { effort: args.effort } : {}),
-            ...(args.retry_of ? { retryOf: args.retry_of } : {}),
-          }),
-        ),
-      ),
+      guarded(async () => {
+        const run = await manager.delegate({
+          folder: args.folder,
+          engine: args.engine as Run['engine'],
+          brief: { ...(args.brief_path ? { path: args.brief_path } : {}), ...(args.brief_text ? { text: args.brief_text } : {}) },
+          ...(args.model ? { model: args.model } : {}),
+          ...(args.effort ? { effort: args.effort } : {}),
+          ...(args.retry_of ? { retryOf: args.retry_of } : {}),
+        })
+        const quotaNote = quota.noteFor(run.engine)
+        return { ...summarize(run), ...(quotaNote ? { quotaNote } : {}) }
+      }),
   )
 
   server.registerTool(
@@ -172,6 +176,24 @@ export function createGripMcpServer(manager: RunManager, version = '0.0.0'): Mcp
         })
         return details ? present(details) : null
       }),
+  )
+
+  server.registerTool(
+    'quota',
+    {
+      title: 'Read quota windows',
+      description:
+        'Quota windows (5-hour, weekly and others) for Codex, Antigravity and Claude, with a one-line verdict on the tightest one. ' +
+        'Returns the last readings unless refresh is set. Refreshing Codex and Antigravity is free; Claude is read only when ' +
+        'refresh names it, and that costs one tiny Claude turn.',
+      inputSchema: {
+        refresh: z
+          .array(z.enum(TOOLS as [ToolId, ...ToolId[]]))
+          .optional()
+          .describe('Providers to read again before answering, for example ["codex", "agy"]'),
+      },
+    },
+    args => guarded(async () => (args.refresh?.length ? quota.refresh(args.refresh) : quota.snapshot())),
   )
 
   return server

@@ -8,6 +8,8 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { Worktrees } from '../git/worktrees.js'
+import { Quota } from '../quota/quota.js'
+import type { QuotaReaders } from '../quota/readers.js'
 import { RunManager } from '../runs/manager.js'
 import { RunStore } from '../runs/store.js'
 import { FakeClaw } from '../testing/fake-claw.js'
@@ -25,7 +27,22 @@ async function setup() {
   await mkdir(folder)
   const claw = new FakeClaw()
   const manager = new RunManager({ store: await RunStore.open(join(base, 'home')), worktrees: new Worktrees(), claw })
-  const http = await startMcpHttp({ manager, token: TOKEN, port: 0 })
+  const window = (usedPercent: number) => ({
+    name: '5h',
+    usedPercent,
+    resetsAt: '2099-01-01T00:00:00.000Z',
+    stale: false,
+    observedAt: null,
+  })
+  const readers: QuotaReaders = {
+    codex: async () => ({ provider: 'codex', windows: [window(90)] }),
+    agy: async () => ({ provider: 'agy', windows: [window(10)] }),
+    claude: async () => {
+      throw new Error('tests never call real models')
+    },
+  }
+  const quota = await Quota.open({ path: join(base, 'home', 'quota.json'), readers })
+  const http = await startMcpHttp({ manager, quota, token: TOKEN, port: 0 })
   cleanups.push(() => rm(base, { recursive: true, force: true }), http.close)
   const url = new URL(`http://127.0.0.1:${http.port}/mcp`)
   const client = new Client({ name: 'test-orchestrator', version: '1' })
@@ -40,7 +57,7 @@ describe('Grip MCP over HTTP', () => {
   it('lists the orchestrator tools', async () => {
     const { client } = await setup()
     const names = (await client.listTools()).tools.map(t => t.name).sort()
-    expect(names).toEqual(['delegate', 'list', 'message', 'result', 'stop', 'wait_any'])
+    expect(names).toEqual(['delegate', 'list', 'message', 'quota', 'result', 'stop', 'wait_any'])
   })
 
   it('delegates, then hands the result back through wait_any', async () => {
@@ -58,6 +75,18 @@ describe('Grip MCP over HTTP', () => {
     const listed = json(await client.callTool({ name: 'list', arguments: { status: 'done' } }))
     expect(listed.map((r: { id: string }) => r.id)).toEqual([run.id])
     expect(json(await client.callTool({ name: 'wait_any', arguments: { timeout_sec: 0 } }))).toBeNull()
+  })
+
+  it('reads quota, and notes a low provider when delegating to it', async () => {
+    const { client, folder } = await setup()
+    expect(json(await client.callTool({ name: 'quota', arguments: {} })).verdict.text).toBe('Waiting for a reading')
+    const read = json(await client.callTool({ name: 'quota', arguments: { refresh: ['codex', 'agy'] } }))
+    expect(read.verdict).toEqual({ text: 'Codex is running low (10% left)', tone: 'warn' })
+
+    const codex = json(await client.callTool({ name: 'delegate', arguments: { folder, engine: 'codex', brief_text: 'A' } }))
+    expect(codex.quotaNote).toBe('Codex is running low (10% left)')
+    const agy = json(await client.callTool({ name: 'delegate', arguments: { folder, engine: 'agy', brief_text: 'B' } }))
+    expect(agy.quotaNote).toBeUndefined()
   })
 
   it('reports tool errors as errors, not crashes', async () => {

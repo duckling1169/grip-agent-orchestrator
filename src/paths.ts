@@ -10,6 +10,7 @@ export const gripPaths = (home = gripHome()) => ({
   home,
   clawState: join(home, 'claw.json'),
   clawToken: join(home, 'claw-token'),
+  quota: join(home, 'quota.json'),
   logs: join(home, 'logs'),
   clawLog: join(home, 'logs', 'claw.log'),
 })

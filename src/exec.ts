@@ -1,9 +1,10 @@
 import { spawn } from 'node:child_process'
+import type { ChildProcessWithoutNullStreams } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
 export type ExecResult = { code: number; stdout: string; stderr: string }
-export type Exec = (command: string, args: readonly string[], options?: { timeoutMs?: number }) => Promise<ExecResult>
+export type Exec = (command: string, args: readonly string[], options?: { timeoutMs?: number; cwd?: string }) => Promise<ExecResult>
 
 /**
  * On Windows `npm` is a `.cmd` shim, which Node only spawns through a shell. npm's own entry
@@ -29,7 +30,7 @@ export const exec: Exec = (command, args, options = {}) =>
       reject(error)
       return
     }
-    const child = spawn(file, argv, { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
+    const child = spawn(file, argv, { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], ...(options.cwd ? { cwd: options.cwd } : {}) })
     let stdout = ''
     let stderr = ''
     child.stdout.setEncoding('utf8').on('data', chunk => (stdout += chunk))
@@ -49,6 +50,14 @@ export const exec: Exec = (command, args, options = {}) =>
       resolve({ code: code ?? 1, stdout, stderr })
     })
   })
+
+/** Start a long-lived command with piped stdio, for line protocols like Codex's app-server. Never through a shell. */
+export type SpawnPiped = (command: string, args: readonly string[], options?: { cwd?: string }) => ChildProcessWithoutNullStreams
+
+export const spawnPiped: SpawnPiped = (command, args, options = {}) => {
+  const [file, argv] = resolveCommand(command, args)
+  return spawn(file, argv, { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'], ...(options.cwd ? { cwd: options.cwd } : {}) })
+}
 
 /** Like `exec`, but a non-zero exit is an error carrying stderr's last line. */
 export async function execOk(run: Exec, command: string, args: readonly string[], timeoutMs?: number): Promise<string> {

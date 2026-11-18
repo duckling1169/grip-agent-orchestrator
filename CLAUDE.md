@@ -12,6 +12,7 @@ Grip lets any orchestrator model delegate to coding agents (Claude Code, Codex, 
   - `manager.ts`: delegate, message, stop, details, recovery
   - `briefs.ts`, `protected.ts`
 - `src/git/`: worktrees (sibling `<repo>-worktrees/` folders on `grip/` branches), git facts, diffs. The parsers are copied from `agent-usage`.
+- `src/quota/`: quota windows (DESIGN §8). Parsers ported from `alethe-orchestrate`, wording copied from `agent-usage`. Codex through its own short-lived app-server client, agy through `agy -p /usage`, Claude only through an on-demand probe.
 - `src/mcp/`: the orchestrator MCP, stateless Streamable HTTP on `127.0.0.1:18797/mcp` behind a bearer token.
 - `src/daemon.ts`, `src/cli.ts`: `grip serve` and `grip mcp-config`.
 - `src/testing/`: fakes for tests.

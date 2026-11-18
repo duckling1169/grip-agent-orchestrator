@@ -5,13 +5,14 @@ import type { AddressInfo } from 'node:net'
 
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 
+import type { Quota } from '../quota/quota.js'
 import type { RunManager } from '../runs/manager.js'
 import { createGripMcpServer } from './tools.js'
 
 export const DEFAULT_MCP_PORT = 18797
 const MAX_BODY_BYTES = 1024 * 1024
 
-export type McpHttpOptions = { manager: RunManager; token: string; port?: number; version?: string }
+export type McpHttpOptions = { manager: RunManager; quota: Quota; token: string; port?: number; version?: string }
 
 /**
  * Grip's MCP endpoint for orchestrators: Streamable HTTP at `http://127.0.0.1:<port>/mcp`,
@@ -38,7 +39,7 @@ export async function startMcpHttp(options: McpHttpOptions): Promise<{ server: S
     if (req.method !== 'POST') return send(res, 405, { error: 'POST only' })
 
     const body = await readJson(req)
-    const mcp = createGripMcpServer(options.manager, options.version)
+    const mcp = createGripMcpServer(options.manager, options.quota, options.version)
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true })
     res.on('close', () => {
       void transport.close()

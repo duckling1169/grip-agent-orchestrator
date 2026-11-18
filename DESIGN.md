@@ -386,7 +386,7 @@ Wake-on-LAN is not planned. A sleeping principal shows as offline.
 ## 18. Open questions to verify during the build
 
 - Tailscale Service hosts: is tagging required, and do identity headers arrive through a Service?
-- Does Claw expose Claude's `rate_limit_event` through its session or turn results, or does Grip need its own small probe?
+- ~~Does Claw expose Claude's `rate_limit_event`?~~ No. Claw 7.23.4 reads it only to rotate accounts and keeps just the highest utilization. Grip reads Claude with its own on-demand probe (a one-line Haiku turn), never after turns or on a timer.
 - Can Claw's per-engine permission settings enforce the protected paths for all three engines, or does Grip need an extra guard for some engines?
-- Does Claw's Codex app-server session let Grip issue `account/rateLimits/read` on the same connection, or does Grip keep its own short-lived app-server client?
+- ~~Can Grip issue `account/rateLimits/read` on Claw's Codex connection?~~ Grip keeps its own short-lived app-server client (initialize, read, exit). `account/rateLimits/updated` arrives only on the connection running a turn, which is Claw's, so Grip reads again after each Codex turn instead.
 - The status of Google's terms on third-party orchestration of `agy -p`.

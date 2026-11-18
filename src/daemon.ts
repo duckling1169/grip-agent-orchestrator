@@ -6,6 +6,9 @@ import { loadOrCreateToken } from './fs-util.js'
 import { Worktrees } from './git/worktrees.js'
 import { DEFAULT_MCP_PORT, startMcpHttp } from './mcp/http.js'
 import { gripPaths } from './paths.js'
+import { Quota } from './quota/quota.js'
+import { CliQuotaReaders } from './quota/readers.js'
+import type { QuotaReaders } from './quota/readers.js'
 import { RunManager } from './runs/manager.js'
 import { RunStore } from './runs/store.js'
 
@@ -16,6 +19,8 @@ export type DaemonOptions = {
   /** Engines the Claw health gate checks; leave out any not signed in on this machine. */
   engines?: readonly ClawEngine[]
   log?: (line: string) => void
+  /** Where quota readings come from; the CLIs on this machine unless a test stands in. */
+  quotaReaders?: QuotaReaders
 }
 
 /** Lets more workers run at once than Claw's own default, which Grip never needs to hit. */
@@ -30,6 +35,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
   const log = options.log ?? ((line: string) => console.log(`[grip] ${line}`))
   const paths = gripPaths(options.home)
   const store = await RunStore.open(paths.home)
+  const quota = await Quota.open({ path: paths.quota, readers: options.quotaReaders ?? new CliQuotaReaders() })
 
   const { supervisor, client } = await createClawSupervisor({
     ...(options.home ? { home: options.home } : {}),
@@ -49,6 +55,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
     claw: client,
     clawReady: () => supervisor.whenReady(),
     onActivityChange: n => log(`${n} run${n === 1 ? '' : 's'} working`),
+    onTurnEnded: engine => quota.afterTurn(engine),
   })
 
   await supervisor.start()
@@ -56,8 +63,10 @@ export async function startDaemon(options: DaemonOptions = {}) {
   if (recovered.length) log(`marked ${recovered.length} interrupted run(s) as failed`)
 
   const mcpToken = await loadOrCreateToken(join(paths.home, 'mcp-token'))
-  const mcp = await startMcpHttp({ manager, token: mcpToken, port: options.mcpPort ?? DEFAULT_MCP_PORT })
+  const mcp = await startMcpHttp({ manager, quota, token: mcpToken, port: options.mcpPort ?? DEFAULT_MCP_PORT })
   log(`orchestrator MCP on http://127.0.0.1:${mcp.port}/mcp`)
+  // The free reads, so the first quota call has something to show.
+  void quota.refresh().then(s => log(`quota: ${s.verdict.text}`))
 
   let stopping: Promise<void> | null = null
   const stop = () =>
@@ -68,5 +77,5 @@ export async function startDaemon(options: DaemonOptions = {}) {
       await supervisor.stop()
     })())
 
-  return { manager, store, supervisor, mcpPort: mcp.port, stop }
+  return { manager, store, quota, supervisor, mcpPort: mcp.port, stop }
 }

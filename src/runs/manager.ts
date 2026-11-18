@@ -45,6 +45,8 @@ export type RunManagerOptions = {
   turnTimeoutMs?: number
   /** Called whenever a run starts or ends work, so keep-awake and the supervisor can follow. */
   onActivityChange?: (running: number) => void
+  /** Called after each turn ends, however it ended, so quota can be read again. */
+  onTurnEnded?: (engine: Engine) => void
   /** Waits until Claw can take a turn, for turns that arrive while it starts or updates. */
   clawReady?: () => Promise<void>
 }
@@ -203,6 +205,7 @@ export class RunManager {
     const work = this.runTurn(run, turn, message).finally(() => {
       this.inFlight.delete(run.id)
       this.activityChanged()
+      this.options.onTurnEnded?.(run.engine)
     })
     this.inFlight.set(run.id, work)
     this.activityChanged()
