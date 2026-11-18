@@ -112,10 +112,13 @@ export async function startDaemon(options: DaemonOptions = {}) {
   const recoveredChats = await chats.recover()
   if (recoveredChats.length) log(`marked ${recoveredChats.length} interrupted chat(s) as failed`)
 
+  // One catalog for the orchestrator's models tool and the app's pickers.
+  const models = new ModelCatalog(undefined, undefined, minutes(config.settings.modelListRefreshMinutes))
   const mcp = await startMcpHttp({
     manager,
     quota,
     chats,
+    models,
     token: mcpToken,
     port: mcpPort,
     sessionIdleMs: days(config.settings.mcpSessionIdleDays),
@@ -133,7 +136,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
     allowedLogins: config.allowedLogins,
     keepAwake: () => ({ supported: keepAwake.supported, holding: keepAwake.holding }),
     port: options.webPort ?? DEFAULT_WEB_PORT,
-    models: new ModelCatalog(undefined, undefined, minutes(config.settings.modelListRefreshMinutes)),
+    models,
   })
   log(`web API on http://127.0.0.1:${web.port} (publish it with tailscale serve)`)
   if (config.allowedLogins.length === 0)

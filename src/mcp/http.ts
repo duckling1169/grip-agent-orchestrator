@@ -13,6 +13,7 @@ import { readJsonBody, sendJson as send } from '../http-util.js'
 import type { Quota } from '../quota/quota.js'
 import type { RunManager } from '../runs/manager.js'
 import { createGripMcpServer } from './tools.js'
+import type { McpModels } from './tools.js'
 import type { McpCaller } from './tools.js'
 import { DEFAULT_SETTINGS, days } from '../settings.js'
 
@@ -26,6 +27,8 @@ export type McpHttpOptions = {
   quota: Quota
   token: string
   chats?: McpChats
+  /** Each agent's models, for the `models` tool. */
+  models?: McpModels
   port?: number
   version?: string
   /** Bounds in-memory sessions, including those still initializing. */
@@ -140,7 +143,7 @@ export async function startMcpHttp(options: McpHttpOptions): Promise<{ server: S
     if (!isInitializeRequest(body)) return mcpError(res, 400, -32000, 'Initialize a session first')
     if (openSessions.size >= maxSessions) return mcpError(res, 503, -32000, 'Too many open sessions')
     const caller: McpCaller = { chats: options.chats, chatId: identity.chatId, host: body.params.clientInfo.name }
-    const mcp = createGripMcpServer(options.manager, options.quota, options.version, caller)
+    const mcp = createGripMcpServer(options.manager, options.quota, options.version, caller, options.models)
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: randomUUID,
       enableJsonResponse: true,

@@ -2,6 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import { z } from 'zod'
 
+import type { ModelCatalog } from '../models.js'
 import type { Quota } from '../quota/quota.js'
 import { TOOLS } from '../quota/usage.js'
 import type { ToolId } from '../quota/usage.js'
@@ -15,6 +16,9 @@ const WAIT_DEFAULT_SEC = 120
 const WAIT_MAX_SEC = 600
 
 export type McpCaller = { chatId?: string; host?: string; chats?: McpChats }
+
+/** Each agent's models, as the app's pickers show them. */
+export type McpModels = Pick<ModelCatalog, 'list'>
 
 // A hosted chat can have more than one MCP session.
 const waitsByChatManager = new WeakMap<McpChats, Map<string, number>>()
@@ -57,12 +61,18 @@ async function whileWaiting<T>(chats: McpChats | undefined, chatId: string | und
  * Grip's tools for orchestrators. Any model that speaks MCP can delegate with them: start runs,
  * follow up, stop, and take finished results one at a time with `wait_any`.
  */
-export function createGripMcpServer(manager: RunManager, quota: Quota, version = '0.0.0', caller: McpCaller = {}): McpServer {
+export function createGripMcpServer(
+  manager: RunManager,
+  quota: Quota,
+  version = '0.0.0',
+  caller: McpCaller = {},
+  models?: McpModels,
+): McpServer {
   const server = new McpServer(
     { name: 'grip', version },
     {
       instructions:
-        'Use delegate to start workers asynchronously. Give your chat a short descriptive chat_title on the first delegation. ' +
+        'Use delegate to start workers asynchronously. Call models first and pass a model to delegate, so the run records which one works. Give your chat a short descriptive chat_title on the first delegation. ' +
         'Use wait_any to review completed workers in your chat. To pick up work from another chat, find the runs with list and pass ' +
         'their IDs as run_ids to wait_any, or read a specific run with result.',
     },
@@ -106,8 +116,13 @@ export function createGripMcpServer(manager: RunManager, quota: Quota, version =
         engine: z.enum(ENGINES as [string, ...string[]]).describe('Which worker: claude, codex or agy'),
         brief_path: z.string().optional().describe('Path to a brief file describing the task'),
         brief_text: z.string().optional().describe('The task, written out, when there is no brief file'),
-        model: z.string().optional().describe("Model for the worker; the engine's default when left out"),
-        effort: z.string().optional().describe('Reasoning effort, where the engine supports it'),
+        model: z
+          .string()
+          .optional()
+          .describe(
+            'Model id from the models tool. Choose one: left out, the agent picks its own default, and Grip cannot tell which one ran.',
+          ),
+        effort: z.string().optional().describe("Reasoning effort: one of the chosen model's efforts from the models tool"),
         retry_of: z.string().optional().describe('Id of an earlier run this one redoes from its brief'),
         chat_title: z.string().optional().describe('Short title for this chat in Grip'),
       },
@@ -204,6 +219,25 @@ export function createGripMcpServer(manager: RunManager, quota: Quota, version =
         return details ? present(details) : null
       }),
   )
+
+  if (models)
+    server.registerTool(
+      'models',
+      {
+        title: 'List the models each worker can use',
+        description:
+          'Models for each engine (claude, codex, agy): the id to pass to delegate as model, its name, the efforts it takes and its default effort. ' +
+          'Codex and Antigravity lists come from their own CLIs; an engine whose list cannot be read has an error instead. ' +
+          'Antigravity ids carry their effort in the name (for example -high), so they take no separate effort.',
+        inputSchema: {
+          engine: z
+            .enum(ENGINES as [string, ...string[]])
+            .optional()
+            .describe('Only this engine'),
+        },
+      },
+      args => guarded(async () => (await models.list()).filter(list => !args.engine || list.engine === args.engine)),
+    )
 
   server.registerTool(
     'quota',

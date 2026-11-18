@@ -142,6 +142,7 @@ Orchestrators add Grip as an MCP server (`http://127.0.0.1:<port>/mcp`) **instea
 | `list` | `status?` (`running` / `done` / `failed`), `folder?` | Runs with title, engine, model, folder, branch, status, elapsed time, git facts, unviewed flag |
 | `result` | `runId` | Brief, final result text, diff stats plus the unified diff, git facts, overlap warnings, and any messages you sent the worker yourself. Marks the run viewed |
 | `wait_any` | `timeoutSec`, `runIds?` | The next run to finish or fail that hasn't been viewed yet, as `result`, or `null` on timeout |
+| `models` | `engine?` | Each engine's models from the same catalog as the app's pickers (`src/models.ts`: Codex `model/list`, `agy models`, a fixed Claude list): the id to pass as `model`, its name, efforts and default effort. `delegate` asks for one, because with none the agent picks its own default and Claw does not report which |
 | `quota` | — | Current windows per provider plus the `verdict()` line (added with the quota module, §8) |
 
 Notes:
@@ -433,7 +434,7 @@ Wake-on-LAN is not planned. A sleeping principal shows as offline.
 1. This write-up and the `grip-agent-orchestrator` repo.
 2. Claw supervisor: start, keep alive, auto-update within range, health gate, rollback.
 3. Run store and worktree manager.
-4. Orchestrator MCP: `delegate`, `message`, `stop`, `list`, `result`, `wait_any`, `quota`.
+4. Orchestrator MCP: `delegate`, `message`, `stop`, `list`, `result`, `wait_any`, `quota`, `models`.
 5. Quota module (§8).
 6. Web API and SSE with Tailscale identity. Hard limits, Stop all, keep-awake (Windows).
 7. Design pass (done: chats first).

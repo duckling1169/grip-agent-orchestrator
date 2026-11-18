@@ -67,7 +67,22 @@ async function setup({
     },
   }
   const quota = await Quota.open({ path: join(home, 'quota.json'), readers })
-  const http = await startMcpHttp({ manager, quota, token: TOKEN, port: 0, chats: withChats ? chats : undefined, ...limits })
+  const models = {
+    list: async () => [
+      {
+        engine: 'claude' as const,
+        models: [{ id: 'claude-opus-5-5', label: 'Opus 5.5', efforts: ['high'], defaultEffort: null, isDefault: false }],
+        error: null,
+      },
+      { engine: 'codex' as const, models: [], error: 'codex is not signed in' },
+      {
+        engine: 'agy' as const,
+        models: [{ id: 'gemini-4-argon-high', label: 'Gemini 4 Argon (High)', efforts: [], defaultEffort: null, isDefault: false }],
+        error: null,
+      },
+    ],
+  }
+  const http = await startMcpHttp({ manager, quota, models, token: TOKEN, port: 0, chats: withChats ? chats : undefined, ...limits })
   cleanups.push(http.close)
   const url = new URL(`http://127.0.0.1:${http.port}/mcp`)
 
@@ -109,7 +124,7 @@ describe('Grip MCP over HTTP', () => {
   it('lists the orchestrator tools', async () => {
     const { client } = await setup()
     const names = (await client.listTools()).tools.map(t => t.name).sort()
-    expect(names).toEqual(['delegate', 'list', 'message', 'quota', 'result', 'stop', 'wait_any'])
+    expect(names).toEqual(['delegate', 'list', 'message', 'models', 'quota', 'result', 'stop', 'wait_any'])
   })
 
   it('delegates, then hands the result back through wait_any', async () => {
@@ -127,6 +142,16 @@ describe('Grip MCP over HTTP', () => {
     const listed = json(await client.callTool({ name: 'list', arguments: { status: 'done' } }))
     expect(listed.map((r: { id: string }) => r.id)).toEqual([run.id])
     expect(json(await client.callTool({ name: 'wait_any', arguments: { timeout_sec: 0 } }))).toBeNull()
+  })
+
+  it("lists each engine's models, or one engine's", async () => {
+    const { client } = await setup()
+    const all = json(await client.callTool({ name: 'models', arguments: {} }))
+    expect(all.map((list: { engine: string }) => list.engine)).toEqual(['claude', 'codex', 'agy'])
+    expect(all[1].error).toBe('codex is not signed in')
+    expect(json(await client.callTool({ name: 'models', arguments: { engine: 'agy' } }))).toEqual([
+      expect.objectContaining({ engine: 'agy', models: [expect.objectContaining({ id: 'gemini-4-argon-high' })] }),
+    ])
   })
 
   it('reads quota, and notes a low provider when delegating to it', async () => {
