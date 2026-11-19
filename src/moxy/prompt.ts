@@ -16,7 +16,8 @@ export function renderInbox(items: readonly ReceivedItem[]): string {
 }
 
 function workerEvent(event: WorkerTurnEnded): string {
-  const header = `[moxy] Worker ${event.workerId} "${event.title}" ${event.status} turn ${event.turn}.`
+  const task = event.taskId ? ` (task ${event.taskId})` : ''
+  const header = `[moxy] Worker ${event.workerId} "${event.title}"${task} ${event.status} turn ${event.turn}.`
   const lines = [header]
   if (event.error) lines.push(`Error: ${event.error}`)
   if (event.output) {

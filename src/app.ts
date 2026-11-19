@@ -12,6 +12,7 @@ import { ConversationStore, workerTurnEnded } from './moxy/store.js'
 import { moxyPaths } from './paths.js'
 import type { MoxyPaths } from './paths.js'
 import { protectedFolders } from './repos/folders.js'
+import { Integrator } from './repos/integration.js'
 import { Worktrees } from './repos/worktrees.js'
 import { ClawClient } from './runtime/claw/client.js'
 import { assertSupportedClaw, installedClawCli } from './runtime/claw/install.js'
@@ -20,6 +21,8 @@ import { isEngineInstalled } from './runtime/engines.js'
 import { ClawLeader, LEADER_SESSION } from './runtime/leaders/claw-leader.js'
 import { leaderRunners } from './runtime/leaders/runners.js'
 import type { LeaderRunners } from './runtime/leaders/runners.js'
+import { Tasks } from './tasks/service.js'
+import { TaskStore } from './tasks/store.js'
 import { MOXY_VERSION } from './version.js'
 import { DEFAULT_WEB_PORT, startWebServer } from './web/server.js'
 import { Workers } from './workers/service.js'
@@ -45,6 +48,7 @@ export type Moxy = {
   paths: MoxyPaths
   database: Database
   workers: Workers
+  tasks: Tasks
   conversation: ConversationStore
   loop: LeaderLoop
   clawPort: number
@@ -81,10 +85,11 @@ export async function startMoxy(options: MoxyOptions = {}): Promise<Moxy> {
 
     const conversation = new ConversationStore(database)
     let loop: LeaderLoop | null = null
+    const worktrees = new Worktrees()
     const workers = new Workers({
       store: new WorkerStore(database),
       claw: client,
-      worktrees: new Worktrees(),
+      worktrees,
       protectedFolders: protectedFolders(paths.home),
       isInstalled: isEngineInstalled,
       log,
@@ -94,14 +99,21 @@ export async function startMoxy(options: MoxyOptions = {}): Promise<Moxy> {
       },
     })
     undo.push(() => workers.idle())
+    const tasks = new Tasks({ store: new TaskStore(database), workers, worktrees, integrator: new Integrator() })
 
     const mcpToken = await loadOrCreateToken(paths.mcpToken)
-    const mcp = await startMcpServer({ workers, token: mcpToken, port: options.mcpPort ?? DEFAULT_MCP_PORT, version: MOXY_VERSION })
+    const mcp = await startMcpServer({
+      tools: { workers, tasks, conversation },
+      token: mcpToken,
+      port: options.mcpPort ?? DEFAULT_MCP_PORT,
+      version: MOXY_VERSION,
+    })
     undo.push(() => mcp.close())
 
     const interruptedLeader = conversation.interruptRunningTurn('Moxy restarted during this turn')
     if (interruptedLeader) log(`marked leader turn ${interruptedLeader.id} interrupted; its messages will be delivered again`)
     await client.stopSession(LEADER_SESSION).catch(() => undefined)
+    for (const integration of tasks.reconcile()) log(`integration of ${integration.branch} into ${integration.repoRoot} was interrupted`)
     const { interruptedTurns, orphanedSessions } = await workers.reconcile()
     if (interruptedTurns.length) log(`marked ${interruptedTurns.length} interrupted worker turn(s)`)
     if (orphanedSessions.length) log(`stopped ${orphanedSessions.length} Claw session(s) with no running worker turn`)
@@ -144,6 +156,7 @@ export async function startMoxy(options: MoxyOptions = {}): Promise<Moxy> {
       paths,
       database,
       workers,
+      tasks,
       conversation,
       loop: activeLoop,
       clawPort,

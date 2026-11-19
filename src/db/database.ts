@@ -26,6 +26,7 @@ export class Database {
       connection.close()
       throw (error as { errcode?: number }).errcode === SQLITE_BUSY ? new DatabaseInUseError(path) : error
     }
+    connection.exec('PRAGMA foreign_keys = ON')
     const database = new Database(connection)
     database.applySchema(schema)
     return database

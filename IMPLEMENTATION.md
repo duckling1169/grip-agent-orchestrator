@@ -43,7 +43,7 @@ Task notes hold one task's progress. Moxy also keeps memory that applies to ever
 
 ### Tasks
 
-A task is a row: repo, title, plan and decisions, testing notes, and status `working`, `waiting` (on the user, with the delivered revision and how to try it) or `done`. Feedback on a `waiting` or `done` task sets it back to `working`. Workers belong to a task, or stand alone when the user starts one directly.
+A task is a row: repo, title, plan and decisions, testing notes, and status `working`, `waiting` (on the user, with the delivered revision and how to try it) or `done`. Feedback on a `waiting` or `done` task sets it back to `working` and is appended to its notes. Delegating new work on a `waiting` task also sets it back to `working`. Workers belong to a task, or stand alone when the user starts one directly; a task's workers must work in the task's repo.
 
 The leader keeps task detail out of its own context. It reads and writes task notes through tools, so a fresh native session can be rebuilt from the task rows and recent messages.
 
@@ -57,7 +57,7 @@ Worktrees follow [DESIGN.md](DESIGN.md): a sibling `<repo>-worktrees` checkout a
 
 ### Integration and delivery
 
-`integrate(task, worker)` takes a per-repo lock, checks that the target checkout is clean and on the expected base, merges the worker branch, records the resulting revision and releases the lock. It refuses a dirty or moved target, and the leader resolves it with a worker or a question. `ready(task, revision, how_to_try)` sets the task to `waiting` and sends a push notification. A later integration into the same repo marks earlier `waiting` revisions as superseded.
+`integrate(task, worker)` records an intent row, then waits its turn in a per-repo queue. It commits any changes left in the worker's worktree, checks that the repo's main checkout is on the worker's base branch with no uncommitted tracked changes, and merges the worker branch with `--no-ff`, or does nothing if the branch is already merged. It records the resulting revision. It refuses a dirty checkout, one on another branch or a detached HEAD, and aborts a conflicting merge so the checkout is left as it was; the leader resolves a refusal with a worker or a question. An integration still running at a restart is marked interrupted. `ready(task, revision, how_to_try)` sets the task to `waiting` with a resolved commit (repo tasks only) and, from the web step, sends a push notification. A later integration into the same repo marks earlier `waiting` revisions as superseded.
 
 ### Leader handoff
 
@@ -72,7 +72,7 @@ Engine, model or effort changes apply at the next turn boundary. A change, or a 
 
 ## Leader tools
 
-`task_create`, `task_update` (notes and plan), `task_get`, `tasks`, `delegate`, `message`, `stop`, `workers`, `result`, `models`, `quota`, `integrate`, `ready`, `accept`, `reopen`, `follow_up` (set or cancel a timer), `memory_read`, `memory_update`. `accept` is refused unless the current turn started from a user message. Completions arrive through the inbox, so there is no tool for waiting on workers. The leader loop step ships `delegate`, `message`, `stop`, `workers` and `result`; the others arrive with their build steps.
+`task_create`, `task_update` (notes and plan), `task_get`, `tasks`, `delegate`, `message`, `stop`, `workers`, `result`, `models`, `quota`, `integrate`, `ready`, `accept`, `reopen`, `follow_up` (set or cancel a timer), `memory_read`, `memory_update`. `accept` is refused unless the current turn started from a user message. Completions arrive through the inbox, so there is no tool for waiting on workers. The tasks step ships the task, worker, integration and delivery tools; `models`, `quota`, `follow_up` and the memory tools arrive with their build steps.
 
 ## Layout
 
@@ -114,8 +114,8 @@ Each step ends with its tests green and `format:check`, `typecheck`, `test` and 
 1. **Skeleton.** In a new worktree, remove the existing source and start Moxy-only: package name, `moxy` CLI, `~/.moxy` home, Node 24, CI, SQLite spike, schema versioning, single-writer lock, daemon lifecycle, Claw process, fakes and temporary-home harness. Ports and home are configurable for tests.
 2. **Workers.** Delegate, message, stop and result through Claw with worktrees and per-turn records. Restart reconciliation tests at intent, started and finished points.
 3. **Leader loop.** Inbox with batching and source-ID deduplication, turn runner for Claude and ACP leaders, leader MCP tools, user-first ordering, and interrupted-turn redelivery.
-4. **Tasks and delivery.** Task rows, integrate with the per-repo lock, ready, accept and reopen, and push. Fake-backed journey: two tasks in one repo, a desktop edit, feedback, restart midway.
-5. **Web.** API, SSE snapshot and changes, conversation-first UI, task sidebar, worker inspector, quota. Playwright on desktop and mobile.
+4. **Tasks and delivery.** Task rows, integrate with the per-repo lock, ready, accept and reopen. Fake-backed journey: two tasks in one repo, a desktop edit, feedback, restart midway.
+5. **Web.** API, SSE snapshot and changes, conversation-first UI, task sidebar, worker inspector, quota, and push for tasks that are ready, since push needs device subscriptions and allowed Tailscale logins. Playwright on desktop and mobile.
 6. **Handoff and recovery.** Next-turn engine changes, context rotation, quota-failure switch-and-retry, timers and follow-ups, and user memory.
 7. **Install.** Install and uninstall, logon task, Tailscale Serve on the standard ports, explicit Claw upgrade command, and README.
 

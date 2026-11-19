@@ -14,6 +14,7 @@ import type { ClawSessions } from '../runtime/claw/client.js'
 import type { Turn, TurnEnding, TurnRef, Worker, WorkerStore } from './store.js'
 
 export type DelegateInput = {
+  taskId?: string
   folder: string
   engine: Engine
   prompt: string
@@ -75,6 +76,7 @@ export class Workers {
     const worker = this.store.create(
       {
         id,
+        taskId: input.taskId ?? null,
         title,
         engine: input.engine,
         model: input.model ?? null,
@@ -124,6 +126,14 @@ export class Workers {
 
   list(): Worker[] {
     return this.store.list()
+  }
+
+  listForTask(taskId: string): Worker[] {
+    return this.store.listForTask(taskId)
+  }
+
+  get(id: string): Worker {
+    return this.store.mustGet(id)
   }
 
   async reconcile(): Promise<Reconciliation> {

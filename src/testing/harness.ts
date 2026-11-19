@@ -19,9 +19,10 @@ export async function temporaryHome(): Promise<string> {
 export async function temporaryRepo(): Promise<string> {
   const repo = join(await temporaryHome(), 'repo')
   await mkdir(repo)
-  const git = (...args: string[]) =>
-    execOk(exec, 'git', ['-C', repo, '-c', 'user.name=Moxy Test', '-c', 'user.email=test@moxy.invalid', ...args])
+  const git = (...args: string[]) => execOk(exec, 'git', ['-C', repo, ...args])
   await git('init', '-q', '-b', 'main')
+  await git('config', 'user.name', 'Moxy Test')
+  await git('config', 'user.email', 'test@moxy.invalid')
   await writeFile(join(repo, 'README.md'), '# test\n')
   await git('add', '.')
   await git('commit', '-q', '-m', 'start')

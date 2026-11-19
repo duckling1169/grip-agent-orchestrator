@@ -94,7 +94,28 @@ describe('startMoxy', () => {
         requestInit: { headers: { Authorization: `Bearer ${request!.mcp.token}` } },
       }),
     )
-    expect((await mcp.listTools()).tools.map(tool => tool.name).sort()).toEqual(['delegate', 'message', 'result', 'stop', 'workers'])
+    expect((await mcp.listTools()).tools.map(tool => tool.name).sort()).toEqual([
+      'accept',
+      'delegate',
+      'integrate',
+      'message',
+      'ready',
+      'reopen',
+      'result',
+      'stop',
+      'task_create',
+      'task_get',
+      'task_update',
+      'tasks',
+      'workers',
+    ])
+    const created = await mcp.callTool({ name: 'task_create', arguments: { title: 'Notes' } })
+    const task = JSON.parse((created.content as { text: string }[])[0]?.text ?? '{}') as { id: string }
+    await mcp.callTool({ name: 'ready', arguments: { task_id: task.id, how_to_try: 'Read them' } })
+    expect(await mcp.callTool({ name: 'accept', arguments: { task_id: task.id } })).toMatchObject({
+      isError: true,
+      content: [{ text: 'only the user can accept a task, and this turn did not start from a user message' }],
+    })
     expect(await mcp.callTool({ name: 'workers', arguments: {} })).toMatchObject({ content: [{ type: 'text', text: '[]' }] })
     await mcp.close()
   })

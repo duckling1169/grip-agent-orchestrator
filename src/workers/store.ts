@@ -10,6 +10,7 @@ export type WorkerRepo = { root: string; branch: string; base: string; baseCommi
 
 export type Worker = {
   id: string
+  taskId: string | null
   title: string
   engine: Engine
   model: string | null
@@ -35,7 +36,7 @@ export type Turn = {
   endedAt: string | null
 }
 
-export type NewWorker = Pick<Worker, 'id' | 'title' | 'engine' | 'model' | 'effort' | 'folder' | 'cwd' | 'repo'>
+export type NewWorker = Pick<Worker, 'id' | 'taskId' | 'title' | 'engine' | 'model' | 'effort' | 'folder' | 'cwd' | 'repo'>
 
 export type TurnEnding = { status: EndedTurnStatus; output: string | null; error: string | null; nativeSessionId?: string | null }
 
@@ -55,11 +56,12 @@ export class WorkerStore {
     this.database.transaction(() => {
       this.database
         .prepare(
-          `INSERT INTO workers (id, title, engine, model, effort, folder, cwd, repo_root, branch, base, base_commit, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO workers (id, task_id, title, engine, model, effort, folder, cwd, repo_root, branch, base, base_commit, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           worker.id,
+          worker.taskId,
           worker.title,
           worker.engine,
           worker.model,
@@ -129,6 +131,10 @@ export class WorkerStore {
     return (this.database.prepare(`${WORKER_SELECT} ORDER BY w.created_at DESC`).all() as Row[]).map(toWorker)
   }
 
+  listForTask(taskId: string): Worker[] {
+    return (this.database.prepare(`${WORKER_SELECT} WHERE w.task_id = ? ORDER BY w.created_at`).all(taskId) as Row[]).map(toWorker)
+  }
+
   turns(workerId: string): Turn[] {
     return (this.database.prepare('SELECT * FROM worker_turns WHERE worker_id = ? ORDER BY number').all(workerId) as Row[]).map(toTurn)
   }
@@ -167,6 +173,7 @@ export class WorkerStore {
 function toWorker(row: Row): Worker {
   return {
     id: String(row.id),
+    taskId: textOrNull(row, 'task_id'),
     title: String(row.title),
     engine: String(row.engine) as Engine,
     model: textOrNull(row, 'model'),

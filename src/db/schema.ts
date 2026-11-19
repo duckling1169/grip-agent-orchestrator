@@ -3,8 +3,23 @@ import type { Schema } from './database.js'
 export const MOXY_SCHEMA: Schema = {
   version: 1,
   statements: [
+    `CREATE TABLE tasks (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      repo_root TEXT,
+      plan TEXT NOT NULL DEFAULT '',
+      notes TEXT NOT NULL DEFAULT '',
+      testing TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL CHECK (status IN ('working', 'waiting', 'done')),
+      revision TEXT,
+      how_to_try TEXT,
+      superseded_by TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    ) STRICT`,
     `CREATE TABLE workers (
       id TEXT PRIMARY KEY,
+      task_id TEXT REFERENCES tasks (id),
       title TEXT NOT NULL,
       engine TEXT NOT NULL,
       model TEXT,
@@ -30,6 +45,18 @@ export const MOXY_SCHEMA: Schema = {
       started_at TEXT NOT NULL,
       ended_at TEXT,
       PRIMARY KEY (worker_id, number)
+    ) STRICT`,
+    `CREATE TABLE integrations (
+      id INTEGER PRIMARY KEY,
+      task_id TEXT NOT NULL REFERENCES tasks (id),
+      worker_id TEXT NOT NULL REFERENCES workers (id),
+      repo_root TEXT NOT NULL,
+      branch TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('running', 'merged', 'refused', 'interrupted')),
+      revision TEXT,
+      error TEXT,
+      started_at TEXT NOT NULL,
+      ended_at TEXT
     ) STRICT`,
     `CREATE INDEX worker_turns_running ON worker_turns (status) WHERE status = 'running'`,
     `CREATE TABLE leader (

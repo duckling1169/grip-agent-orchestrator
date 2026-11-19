@@ -22,6 +22,7 @@ export type LeaderTurn = {
 
 export type WorkerTurnEnded = {
   workerId: string
+  taskId: string | null
   title: string
   turn: number
   status: string
@@ -49,7 +50,15 @@ export function workerTurnEnded(worker: Worker, turn: Turn): InboxItem {
   return {
     kind: 'worker_turn_ended',
     source: `worker:${worker.id}:${turn.number}`,
-    body: { workerId: worker.id, title: worker.title, turn: turn.number, status: turn.status, output: turn.output, error: turn.error },
+    body: {
+      workerId: worker.id,
+      taskId: worker.taskId,
+      title: worker.title,
+      turn: turn.number,
+      status: turn.status,
+      output: turn.output,
+      error: turn.error,
+    },
   }
 }
 
@@ -118,6 +127,16 @@ export class ConversationStore {
         .run(turnId)
       return this.mustGetTurn(turnId)
     })
+  }
+
+  runningTurnStartedByUser(): boolean {
+    const row = this.database
+      .prepare(
+        `SELECT 1 FROM inbox JOIN leader_turns ON leader_turns.id = inbox.leader_turn_id
+         WHERE leader_turns.status = 'running' AND inbox.kind = 'user_message' LIMIT 1`,
+      )
+      .get()
+    return row !== undefined
   }
 
   conversation(): ConversationEntry[] {

@@ -1,8 +1,9 @@
 import { realpath, stat } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 
-import { exec as defaultExec, execOk } from '../exec.js'
+import { exec as defaultExec } from '../exec.js'
 import type { Exec } from '../exec.js'
+import { gitOk } from './git.js'
 import { basename, parseStatusFiles, slugify } from './git-parse.js'
 
 export type Repo = { root: string; base: string }
@@ -55,6 +56,12 @@ export class Worktrees {
       base: repo.base,
       baseCommit: await this.git(repo.root, ['rev-parse', repo.base]),
     }
+  }
+
+  async commit(repoRoot: string, revision: string): Promise<string> {
+    return this.git(repoRoot, ['rev-parse', '--verify', '--end-of-options', `${revision}^{commit}`]).catch(() => {
+      throw new Error(`${revision} is not a commit in ${repoRoot}`)
+    })
   }
 
   async add(planned: PlannedWorktree): Promise<void> {
@@ -110,6 +117,6 @@ export class Worktrees {
   }
 
   private git(cwd: string, args: string[]): Promise<string> {
-    return execOk(this.run, 'git', ['-C', cwd, ...args], 60_000).then(out => out.replace(/\r?\n$/, ''))
+    return gitOk(this.run, cwd, args)
   }
 }

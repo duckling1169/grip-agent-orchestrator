@@ -5,12 +5,12 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 
 import { listenOnLoopback, readJsonBody, refuseUnlessLocal, sendJson } from '../http.js'
 import type { LoopbackServer } from '../http.js'
-import type { Workers } from '../workers/service.js'
 import { createLeaderMcpServer } from './tools.js'
+import type { LeaderToolsDeps } from './tools.js'
 
 export const DEFAULT_MCP_PORT = 18797
 
-export type McpServerOptions = { workers: Workers; token: string; port: number; version: string }
+export type McpServerOptions = { tools: LeaderToolsDeps; token: string; port: number; version: string }
 
 export function startMcpServer(options: McpServerOptions): Promise<LoopbackServer> {
   return listenOnLoopback(options.port, async (req, res) => {
@@ -21,7 +21,7 @@ export function startMcpServer(options: McpServerOptions): Promise<LoopbackServe
       return sendJson(res, 405, { jsonrpc: '2.0', error: { code: -32000, message: 'Method not allowed' }, id: null })
     }
     const body = await readJsonBody(req)
-    const server = createLeaderMcpServer(options.workers, options.version)
+    const server = createLeaderMcpServer(options.tools, options.version)
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true })
     res.on('close', () => {
       void transport.close()

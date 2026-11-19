@@ -140,7 +140,7 @@ describe('Workers.reconcile after a restart', () => {
   it('interrupts a turn recorded before its worktree or session existed', async () => {
     const { store, restart, ended } = await setup()
     store().create(
-      { id: 'intent01', title: 'Planned', engine: 'claude', model: null, effort: null, folder: '/x', cwd: '/x', repo: null },
+      { id: 'intent01', taskId: null, title: 'Planned', engine: 'claude', model: null, effort: null, folder: '/x', cwd: '/x', repo: null },
       'Do it',
     )
 

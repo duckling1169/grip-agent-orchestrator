@@ -38,6 +38,7 @@ class ScriptedLeader implements LeaderRunner {
 
 const workerEvent = (overrides: Partial<WorkerTurnEnded> = {}): WorkerTurnEnded => ({
   workerId: 'w1',
+  taskId: 't1',
   title: 'Fix the bug',
   turn: 1,
   status: 'finished',
@@ -77,6 +78,17 @@ async function setup() {
 }
 
 describe('ConversationStore', () => {
+  it('knows whether the running turn started from a user message', async () => {
+    const { conversation } = await setup()
+    conversation.receive({ kind: 'worker_turn_ended', source: 'worker:w1:1', body: workerEvent() })
+    conversation.beginTurn()
+    expect(conversation.runningTurnStartedByUser()).toBe(false)
+    conversation.endTurn(1, { status: 'finished', output: null, error: null, nativeSessionId: null })
+    conversation.receive(userMessage('Ship it', 'a'))
+    conversation.beginTurn()
+    expect(conversation.runningTurnStartedByUser()).toBe(true)
+  })
+
   it('drops a second item from the same source', async () => {
     const { conversation } = await setup()
     expect(conversation.receive(userMessage('hi', 'a'))).toBe(true)
@@ -119,7 +131,7 @@ describe('renderInbox', () => {
       },
       { ...base, id: 1, kind: 'user_message', source: 'user:a', body: { text: 'Status?' }, interruptedDeliveries: 1 },
     ])
-    expect(text.startsWith('Status?\n\n[moxy] Worker w1 "Fix the bug" finished turn 1.')).toBe(true)
+    expect(text.startsWith('Status?\n\n[moxy] Worker w1 "Fix the bug" (task t1) finished turn 1.')).toBe(true)
     expect(text).toContain(`${'x'.repeat(1500)}…\nRead it in full with result w1.`)
     expect(text).toContain('Your last turn was interrupted')
   })
