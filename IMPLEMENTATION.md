@@ -29,7 +29,17 @@
 
 Everything the leader reacts to goes into a durable **inbox**: user messages, worker finished/failed, quota errors and integration results. The daemon runs one leader turn at a time and always takes user messages first. An item is marked done when its turn completes. After a crash, an item whose turn was interrupted is delivered again, with a note that the earlier turn was cut off.
 
+Each turn takes every pending item, so several quick user messages get one reply. Items carry a source ID, such as a worker turn, and a repeated ID is ignored, so the same completion cannot be recorded twice. Items that arrive during a turn wait for the next one.
+
 Long work never runs inside a leader turn. The leader delegates, then the turn ends. A worker's completion arrives later as a new inbox item. This keeps the conversation responsive without per-task leader sessions.
+
+### Timers
+
+The leader can set a follow-up for a time ("retry when Claude's quota resets at 15:00", "check this worker in an hour"). Timers are rows with a due time. A scheduler turns each due timer into an inbox item and marks it done; a timer never starts a turn by itself. Quota recovery uses the same timers instead of polling.
+
+### Memory
+
+Task notes hold one task's progress. Moxy also keeps memory that applies to every task: the user's standing instructions, loaded on every leader turn, and notes about the user's preferences and corrections, which the leader reads and updates through tools. Store only what cannot be looked up again; keep pointers to repos, files and revisions rather than copies. Keep the per-turn overhead (instructions, tool definitions, memory) small and stable so providers can cache it.
 
 ### Tasks
 
@@ -60,7 +70,7 @@ Engine, model or effort changes apply at the next turn boundary. A change, or a 
 
 ## Leader tools
 
-`task_create`, `task_update` (notes and plan), `task_get`, `tasks`, `delegate`, `message`, `stop`, `result`, `models`, `quota`, `integrate`, `ready`, `accept`, `reopen`. `accept` is refused unless the current turn started from a user message. Completions arrive through the inbox, so there is no tool for waiting on workers.
+`task_create`, `task_update` (notes and plan), `task_get`, `tasks`, `delegate`, `message`, `stop`, `result`, `models`, `quota`, `integrate`, `ready`, `accept`, `reopen`, `follow_up` (set or cancel a timer), `memory_read`, `memory_update`. `accept` is refused unless the current turn started from a user message. Completions arrive through the inbox, so there is no tool for waiting on workers.
 
 ## Layout
 
@@ -73,7 +83,7 @@ src/
   exec.ts          commands without a shell
   contracts/       browser-safe engine metadata, API schemas, event types
   db/              connection, single-writer lock, transactions, schema version
-  moxy/            inbox, turn loop, leader sessions, handoff, leader tools
+  moxy/            inbox, timers, memory, turn loop, leader sessions, handoff, leader tools
   tasks/           task rows and transitions
   workers/         delegate, message, stop, reconcile, output presentation
   repos/           repo resolution, worktrees, per-repo integration
@@ -101,13 +111,18 @@ Each step ends with its tests green and `format:check`, `typecheck`, `test` and 
 
 1. **Skeleton.** In a new worktree, remove the existing source and start Moxy-only: package name, `moxy` CLI, `~/.moxy` home, Node 24, CI, SQLite spike, schema versioning, single-writer lock, daemon lifecycle, Claw process, fakes and temporary-home harness. Ports and home are configurable for tests.
 2. **Workers.** Delegate, message, stop and result through Claw with worktrees and per-turn records. Restart reconciliation tests at intent, started and finished points.
-3. **Leader loop.** Inbox, turn runner for Claude and ACP leaders, leader MCP tools, user-first ordering, and interrupted-turn redelivery.
+3. **Leader loop.** Inbox with batching and source-ID deduplication, turn runner for Claude and ACP leaders, leader MCP tools, user-first ordering, and interrupted-turn redelivery.
 4. **Tasks and delivery.** Task rows, integrate with the per-repo lock, ready, accept and reopen, and push. Fake-backed journey: two tasks in one repo, a desktop edit, feedback, restart midway.
 5. **Web.** API, SSE snapshot and changes, conversation-first UI, task sidebar, worker inspector, quota. Playwright on desktop and mobile.
-6. **Handoff and recovery.** Next-turn engine changes, context rotation, quota-failure switch-and-retry.
+6. **Handoff and recovery.** Next-turn engine changes, context rotation, quota-failure switch-and-retry, timers and follow-ups, and user memory.
 7. **Install.** Install and uninstall, logon task, Tailscale Serve on the standard ports, explicit Claw upgrade command, and README.
 
 ## Open questions
 
 - Does one leader stay responsive enough with real workloads? If not, give each task its own leader session, fed by the same inbox.
 - Do external hosts need their own tasks, or do they only attach workers to Moxy's tasks?
+
+## Credits
+
+- The inbox, timers and memory design follows William Hu's [Building always-on agents](https://claude.com/resources/articles/building-always-on-agents) (Anthropic, 2026).
+- Review as a parent turn or reviewer worker follows the delegation patterns of [Roo Code](https://docs.roocode.com/features/boomerang-tasks), Claude Code subagents and [OpenHands](https://www.openhands.dev/blog/20260506-the-verification-stack).
