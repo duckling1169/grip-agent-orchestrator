@@ -230,6 +230,17 @@ async function send(page: Page, text: string) {
   await expect(page.locator('.msg-user', { hasText: text })).toBeVisible()
 }
 
+test('a tap anywhere in the message box starts typing, and the send button sends', async ({ page }) => {
+  await openIdle(page)
+  const text = `Tapped message ${Date.now()}`
+  await page.locator('.composer .box').click({ position: { x: 4, y: 4 } })
+  await expect(page.getByRole('textbox', { name: 'Message Moxy' })).toBeFocused()
+  await page.keyboard.type(text)
+  await page.getByRole('button', { name: 'Send' }).click()
+  await expect(page.locator('.msg-user', { hasText: text })).toBeVisible()
+  await expect(page.locator('.msg-moxy').filter({ hasText: 'This is the local preview' }).last()).toBeVisible({ timeout: 15_000 })
+})
+
 test('a message gets a reply, and a later one queues behind it', async ({ page }) => {
   await openIdle(page)
   const first = `Plan the release ${Date.now()}`

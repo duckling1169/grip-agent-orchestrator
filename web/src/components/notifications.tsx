@@ -1,5 +1,3 @@
-// Device notification settings adapted from Grip's web/src/components/notifications.tsx.
-
 import { useEffect, useState } from 'react'
 
 import { api } from '@/lib/api'

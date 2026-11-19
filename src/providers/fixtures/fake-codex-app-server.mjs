@@ -1,4 +1,3 @@
-// Adapted from Grip's src/quota/fixtures/fake-codex-app-server.mjs.
 import { readFileSync } from 'node:fs'
 import { createInterface } from 'node:readline'
 

@@ -6,7 +6,7 @@ import { errorText } from '../../errors.js'
 import { writeFileAtomic } from '../../files.js'
 import { replyText } from '../claw/client.js'
 import type { ClawSessions } from '../claw/client.js'
-import { LEADER_DISALLOWED_CLAUDE_TOOLS, LEADER_PROMPT } from './leader.js'
+import { LEADER_DISALLOWED_CLAUDE_TOOLS } from './leader.js'
 import type { LeaderReply, LeaderRunner, LeaderTurnRequest, McpEndpoint } from './leader.js'
 
 export const LEADER_SESSION_PREFIX = 'moxy-leader-'
@@ -37,7 +37,7 @@ export class ClawLeader implements LeaderRunner {
         mcpConfig: this.mcpConfigPath,
         allowedTools: [MOXY_MCP_TOOLS],
         disallowedTools: LEADER_DISALLOWED_CLAUDE_TOOLS,
-        appendSystemPrompt: LEADER_PROMPT,
+        appendSystemPrompt: request.systemPrompt,
       })
       if (running.stopped) return { output: '', error: 'stopped', nativeSessionId: null }
       const sent = await this.claw.sendMessage(running.name, request.message, {

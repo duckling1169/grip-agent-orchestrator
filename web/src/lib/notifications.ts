@@ -1,5 +1,3 @@
-// Browser subscription handling adapted from Grip's web/src/components/notifications.tsx.
-
 import type { PushReport, PushStatus, PushSubscriptionJson } from '../../../src/contracts/push.js'
 
 export type NotificationApi = {

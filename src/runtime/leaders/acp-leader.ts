@@ -9,7 +9,6 @@ import { MOXY_MCP_NAME } from '../../contracts/mcp.js'
 import { errorText } from '../../errors.js'
 import { startAcpProcess } from '../acp-process.js'
 import type { AcpCommand, AcpProcessOptions } from '../acp-process.js'
-import { LEADER_PROMPT } from './leader.js'
 import type { LeaderReply, LeaderRunner, LeaderTurnRequest, McpEndpoint } from './leader.js'
 
 const require = createRequire(import.meta.url)
@@ -97,7 +96,7 @@ export class AcpLeader implements LeaderRunner {
         request.nativeSessionId && !opened.loaded && request.freshContext
           ? `${request.freshContext}\n\n${request.message}`
           : request.message
-      const text = takesSystemPrompt || opened.loaded ? message : `${LEADER_PROMPT}\n\n${message}`
+      const text = takesSystemPrompt || opened.loaded ? message : `${request.systemPrompt}\n\n${message}`
       const response = await agent.request('session/prompt', { sessionId: opened.sessionId, prompt: [{ type: 'text', text }] })
       return response.stopReason
     })
@@ -158,7 +157,7 @@ async function openSession(
   can: { load: boolean; systemPrompt: boolean },
 ): Promise<OpenedSession> {
   const systemPrompt: SystemPrompt | undefined = can.systemPrompt
-    ? { mode: 'append', content: [{ type: 'text', text: LEADER_PROMPT }] }
+    ? { mode: 'append', content: [{ type: 'text', text: request.systemPrompt }] }
     : undefined
   if (request.nativeSessionId && can.load) {
     const loaded = await agent

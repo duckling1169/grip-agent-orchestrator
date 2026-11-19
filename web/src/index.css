@@ -497,6 +497,7 @@
     border-radius: 10px;
     background: var(--raised);
     padding: 10px 44px 10px 12px;
+    cursor: text;
   }
   .box textarea {
     display: block;

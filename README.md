@@ -22,6 +22,10 @@ Install does these steps, and it is safe to run again:
 
 Then open `https://<this machine's tailnet name>/` on any of your tailnet devices. While a turn or worker runs, Moxy keeps the machine from sleeping; the display can still turn off.
 
+To tell Moxy where your repositories are, add their parent folders to `repoFolders` in `~/.moxy/config.json`, for example `"repoFolders": ["C:\\Users\\you\\Code"]`, then run `moxy restart`. Moxy lists the git repositories it finds up to three levels down in its Orchestrator's instructions. Without `repoFolders`, Moxy asks you for a repository's path.
+
+The Orchestrator works in `~/.moxy/workspace`, not your home folder, so the Claude Code memory you keep for your home folder does not reach it. Moxy's own memory holds your standing instructions and preferences.
+
 | Command             | What it does                                                                       |
 | ------------------- | ---------------------------------------------------------------------------------- |
 | `moxy status`       | Shows whether Moxy runs, its logon task, Tailscale, Claw and what is working       |

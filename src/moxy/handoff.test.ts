@@ -52,6 +52,7 @@ it('rotates at reported context capacity and seeds fresh sessions while keeping 
   const loop = new LeaderLoop({
     conversation,
     cwd: '/work',
+    systemPrompt: async () => 'Leader prompt',
     mcp: { url: '', token: '' },
     timeoutMs: 1000,
     log: silentLog,
@@ -91,6 +92,7 @@ it('does not spend a model turn when fresh cached provider quota is exhausted', 
   const loop = new LeaderLoop({
     conversation,
     cwd: '/work',
+    systemPrompt: async () => 'Leader prompt',
     mcp: { url: '', token: '' },
     timeoutMs: 1000,
     log: silentLog,

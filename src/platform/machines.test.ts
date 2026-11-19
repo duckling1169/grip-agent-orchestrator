@@ -141,7 +141,7 @@ describe('MachineDiscovery', () => {
     const list = await new MachineDiscovery({ exec: run(status()) }).get()
     expect(fetch).toHaveBeenCalledTimes(2)
     expect(list.machines.filter(machine => machine.moxy === 'yes')).toHaveLength(3)
-    vi.stubGlobal('fetch', async () => Response.json({ app: 'grip' }))
+    vi.stubGlobal('fetch', async () => Response.json({ app: 'other' }))
     const other = await new MachineDiscovery({ exec: run(status()) }).get()
     expect(other.machines.find(machine => machine.name === 'mac')?.moxy).toBe('no')
   })

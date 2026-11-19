@@ -1,5 +1,3 @@
-// Adapted from Grip's src/quota/quota.ts, with engine-shaped snapshots and no proactive quota warnings.
-
 import { EventEmitter } from 'node:events'
 import { readFile } from 'node:fs/promises'
 

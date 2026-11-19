@@ -1,5 +1,4 @@
 // Uses the Agent Client Protocol SDK: https://github.com/agentclientprotocol/typescript-sdk
-// Catalog caching adapted from Grip's src/models.ts.
 
 import { client, PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
 import type { SessionConfigOption } from '@agentclientprotocol/sdk'
@@ -13,13 +12,13 @@ import { ACP_COMMANDS, isAcpEngine, startAcpProcess } from '../runtime/acp-proce
 import type { AcpCommand, AcpEngine, AcpProcessOptions } from '../runtime/acp-process.js'
 import { isEngineInstalled } from '../runtime/engines.js'
 
-const CLAUDE_MODELS: ModelOption[] = ['opus', 'sonnet', 'haiku'].map(id => ({
-  id,
-  label: id[0]!.toUpperCase() + id.slice(1),
-  efforts: [],
-  defaultEffort: null,
-  isDefault: false,
-}))
+const CLAUDE_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']
+
+const CLAUDE_MODELS: ModelOption[] = [
+  { id: 'opus', efforts: CLAUDE_EFFORTS },
+  { id: 'sonnet', efforts: CLAUDE_EFFORTS },
+  { id: 'haiku', efforts: [] },
+].map(({ id, efforts }) => ({ id, label: id[0]!.toUpperCase() + id.slice(1), efforts, defaultEffort: null, isDefault: false }))
 
 export type ModelCatalogOptions = {
   installed?: (engine: Engine) => boolean

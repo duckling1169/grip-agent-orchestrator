@@ -10,10 +10,10 @@ import type { FakeAcpOptions } from '../../testing/fake-acp-agent.js'
 import { temporaryHome } from '../../testing/harness.js'
 import { AcpLeader } from './acp-leader.js'
 import { ClawLeader, LEADER_SESSION_PREFIX } from './claw-leader.js'
-import { LEADER_PROMPT } from './leader.js'
 import type { LeaderTurnRequest } from './leader.js'
 import { leaderRunners } from './runners.js'
 
+const LEADER_PROMPT = 'You are Moxy.'
 const mcp = { url: 'http://127.0.0.1:18797/mcp', token: 'secret' }
 
 function request(overrides: Partial<LeaderTurnRequest> = {}): LeaderTurnRequest {
@@ -23,6 +23,7 @@ function request(overrides: Partial<LeaderTurnRequest> = {}): LeaderTurnRequest 
     effort: null,
     nativeSessionId: null,
     cwd: '/work',
+    systemPrompt: LEADER_PROMPT,
     message: 'Hello',
     mcp,
     timeoutMs: 60_000,

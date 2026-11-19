@@ -17,6 +17,7 @@ export const moxyPaths = (home = moxyHome()) => ({
   mcpToken: join(home, 'mcp-token'),
   webToken: join(home, 'web-token'),
   leaderMcpConfig: join(home, 'leader-mcp.json'),
+  leaderWorkspace: join(home, 'workspace'),
   moxyLog: join(home, 'logs', 'moxy.log'),
   clawLog: join(home, 'logs', 'claw.log'),
 })

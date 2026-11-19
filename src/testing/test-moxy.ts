@@ -31,7 +31,6 @@ export async function startTestMoxy(options: MoxyOptions = {}): Promise<Moxy> {
     webPort: await freePort(),
     clawCli: FAKE_CLAW_CLI,
     leaders: () => leader,
-    workspace: '/work',
     tailscaleOwner: async () => ALLOWED_LOGIN,
     log: silentLog,
     quotaReaders: {

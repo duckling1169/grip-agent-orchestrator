@@ -1,4 +1,4 @@
-// Adapted from Grip's src/push/notifier.ts and src/push/web-push.ts; Web Push uses https://github.com/web-push-libs/web-push.
+// Web Push uses https://github.com/web-push-libs/web-push.
 
 import { readFile } from 'node:fs/promises'
 
@@ -222,7 +222,7 @@ export function webPushSender(vapid: VapidKeys, send: typeof sendNotification = 
   return async (subscription, payload, options) => {
     try {
       await send(subscription, payload, {
-        vapidDetails: { subject: 'https://github.com/duckling1169/grip-agent-orchestrator', ...vapid },
+        vapidDetails: { subject: 'https://github.com/duckling1169/moxy', ...vapid },
         TTL: options.ttlSeconds,
         timeout: options.timeoutMs,
         urgency: 'normal',

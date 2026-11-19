@@ -1,5 +1,3 @@
-// Adapted from Grip's src/web/machines.ts; discovers peers through Tailscale's official status command.
-
 import { hostname } from 'node:os'
 
 import type { Machine, MachineList } from '../contracts/machines.js'

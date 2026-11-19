@@ -1,4 +1,5 @@
-import { homedir, hostname } from 'node:os'
+import { mkdir } from 'node:fs/promises'
+import { hostname } from 'node:os'
 
 import { loadConfig } from './config.js'
 import { Database } from './db/database.js'
@@ -13,6 +14,8 @@ import { ConversationStore, workerTurnEnded } from './moxy/store.js'
 import { FollowUps } from './moxy/follow-ups.js'
 import { Memory } from './moxy/memory.js'
 import { handoffContext } from './moxy/context.js'
+import { leaderPrompt } from './moxy/leader-prompt.js'
+import { knownRepos } from './repos/known.js'
 import type { Engine } from './contracts/engines.js'
 import { moxyPaths } from './paths.js'
 import { KeepAwake } from './platform/keep-awake.js'
@@ -173,11 +176,15 @@ export async function startMoxy(options: MoxyOptions = {}): Promise<Moxy> {
     if (interruptedTurns.length) log(`marked ${interruptedTurns.length} interrupted worker turn(s)`)
     if (orphanedSessions.length) log(`stopped ${orphanedSessions.length} Claw session(s) with no running worker turn`)
 
+    const workspace = options.workspace ?? paths.leaderWorkspace
+    await mkdir(workspace, { recursive: true })
     const activeLoop = new LeaderLoop({
       conversation,
       runners: options.leaders ?? leaderRunners(new ClawLeader(client, paths.leaderMcpConfig)),
       mcp: { url: `http://127.0.0.1:${mcp.port}/mcp`, token: mcpToken },
-      cwd: options.workspace ?? homedir(),
+      cwd: workspace,
+      systemPrompt: async () =>
+        leaderPrompt({ machine: hostname(), repoFolders: config.repoFolders, repos: await knownRepos(config.repoFolders) }),
       timeoutMs: options.leaderTimeoutMs ?? LEADER_TURN_TIMEOUT_MS,
       log,
       seed: turnId => handoffContext({ tasks: tasks.list(), conversation: conversation.conversation(), memory: memory.read() }, turnId),

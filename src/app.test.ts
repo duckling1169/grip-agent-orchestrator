@@ -75,7 +75,7 @@ describe('startMoxy', () => {
     expect(await client.reply(posted.source, 10)).toMatchObject({ status: 'finished', output: 'You said: Hello' })
 
     const request = leader.requests.at(-1)
-    expect(request).toMatchObject({ cwd: '/work', mcp: { url: `http://127.0.0.1:${moxy.mcpPort}/mcp` } })
+    expect(request).toMatchObject({ cwd: moxy.paths.leaderWorkspace, mcp: { url: `http://127.0.0.1:${moxy.mcpPort}/mcp` } })
     const mcp = new Client({ name: 'test', version: '1' })
     await mcp.connect(
       new StreamableHTTPClientTransport(new URL(request!.mcp.url), {

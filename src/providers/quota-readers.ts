@@ -1,5 +1,3 @@
-// Adapted from Grip's src/quota/readers.ts; uses Codex app-server, agy /usage and Claude stream-json.
-
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 

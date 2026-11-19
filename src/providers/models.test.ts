@@ -110,6 +110,10 @@ describe('model catalog', () => {
     })
     expect((await catalog.get('codex')).error).toMatch(/not installed/)
     expect(await catalog.get('cursor')).toEqual({ engine: 'cursor', models: [], error: null })
-    expect((await catalog.get('claude')).models.map(model => model.id)).toEqual(['opus', 'sonnet', 'haiku'])
+    expect((await catalog.get('claude')).models.map(model => [model.id, model.efforts])).toEqual([
+      ['opus', ['low', 'medium', 'high', 'xhigh', 'max']],
+      ['sonnet', ['low', 'medium', 'high', 'xhigh', 'max']],
+      ['haiku', []],
+    ])
   })
 })

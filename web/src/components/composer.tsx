@@ -1,5 +1,5 @@
 import { ArrowUp } from 'lucide-react'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 
 import type { LeaderSettings } from '@contracts/api'
@@ -31,6 +31,7 @@ export function Composer({
 }) {
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
+  const textarea = useRef<HTMLTextAreaElement>(null)
   const catalog = useFetched(signal => (offline ? Promise.resolve(null) : api.models(leader.engine, signal)), [leader.engine, offline])
   const models = catalog.data?.engine === leader.engine ? catalog.data.models : []
   const selectedModel =
@@ -55,11 +56,17 @@ export function Composer({
   return (
     <div className="composer">
       <div className="composer-inner">
-        <div className="box">
+        <div
+          className="box"
+          onClick={event => {
+            if (!(event.target as Element).closest('button')) textarea.current?.focus()
+          }}
+        >
           <label className="sr-only" htmlFor="message">
             Message Moxy
           </label>
           <textarea
+            ref={textarea}
             id="message"
             rows={1}
             value={text}
