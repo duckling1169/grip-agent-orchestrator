@@ -293,6 +293,7 @@ describe('web server', () => {
   it('says what is wrong with an unknown worker or route', async () => {
     const moxy = await startTestMoxy()
     expect(await json(call(moxy, '/api/workers/nope'))).toEqual({ error: 'unknown worker nope' })
+    expect(await json(call(moxy, '/api/workers/nope/activity'))).toEqual({ error: 'unknown worker nope' })
     expect((await call(moxy, '/api/nothing')).status).toBe(404)
   })
 

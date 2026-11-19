@@ -17,10 +17,12 @@ export function taskStage(task: Task, workers: Worker[]): TaskStage {
   return workers.some(worker => worker.status === 'running') ? 'working' : 'reviewing'
 }
 
-export function rowTone(status: TurnStatus): string {
+export type RowTone = 'failed' | 'stopped'
+
+export function rowTone(status: TurnStatus): RowTone | null {
   if (status === 'failed') return 'failed'
   if (status === 'stopped' || status === 'interrupted') return 'stopped'
-  return ''
+  return null
 }
 
 export function latestWorker(workers: Worker[]): Worker | null {

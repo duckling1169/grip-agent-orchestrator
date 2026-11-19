@@ -49,7 +49,7 @@ export function ResizeHandle({
       tabIndex={0}
       title="Drag to resize. Double-click to hide."
       className={cn(
-        'resize-edge group/handle absolute inset-y-0 z-10 w-2 cursor-col-resize touch-none focus-visible:outline-none',
+        'group/handle absolute max-md:hidden inset-y-0 z-10 w-2 cursor-col-resize touch-none focus-visible:outline-none',
         edge === 'right' ? '-right-1' : '-left-1',
       )}
       onPointerDown={event => {

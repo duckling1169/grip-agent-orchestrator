@@ -14,7 +14,9 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { api } from '@/lib/api'
+import { composerGutter, ghost, linkButton, readingColumn } from '@/lib/styles'
 import { useFetched } from '@/lib/use-fetched'
+import { cn } from '@/lib/utils'
 
 type Choice = { value: string | null; label: string }
 
@@ -54,10 +56,11 @@ export function Composer({
 
   const label = stopping ? 'Stop Moxy' : running ? 'Queue message' : 'Send'
   return (
-    <div className="composer">
-      <div className="composer-inner">
+    <div className={cn(composerGutter, 'pt-1.5 pb-4 max-md:pb-2.5')}>
+      <div className={readingColumn}>
         <div
-          className="box"
+          className="relative cursor-text rounded-[10px] border bg-popover py-2.5 pr-11 pl-3"
+          data-testid="message-box"
           onClick={event => {
             if (!(event.target as Element).closest('button')) textarea.current?.focus()
           }}
@@ -69,6 +72,7 @@ export function Composer({
             ref={textarea}
             id="message"
             rows={1}
+            className="block max-h-50 min-h-5.5 w-full resize-none bg-transparent text-foreground outline-none field-sizing-content max-md:text-base"
             value={text}
             disabled={offline}
             onChange={event => setText(event.target.value)}
@@ -79,7 +83,10 @@ export function Composer({
             }}
           />
           <button
-            className="ghost send"
+            className={cn(
+              ghost,
+              'absolute right-2 bottom-1.75 size-7 min-h-0 justify-center rounded-full bg-foreground p-0 text-background hover:bg-foreground hover:opacity-85 [&_svg]:size-4',
+            )}
             type="button"
             aria-label={label}
             title={label}
@@ -89,7 +96,7 @@ export function Composer({
             {stopping ? <StopIcon /> : <ArrowUp />}
           </button>
         </div>
-        <div className="footer">
+        <div className="mt-1.5 flex items-center justify-end gap-0.5 text-xs">
           <Picker
             label="Next-turn orchestrator"
             trigger={<EngineIcon engine={leader.engine} className="size-3.5" />}
@@ -128,9 +135,9 @@ export function Composer({
           />
         </div>
         {(catalog.error || catalog.data?.error) && (
-          <div className="note-line fail">
+          <div className="text-xs text-destructive">
             Model list: {catalog.error ?? catalog.data?.error}{' '}
-            <button className="ghost link" type="button" disabled={offline} onClick={catalog.reload}>
+            <button className={linkButton} type="button" disabled={offline} onClick={catalog.reload}>
               Retry
             </button>
           </div>
@@ -175,7 +182,12 @@ function Picker({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild disabled={disabled}>
-        <button className="ghost pick" type="button" aria-label={triggerLabel} title={label}>
+        <button
+          className={cn(ghost, 'min-h-6.5 gap-1 px-1.5 py-0.75 text-xs text-muted-foreground')}
+          type="button"
+          aria-label={triggerLabel}
+          title={label}
+        >
           {trigger}
         </button>
       </DropdownMenuTrigger>

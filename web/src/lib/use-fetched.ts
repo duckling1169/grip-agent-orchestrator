@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 
 export type Fetched<T> = { data: T | null; error: string | null; reload: () => void }
 
-export function useFetched<T>(load: (signal: AbortSignal) => Promise<T>, keys: unknown[]): Fetched<T> {
+export function useFetched<T>(load: (signal: AbortSignal) => Promise<T>, keys: unknown[], refreshMs: number | null = null): Fetched<T> {
   const [data, setData] = useState<T | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [nonce, setNonce] = useState(0)
@@ -20,5 +20,10 @@ export function useFetched<T>(load: (signal: AbortSignal) => Promise<T>, keys: u
     )
     return () => controller.abort()
   }, [...keys, nonce])
+  useEffect(() => {
+    if (refreshMs === null) return
+    const timer = setInterval(reload, refreshMs)
+    return () => clearInterval(timer)
+  }, [refreshMs, reload])
   return { data, error, reload }
 }

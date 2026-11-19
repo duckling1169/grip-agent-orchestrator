@@ -8,6 +8,7 @@ import type {
   Snapshot,
   TaskDetail,
   Worker,
+  WorkerActivity,
   WorkerChanges,
   WorkerDetail,
 } from '@contracts/api'
@@ -48,6 +49,7 @@ export const api = {
   task: (id: string, signal?: AbortSignal) => request<TaskDetail>(`/api/tasks/${encodeURIComponent(id)}`, { signal }),
   worker: (id: string, signal?: AbortSignal) => request<WorkerDetail>(workerPath(id), { signal }),
   changes: (id: string, signal?: AbortSignal) => request<WorkerChanges>(`${workerPath(id)}/changes`, { signal }),
+  activity: (id: string, signal?: AbortSignal) => request<WorkerActivity>(`${workerPath(id)}/activity`, { signal }),
   messageWorker: (id: string, text: string) => post<Worker>(`${workerPath(id)}/message`, { text }),
   stopWorker: (id: string) => post<Worker>(`${workerPath(id)}/stop`),
 }

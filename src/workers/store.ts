@@ -13,7 +13,7 @@ export type TurnEnding = { status: EndedTurnStatus; output: string | null; error
 export type TurnRef = { workerId: string; number: number }
 
 const WORKER_SELECT = `
-  SELECT w.*, t.status AS status, t.number AS turn_count
+  SELECT w.*, t.status AS status, t.number AS turn_count, t.started_at AS turn_started_at
   FROM workers w
   JOIN worker_turns t ON t.worker_id = w.id AND t.number = (SELECT MAX(number) FROM worker_turns WHERE worker_id = w.id)`
 
@@ -158,6 +158,7 @@ function toWorker(row: Row): Worker {
     createdAt: String(row.created_at),
     status: String(row.status) as TurnStatus,
     turnCount: Number(row.turn_count),
+    turnStartedAt: String(row.turn_started_at),
   }
 }
 

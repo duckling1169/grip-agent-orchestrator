@@ -1,4 +1,4 @@
-import type { ClawSendResult, ClawSession, ClawSessions, StartSessionOptions } from '../runtime/claw/client.js'
+import type { ClawEvent, ClawSendResult, ClawSession, ClawSessions, StartSessionOptions } from '../runtime/claw/client.js'
 
 type PendingTurn = { resolve: (result: ClawSendResult) => void; reject: (error: Error) => void }
 
@@ -7,6 +7,7 @@ export class FakeClaw implements ClawSessions {
   readonly starts: StartSessionOptions[] = []
   readonly sends: { name: string; message: string }[] = []
   readonly stops: string[] = []
+  readonly events = new Map<string, ClawEvent[]>()
   private readonly pending = new Map<string, PendingTurn>()
 
   async startSession(options: StartSessionOptions): Promise<ClawSession> {
@@ -25,6 +26,11 @@ export class FakeClaw implements ClawSessions {
     this.sessions.delete(name)
     this.pending.get(name)?.reject(new Error(`Session '${name}' was stopped`))
     this.pending.delete(name)
+  }
+
+  async history(name: string): Promise<ClawEvent[]> {
+    if (!this.sessions.has(name)) throw new Error(`Session '${name}' not found`)
+    return this.events.get(name) ?? []
   }
 
   async listSessions(): Promise<ClawSession[]> {

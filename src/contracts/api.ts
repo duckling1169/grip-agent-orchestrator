@@ -50,7 +50,12 @@ export type Worker = {
   createdAt: string
   status: TurnStatus
   turnCount: number
+  turnStartedAt: string
 }
+
+export type WorkerStep = { text: string; at: string }
+
+export type WorkerActivity = { step: WorkerStep | null; changedFiles: string[]; checkedAt: string }
 
 export type Turn = {
   number: number

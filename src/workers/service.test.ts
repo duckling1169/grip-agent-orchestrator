@@ -78,6 +78,27 @@ describe('Workers', () => {
     expect(claw.stops).toContain(sessionName(worker.id))
   })
 
+  it('reports the current step while running and the changed files', async () => {
+    const { claw, workers } = await setup()
+    const worker = await workers.delegate({ folder: await temporaryRepo(), engine: 'claude', prompt: 'Edit the notes' })
+    await claw.turnStarted(sessionName(worker.id))
+    const edit = {
+      type: 'assistant',
+      message: { content: [{ type: 'tool_use', name: 'Edit', input: { file_path: join(worker.cwd, 'notes.md') } }] },
+    }
+    claw.events.set(sessionName(worker.id), [{ time: '2026-11-19T10:00:00.000Z', type: 'output', content: JSON.stringify(edit) }])
+    await writeFile(join(worker.cwd, 'notes.md'), 'notes\n')
+
+    expect(await workers.activity(worker.id)).toMatchObject({
+      step: { text: 'Editing notes.md', at: '2026-11-19T10:00:00.000Z' },
+      changedFiles: ['notes.md'],
+    })
+
+    claw.answer(sessionName(worker.id), { output: 'Done.' })
+    await workers.settled(worker.id)
+    expect(await workers.activity(worker.id)).toMatchObject({ step: null, changedFiles: ['notes.md'] })
+  })
+
   it('works directly in a folder outside any repo', async () => {
     const { claw, workers, home } = await setup()
     const folder = join(home, 'notes')

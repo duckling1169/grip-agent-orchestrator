@@ -8,10 +8,11 @@ import type { Engine } from '../contracts/engines.js'
 import { errorText } from '../errors.js'
 import type { Log } from '../log.js'
 import { protectedFolderOf } from '../repos/folders.js'
-import type { Turn, Worker, WorkerChanges, WorkerDetail, WorktreeDiff } from '../contracts/api.js'
+import type { Turn, Worker, WorkerActivity, WorkerChanges, WorkerDetail, WorktreeDiff } from '../contracts/api.js'
 import type { WorktreeFacts, Worktrees } from '../repos/worktrees.js'
 import { replyText } from '../runtime/claw/client.js'
 import type { ClawSessions } from '../runtime/claw/client.js'
+import { latestStep } from './activity.js'
 import type { TurnEnding, TurnRef, WorkerStore } from './store.js'
 
 export type DelegateInput = {
@@ -133,6 +134,25 @@ export class Workers {
     const worker = this.store.mustGet(id)
     const diff = worker.repo ? await this.options.worktrees.diff(worker.cwd, worker.repo.baseCommit) : null
     return { diff, fetchedAt: new Date().toISOString() }
+  }
+
+  async activity(id: string): Promise<WorkerActivity> {
+    const worker = this.store.mustGet(id)
+    const [step, changedFiles] = await Promise.all([
+      worker.status === 'running'
+        ? this.options.claw.history(sessionName(id)).then(
+            events => latestStep(events, worker.cwd),
+            () => null,
+          )
+        : null,
+      worker.repo
+        ? this.options.worktrees.facts(worker.cwd, worker.repo.baseCommit).then(
+            facts => facts.changedFiles,
+            () => [],
+          )
+        : [],
+    ])
+    return { step, changedFiles, checkedAt: new Date().toISOString() }
   }
 
   list(): Worker[] {

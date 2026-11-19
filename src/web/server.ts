@@ -32,7 +32,7 @@ export type WebServerOptions = {
   conversation: ConversationStore
   loop: Pick<LeaderLoop, 'wake' | 'stop' | 'sendNow'>
   tasks: Pick<Tasks, 'list' | 'get'>
-  workers: Pick<Workers, 'list' | 'detail' | 'changes' | 'message' | 'stop'>
+  workers: Pick<Workers, 'list' | 'detail' | 'changes' | 'activity' | 'message' | 'stop'>
   database: Pick<Database, 'revision' | 'onChange'>
   allowedLogins: readonly string[]
   token: string
@@ -185,11 +185,12 @@ export async function startWebServer(options: WebServerOptions): Promise<Loopbac
 
     const task = /^\/api\/tasks\/([\w-]+)$/.exec(path)
     if (task && method === 'GET') return tasks.get(task[1] as string)
-    const worker = /^\/api\/workers\/([\w-]+)(?:\/(changes|message|stop))?$/.exec(path)
+    const worker = /^\/api\/workers\/([\w-]+)(?:\/(changes|activity|message|stop))?$/.exec(path)
     if (worker) {
       const [, id = '', action] = worker
       if (method === 'GET' && !action) return workers.detail(id)
       if (method === 'GET' && action === 'changes') return workers.changes(id)
+      if (method === 'GET' && action === 'activity') return workers.activity(id)
       if (method === 'POST' && action === 'message') return workers.message(id, (await body(req, WorkerMessageBody)).text)
       if (method === 'POST' && action === 'stop') return workers.stop(id)
     }

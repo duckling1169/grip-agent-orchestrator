@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { api } from '@/lib/api'
+import { errorText, note, outlineButton, settingHeading, settingRow } from '@/lib/styles'
 import { disableNotifications, enableNotifications, notificationTestMessage, readNotificationState } from '@/lib/notifications'
 import type { NotificationState } from '@/lib/notifications'
 
@@ -48,31 +49,31 @@ export function NotificationSettings({ offline }: { offline: boolean }) {
   const hasDeviceStatus = state && 'devices' in state
   return (
     <section aria-label="Notifications">
-      <h2>Notifications</h2>
-      <p className="note-line">Get a notification when Moxy finishes a task. Notifications contain titles only.</p>
+      <h2 className={settingHeading}>Notifications</h2>
+      <p className={note}>Get a notification when Moxy finishes a task. Notifications contain titles only.</p>
       {offline ? (
-        <p className="note-line">Notification status unavailable while offline.</p>
+        <p className={note}>Notification status unavailable while offline.</p>
       ) : !state && !error ? (
-        <p className="note-line">Checking notification status…</p>
+        <p className={note}>Checking notification status…</p>
       ) : state?.kind === 'unsupported' ? (
-        <p className="note-line">{state.reason}</p>
+        <p className={note}>{state.reason}</p>
       ) : state?.kind === 'blocked' ? (
-        <p className="note-line">Notifications are blocked. Allow Moxy notifications in browser settings, then refresh the status.</p>
+        <p className={note}>Notifications are blocked. Allow Moxy notifications in browser settings, then refresh the status.</p>
       ) : state?.kind === 'on' ? (
-        <p className="note-line">Notifications are enabled on this device.</p>
+        <p className={note}>Notifications are enabled on this device.</p>
       ) : state?.kind === 'renew' ? (
-        <p className="note-line">Moxy’s notification key changed. Enable notifications again to renew this device.</p>
+        <p className={note}>Moxy’s notification key changed. Enable notifications again to renew this device.</p>
       ) : (
-        state && <p className="note-line">Notifications are off on this device.</p>
+        state && <p className={note}>Notifications are off on this device.</p>
       )}
-      <div className="setting">
-        <span className="name">Your registered devices</span>
+      <div className={settingRow}>
+        <span className="flex-1">Your registered devices</span>
         <span>{offline || !hasDeviceStatus ? '—' : state.devices}</span>
       </div>
-      <div className="setting">
+      <div className={settingRow}>
         {hasDeviceStatus && state.kind !== 'on' && (
           <button
-            className="ghost btn"
+            className={outlineButton}
             type="button"
             disabled={offline || busy}
             onClick={() =>
@@ -86,7 +87,7 @@ export function NotificationSettings({ offline }: { offline: boolean }) {
         )}
         {hasDeviceStatus && state.kind === 'on' && (
           <button
-            className="ghost btn"
+            className={outlineButton}
             type="button"
             disabled={offline || busy}
             onClick={() =>
@@ -100,7 +101,7 @@ export function NotificationSettings({ offline }: { offline: boolean }) {
         )}
         {hasDeviceStatus && (
           <button
-            className="ghost btn"
+            className={outlineButton}
             type="button"
             disabled={offline || busy || state.devices === 0}
             onClick={() =>
@@ -116,7 +117,7 @@ export function NotificationSettings({ offline }: { offline: boolean }) {
           </button>
         )}
         <button
-          className="ghost btn"
+          className={outlineButton}
           type="button"
           disabled={offline || busy}
           onClick={() =>
@@ -129,12 +130,12 @@ export function NotificationSettings({ offline }: { offline: boolean }) {
         </button>
       </div>
       {notice && (
-        <p className="note-line" role="status">
+        <p className={note} role="status">
           {notice}
         </p>
       )}
       {error && (
-        <p className="error-text" role="alert">
+        <p className={errorText} role="alert">
           {error}
         </p>
       )}

@@ -20,6 +20,19 @@ const server = createServer((req, res) => {
     res.end(JSON.stringify({ ok: true, sessions: [] }))
     return
   }
+  if (req.url === '/session/grep') {
+    const step = {
+      type: 'assistant',
+      message: {
+        content: [{ type: 'tool_use', name: 'Bash', input: { command: 'npm test -- pager', description: 'Run the pager tests' } }],
+      },
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(
+      JSON.stringify({ ok: true, count: 1, matches: [{ time: new Date().toISOString(), type: 'output', content: JSON.stringify(step) }] }),
+    )
+    return
+  }
   if (req.url === '/crash') {
     res.end()
     process.exit(3)

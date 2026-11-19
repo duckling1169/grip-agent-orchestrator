@@ -7,6 +7,13 @@ import { Markdown } from '@/components/markdown'
 import { WorkerIcon } from '@/components/worker-icon'
 import { api } from '@/lib/api'
 import { clockTime, elapsed } from '@/lib/format'
+import { ghost, iconButton, linkButton, note, readingColumn, textButton, working } from '@/lib/styles'
+import { cn } from '@/lib/utils'
+
+const MOXY_MESSAGE = 'group/turn flex flex-col gap-1'
+const USER_BUBBLE = 'max-w-[78%] self-end rounded-xl bg-accent px-3.5 py-2 whitespace-pre-wrap wrap-anywhere max-md:max-w-[85%]'
+const AFTER_USER = '-mt-4 flex items-center gap-2.5 self-end text-xs'
+const FAILED_NOTE = 'text-xs text-destructive'
 
 type UserEntry = Extract<ConversationEntry, { type: 'user' }>
 type Retry = (turnId: number, settings?: LeaderSettings) => void
@@ -38,16 +45,16 @@ export function Conversation({
   return (
     <div
       ref={stream}
-      className="stream"
+      className="flex-1 overflow-auto px-7 pt-7 pb-3 max-md:px-4 max-md:pt-5 max-md:pb-2"
       onScroll={event => {
         const element = event.currentTarget
         pinned.current = element.scrollHeight - element.scrollTop - element.clientHeight < 40
       }}
     >
-      <div className="column" aria-live="polite">
+      <div className={cn(readingColumn, 'flex flex-col gap-5.5')} aria-live="polite">
         {entries.length === 0 && (
-          <div className="msg-moxy">
-            <p className="empty-greeting">Hi! What would you like to do?</p>
+          <div className={MOXY_MESSAGE}>
+            <p className="text-muted-foreground">Hi! What would you like to do?</p>
           </div>
         )}
         {entries.map(entry => {
@@ -99,40 +106,43 @@ function UserMessage({
   onSendNow: () => void
 }) {
   const bubble = (
-    <div className="msg-user" title={clockTime(entry.at)}>
+    <div className={cn(USER_BUBBLE, failed && 'max-w-none max-md:max-w-none')} data-testid="user-message" title={clockTime(entry.at)}>
       {entry.text}
     </div>
   )
   return (
     <>
       {failed ? (
-        <div className="user-line">
+        <div className="flex max-w-[82%] items-center gap-1.5 self-end" data-testid="failed-message">
           {bubble}
           <button
-            className="ghost fail-mark"
+            className={cn(
+              ghost,
+              'group/mark min-h-0 flex-none rounded-full p-0.75 text-destructive hover:bg-destructive/5 [&_svg]:size-4.5',
+            )}
             type="button"
             aria-label="Failed. Retry"
             title={`Failed: ${failed.error ?? 'Moxy could not reply'}. Click to retry.`}
             disabled={offline}
             onClick={() => onRetry(failed.id)}
           >
-            <CircleAlert className="idle" />
-            <RotateCw className="hover-only" />
+            <CircleAlert className="block group-hover/mark:hidden group-focus-visible/mark:hidden" />
+            <RotateCw className="hidden group-hover/mark:block group-focus-visible/mark:block" />
           </button>
         </div>
       ) : (
         bubble
       )}
       {failed?.recovery && (
-        <div className="after-user">
+        <div className={AFTER_USER}>
           <TurnRecovery recovery={failed.recovery} offline={offline} onRetry={settings => onRetry(failed.id, settings)} />
         </div>
       )}
       {queued && (
-        <div className="after-user">
-          <span className="next">Queued</span>
+        <div className={AFTER_USER}>
+          <span className="text-2xs text-faint">Queued</span>
           <button
-            className="ghost text-action"
+            className={textButton}
             type="button"
             title="Stop Moxy's current turn and start a new one with this message"
             disabled={offline}
@@ -150,22 +160,30 @@ function MoxyTurn({ turn, offline, onRetry }: { turn: LeaderTurn; offline: boole
   if (turn.status === 'running') return <Working turn={turn} />
   if (turn.status === 'failed')
     return (
-      <div className="msg-moxy">
-        <div className="note-line fail">
+      <div className={MOXY_MESSAGE} data-testid="moxy-message">
+        <div className={FAILED_NOTE}>
           {turn.error ?? 'Moxy could not reply'}{' '}
-          <button className="ghost link" type="button" disabled={offline} onClick={() => onRetry()}>
+          <button className={linkButton} type="button" disabled={offline} onClick={() => onRetry()}>
             Retry
           </button>
         </div>
         {turn.recovery && <TurnRecovery recovery={turn.recovery} offline={offline} onRetry={onRetry} />}
       </div>
     )
-  if (!turn.output) return turn.status === 'stopped' ? <div className="note-line">Stopped</div> : null
+  if (!turn.output) return turn.status === 'stopped' ? <Stopped /> : null
   return (
-    <div className="msg-moxy">
+    <div className={MOXY_MESSAGE} data-testid="moxy-message">
       <Markdown text={turn.output} />
-      {turn.status === 'stopped' && <div className="note-line">Stopped</div>}
+      {turn.status === 'stopped' && <Stopped />}
       <Byline turn={turn} text={turn.output} />
+    </div>
+  )
+}
+
+function Stopped() {
+  return (
+    <div className={note} role="status">
+      Stopped
     </div>
   )
 }
@@ -181,7 +199,7 @@ function TurnRecovery({
 }) {
   const suggested = recovery.suggested
   return (
-    <div className="note-line fail">
+    <div className={FAILED_NOTE}>
       {engineName(recovery.provider)}: {recovery.reason}.{' '}
       {recovery.resetsAt ? (
         <>
@@ -191,7 +209,7 @@ function TurnRecovery({
         'Reset time unavailable. '
       )}
       {suggested && (
-        <button className="ghost link" type="button" disabled={offline} onClick={() => onRetry(suggested)}>
+        <button className={linkButton} type="button" disabled={offline} onClick={() => onRetry(suggested)}>
           Switch to {engineName(suggested.engine)} and retry
         </button>
       )}
@@ -206,7 +224,7 @@ function Working({ turn }: { turn: LeaderTurn }) {
     return () => clearInterval(timer)
   }, [])
   return (
-    <div className="working" role="status">
+    <div className={working} role="status">
       <WorkerIcon engine={turn.engine} running small />
       <span>Moxy is working · {elapsed(turn.startedAt, null)}</span>
     </div>
@@ -217,13 +235,13 @@ function Byline({ turn, text }: { turn: LeaderTurn; text: string }) {
   const [copied, setCopied] = useState(false)
   const model = [turn.model ?? engineName(turn.engine), turn.effort].filter(Boolean).join(' ')
   return (
-    <div className="byline">
+    <div className="flex min-h-5.5 items-center gap-1.5 text-xs text-faint opacity-0 transition-opacity group-focus-within/turn:opacity-100 group-hover/turn:opacity-100 max-md:opacity-100">
       <WorkerIcon engine={turn.engine} small />
       <span>
         {model} · {clockTime(turn.endedAt ?? turn.startedAt)}
       </span>
       <button
-        className="ghost icon-action"
+        className={iconButton}
         type="button"
         aria-label="Copy response"
         title="Copy"

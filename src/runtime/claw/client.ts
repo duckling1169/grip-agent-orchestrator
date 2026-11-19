@@ -32,7 +32,11 @@ export type ClawSendResult = {
   permissionDenials?: { toolName: string }[]
 }
 
-export type ClawSessions = Pick<ClawClient, 'startSession' | 'sendMessage' | 'stopSession' | 'listSessions'>
+export type ClawEvent = { time: string; type: string; content: string }
+
+const HISTORY_LIMIT = 100
+
+export type ClawSessions = Pick<ClawClient, 'startSession' | 'sendMessage' | 'stopSession' | 'listSessions' | 'history'>
 
 export function replyText(sent: ClawSendResult): string {
   const denied = sent.permissionDenials ?? []
@@ -104,6 +108,12 @@ export class ClawClient {
 
   async stopSession(name: string): Promise<void> {
     await this.post('/session/stop', { name })
+  }
+
+  async history(name: string): Promise<ClawEvent[]> {
+    const body = await this.post<{ matches?: unknown }>('/session/grep', { name, pattern: '.', limit: HISTORY_LIMIT })
+    if (!Array.isArray(body.matches)) throw new ClawError('/session/grep: no matches array', 200)
+    return body.matches as ClawEvent[]
   }
 
   private async post<T>(path: string, body: Record<string, unknown>, timeoutMs = 60_000): Promise<T> {

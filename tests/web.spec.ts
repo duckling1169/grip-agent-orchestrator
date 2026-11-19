@@ -16,8 +16,8 @@ test('engine changes apply to the next turn and can switch and retry a quota fai
   await expect(page.getByRole('button', { name: /Switch to Codex and retry/ })).toBeVisible({ timeout: 15000 })
   await page.getByRole('button', { name: /Switch to Codex and retry/ }).click()
   await expect(page.getByRole('button', { name: 'Orchestrator: Codex' })).toBeVisible()
-  await expect(page.locator('.msg-moxy').filter({ hasText: 'This is the local preview' }).last()).toBeVisible({ timeout: 15000 })
-  await expect(page.getByRole('status')).toHaveCount(0, { timeout: 15000 })
+  await expect(page.getByTestId('moxy-message').filter({ hasText: 'This is the local preview' }).last()).toBeVisible({ timeout: 15000 })
+  await expect(activeTurn(page)).toHaveCount(0, { timeout: 15000 })
   await page.screenshot({ path: `test-results/recovery-${isMobile(page) ? 'mobile' : 'desktop'}.png`, animations: 'disabled' })
   await page.getByRole('button', { name: /^Orchestrator:/ }).click()
   await page.getByRole('menuitemradio', { name: 'Claude', exact: true }).click()
@@ -217,6 +217,20 @@ test('notification task links open the finished task in the inspector', async ({
   await expect(inspector.getByText('Done', { exact: true })).toBeVisible()
 })
 
+test('an interrupted worker keeps its status tint on hover and selection', async ({ page }) => {
+  test.skip(isMobile(page), 'Selection opens a separate page on mobile')
+  await page.goto('/')
+  const orphan = page.getByRole('button', { name: 'Profile cold start' })
+  const background = () => orphan.evaluate(element => getComputedStyle(element).backgroundColor)
+  const resting = await background()
+  await orphan.hover()
+  expect.soft(await background()).toBe(resting)
+  await orphan.click()
+  await expect(orphan).toHaveAttribute('aria-current', 'true')
+  await page.getByRole('button', { name: 'Close inspector' }).hover()
+  expect(await background()).toBe(resting)
+})
+
 test('tasks sit under Working while a worker runs, Reviewing while Moxy checks them, then Done', async ({ page }) => {
   await openIdle(page)
   if (isMobile(page)) await page.getByRole('button', { name: 'Tasks', exact: true }).click()
@@ -232,56 +246,91 @@ test('tasks sit under Working while a worker runs, Reviewing while Moxy checks t
 
 async function openIdle(page: Page) {
   await page.goto('/')
-  await expect(page.getByRole('status')).toHaveCount(0, { timeout: 20_000 })
+  await expect(activeTurn(page)).toHaveCount(0, { timeout: 20_000 })
+}
+
+function activeTurn(page: Page) {
+  return page.getByRole('status').filter({ has: page.getByText(/^Moxy is working · /) })
 }
 
 async function send(page: Page, text: string) {
   const box = page.getByRole('textbox', { name: 'Message Moxy' })
   await box.fill(text)
   await box.press('Enter')
-  await expect(page.locator('.msg-user', { hasText: text })).toBeVisible()
+  await expect(page.getByTestId('user-message').filter({ hasText: text })).toBeVisible()
 }
 
 test('a tap anywhere in the message box starts typing, and the send button sends', async ({ page }) => {
   await openIdle(page)
   const text = `Tapped message ${Date.now()}`
-  await page.locator('.composer .box').click({ position: { x: 4, y: 4 } })
+  await page.getByTestId('message-box').click({ position: { x: 4, y: 4 } })
   await expect(page.getByRole('textbox', { name: 'Message Moxy' })).toBeFocused()
   await page.keyboard.type(text)
   await page.getByRole('button', { name: 'Send' }).click()
-  await expect(page.locator('.msg-user', { hasText: text })).toBeVisible()
-  await expect(page.locator('.msg-moxy').filter({ hasText: 'This is the local preview' }).last()).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByTestId('user-message').filter({ hasText: text })).toBeVisible()
+  await expect(page.getByTestId('moxy-message').filter({ hasText: 'This is the local preview' }).last()).toBeVisible({ timeout: 15_000 })
 })
 
 test('a message gets a reply, and a later one queues behind it', async ({ page }) => {
   await openIdle(page)
   const first = `Plan the release ${Date.now()}`
   await send(page, first)
-  await expect(page.getByRole('status')).toContainText('Moxy is working')
+  await expect(activeTurn(page)).toBeVisible()
   await expect(page.getByRole('button', { name: 'Stop Moxy' })).toBeVisible()
 
   const second = `Also check the changelog ${Date.now()}`
   await send(page, second)
   await expect(page.getByText('Queued').last()).toBeVisible()
-  await expect(page.locator('.msg-moxy', { hasText: second })).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByTestId('moxy-message').filter({ hasText: second })).toBeVisible({ timeout: 15_000 })
 })
 
 test('Stop ends the running turn', async ({ page }) => {
   await openIdle(page)
   await send(page, `Start something slow ${Date.now()}`)
+  await expect(activeTurn(page)).toBeVisible()
   await page.getByRole('button', { name: 'Stop Moxy' }).click()
-  await expect(page.getByRole('status')).toHaveCount(0)
-  await expect(page.locator('.note-line', { hasText: 'Stopped' }).last()).toBeVisible()
+  await expect(activeTurn(page)).toHaveCount(0)
+  await expect(
+    page
+      .getByRole('status')
+      .filter({ hasText: /^Stopped$/ })
+      .last(),
+  ).toBeVisible()
 })
 
 test('a failed turn can be retried from its message', async ({ page }) => {
   await openIdle(page)
   const text = `Please fail ${Date.now()}`
   await send(page, text)
-  const line = page.locator('.user-line', { hasText: text })
+  const line = page.getByTestId('failed-message').filter({ hasText: text })
   await expect(line.getByRole('button', { name: 'Failed. Retry' })).toBeVisible({ timeout: 15_000 })
+  await expect(line.getByTestId('user-message')).toHaveCSS('max-width', 'none')
   await line.getByRole('button', { name: 'Failed. Retry' }).click()
-  await expect(page.getByRole('status')).toContainText('Moxy is working')
+  await expect(activeTurn(page)).toBeVisible()
+})
+
+test('the running worker ring is static and muted offline or with reduced motion', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' })
+  await page.goto('/')
+  if (isMobile(page)) await page.getByRole('button', { name: 'Tasks', exact: true }).click()
+  const task = page.getByRole('button', { name: /Departures board pagination/ }).first()
+  const icon = task.getByRole('img', { name: 'Claude', exact: true }).first()
+  const ring = () =>
+    icon.evaluate(element => {
+      const style = getComputedStyle(element.parentElement!, '::after')
+      return {
+        animation: style.animationName,
+        colors: [style.borderTopColor, style.borderRightColor, style.borderBottomColor, style.borderLeftColor],
+        opacity: style.opacity,
+      }
+    })
+  const muted = 'rgb(229, 229, 229)'
+  const offline = { animation: 'none', colors: [muted, muted, muted, muted], opacity: '1' }
+  expect.soft(await ring()).toEqual({ ...offline, colors: ['rgb(82, 82, 82)', muted, muted, muted] })
+  await page.locator('#app > div').evaluate(element => element.setAttribute('data-offline', 'true'))
+  expect.soft(await ring()).toEqual(offline)
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
+  expect(await ring()).toEqual(offline)
 })
 
 test('a task opens in the inspector and leads to its workers', async ({ page }) => {
@@ -293,6 +342,10 @@ test('a task opens in the inspector and leads to its workers', async ({ page }) 
     .click()
   const inspector = page.getByRole('complementary', { name: 'Inspector' })
   await expect(inspector.getByText('20 rows a page')).toBeVisible()
+  const running = inspector.getByRole('button', { name: /Departures board pagination Working/ })
+  await expect(running.getByText('Claude · opus · high')).toBeVisible()
+  await expect(running.getByText(/^Started .* · running \d+ (s|min)$/)).toBeVisible()
+  await expect(running.getByText('Run the pager tests')).toBeVisible()
   await inspector.getByRole('button', { name: /Pagination URL state/ }).click()
   await expect(inspector.getByText('is not assignable to type')).toBeVisible()
   await inspector.getByRole('tab', { name: 'Changes' }).click()
@@ -346,6 +399,14 @@ test('flat quota rows show remaining windows and provider rechecks without expan
   for (const label of ['Family', 'Last checked', '5h left', '7d left']) {
     await expect(quota.getByRole('columnheader', { name: label, exact: true })).toHaveCount(1)
   }
+  const checkedHeading = quota.getByRole('columnheader', { name: 'Last checked', exact: true })
+  expect(
+    await checkedHeading.evaluate(heading => {
+      const text = document.createRange()
+      text.selectNodeContents(heading)
+      return text.getClientRects().length
+    }),
+  ).toBe(1)
   await expect(claude.getByText('5h left')).toHaveCount(0)
   await expect(claude.getByLabel('7d quota remaining')).toContainText('28%')
   await expect(fiveHour).toHaveAttribute('title', /Resets.*Observed/)

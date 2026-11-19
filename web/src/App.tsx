@@ -17,6 +17,7 @@ import type { Selection } from '@/lib/selection'
 import { useStoredFlag, useStoredState } from '@/lib/stored'
 import { useTheme } from '@/lib/theme'
 import { MachineSwitcher } from '@/components/machine-switcher'
+import { composerGutter, ghost, readingColumn } from '@/lib/styles'
 import { cn } from '@/lib/utils'
 
 export type Side = 'left' | 'right'
@@ -76,7 +77,7 @@ export function App() {
   }
 
   return (
-    <div className={cn('shell', `tab-${tab}`, `view-${view}`, offline && 'offline-mode')}>
+    <div className="flex h-full flex-col" data-offline={offline || undefined}>
       <Header
         snapshot={snapshot}
         connection={connection}
@@ -88,10 +89,14 @@ export function App() {
         onToggleInspector={() => setInspectorOpen(!inspectorOpen)}
         onSettings={() => setView(view === 'settings' ? 'conversation' : 'settings')}
       />
-      <div className={cn('body', side === 'right' && 'right')}>
-        <Column className={cn('sidebar', !sidebarOpen && 'collapsed')} width={sidebarWidth} label="Tasks and workers">
+      <div className={cn('flex min-h-0 flex-1', side === 'right' && 'flex-row-reverse')}>
+        <Column
+          className={cn(side === 'left' ? 'border-r' : 'border-l', shown(sidebarOpen, tab === 'tasks'))}
+          width={sidebarWidth}
+          label="Tasks and workers"
+        >
           <Sidebar tasks={snapshot.tasks} workers={snapshot.workers} selection={selection} onSelect={select} />
-          <div className="sidebar-quota">
+          <div className="max-h-[48%] overflow-auto border-t px-1.5 py-2.5 max-md:hidden">
             <Quota quota={snapshot.quota} offline={offline} onError={setError} />
           </div>
           <ResizeHandle
@@ -101,21 +106,31 @@ export function App() {
             onCollapse={() => setSidebarOpen(false)}
           />
         </Column>
-        <main className="main">
+        <main className={cn('min-w-0 flex-1 flex-col bg-background md:min-w-80', shown(view === 'conversation', tab === 'moxy'))}>
           <Conversation entries={snapshot.conversation} offline={offline} onError={setError} />
           {error && (
-            <div className="composer pb-0" role="alert">
-              <div className="composer-inner note-line fail">{error}</div>
+            <div className={cn(composerGutter, 'pt-1.5')} role="alert">
+              <div className={cn(readingColumn, 'text-xs text-destructive')}>{error}</div>
             </div>
           )}
           <Composer leader={snapshot.leader} running={running} offline={offline} onError={setError} />
         </main>
-        <section className="quota-page" aria-label="Quota">
+        <section className={cn('min-w-0 flex-1 flex-col overflow-auto px-4 py-4.5', shown(false, tab === 'quota'))} aria-label="Quota">
           <Quota quota={snapshot.quota} offline={offline} onError={setError} />
         </section>
-        <Settings snapshot={snapshot} offline={offline} theme={theme} side={[side, setSide]} />
+        <Settings
+          className={shown(view === 'settings', tab === 'settings')}
+          snapshot={snapshot}
+          offline={offline}
+          theme={theme}
+          side={[side, setSide]}
+        />
         {selection && (
-          <Column className={cn('inspector', !inspectorOpen && 'collapsed')} width={inspectorWidth} label="Inspector">
+          <Column
+            className={cn(side === 'left' ? 'border-l' : 'border-r', shown(inspectorOpen, tab === 'inspect'))}
+            width={inspectorWidth}
+            label="Inspector"
+          >
             <ResizeHandle
               column={inspectorWidth}
               edge={side === 'left' ? 'left' : 'right'}
@@ -130,7 +145,10 @@ export function App() {
           </Column>
         )}
       </div>
-      <nav className="tabbar" aria-label="Sections">
+      <nav
+        className="grid flex-none grid-cols-4 border-t bg-card pt-1 pb-[max(16px,env(safe-area-inset-bottom))] md:hidden"
+        aria-label="Sections"
+      >
         <TabButton on={tab === 'moxy'} icon={<MessageSquare />} label="Moxy" onClick={() => setTab('moxy')} />
         <TabButton on={tab === 'tasks' || tab === 'inspect'} icon={<ListTodo />} label="Tasks" onClick={() => setTab('tasks')} />
         <TabButton on={tab === 'quota'} icon={<Gauge />} label="Quota" onClick={() => setTab('quota')} />
@@ -177,15 +195,15 @@ function Header({
     </PanelToggle>
   )
   return (
-    <header className="header">
+    <header className="flex h-11 flex-none items-center gap-1.5 border-b bg-background px-2.5">
       {side === 'left' && sidebarToggle}
       {side === 'right' && inspectorToggle}
-      <span className="brand">Moxy</span>
+      <span className="pr-1.5 pl-1 text-sm font-semibold tracking-tight">Moxy</span>
       <MachineSwitcher host={snapshot.host} connection={connection} />
-      <span className="header-spacer" />
+      <span className="flex-1" />
       {side === 'left' && inspectorToggle}
       {side === 'right' && sidebarToggle}
-      <button className="ghost panel-toggle header-settings" type="button" aria-label="Settings" title="Settings" onClick={onSettings}>
+      <button className={panelToggle(false)} type="button" aria-label="Settings" title="Settings" onClick={onSettings}>
         <SettingsIcon />
       </button>
     </header>
@@ -207,7 +225,7 @@ function PanelToggle({
 }) {
   return (
     <button
-      className={cn('ghost panel-toggle', on && 'on')}
+      className={panelToggle(on)}
       type="button"
       aria-label={label}
       title={label}
@@ -220,9 +238,24 @@ function PanelToggle({
   )
 }
 
+function panelToggle(on: boolean): string {
+  return cn(ghost, 'p-1.25 text-faint max-md:hidden [&_svg]:size-4', on && 'text-muted-foreground')
+}
+
+function shown(desktop: boolean, mobile: boolean): string {
+  return cn(desktop ? 'md:flex' : 'md:hidden', mobile ? 'max-md:flex' : 'max-md:hidden')
+}
+
 function Column({ className, width, label, children }: { className: string; width: ColumnWidth; label: string; children: ReactNode }) {
   return (
-    <aside className={className} style={{ width: width.width }} aria-label={label}>
+    <aside
+      className={cn(
+        'relative min-h-0 flex-none flex-col bg-card md:min-w-40 md:flex-[0_1_auto] max-md:static max-md:w-full! max-md:border-0 max-md:bg-background',
+        className,
+      )}
+      style={{ width: width.width }}
+      aria-label={label}
+    >
       {children}
     </aside>
   )
@@ -230,7 +263,16 @@ function Column({ className, width, label, children }: { className: string; widt
 
 function TabButton({ on, icon, label, onClick }: { on: boolean; icon: ReactNode; label: string; onClick: () => void }) {
   return (
-    <button className={cn('ghost tabbtn', on && 'on')} type="button" aria-current={on || undefined} onClick={onClick}>
+    <button
+      className={cn(
+        ghost,
+        'min-h-12 flex-col justify-center gap-0.5 rounded-none text-2xs text-faint hover:bg-transparent [&_svg]:size-5',
+        on && 'text-foreground',
+      )}
+      type="button"
+      aria-current={on || undefined}
+      onClick={onClick}
+    >
       {icon}
       {label}
     </button>
@@ -239,7 +281,7 @@ function TabButton({ on, icon, label, onClick }: { on: boolean; icon: ReactNode;
 
 function Splash({ connection }: { connection: Connection }) {
   return (
-    <div className="grid h-full place-items-center text-sm text-[var(--faint)]">
+    <div className="grid h-full place-items-center text-sm text-faint">
       {connection === 'offline' ? 'Moxy is not reachable.' : 'Connecting to Moxy…'}
     </div>
   )

@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { api } from '@/lib/api'
 import type { Connection } from '@/lib/live'
+import { ghost } from '@/lib/styles'
 import { cn } from '@/lib/utils'
 
 export function MachineSwitcher({ host, connection }: { host: string; connection: Connection }) {
@@ -55,8 +56,16 @@ export function MachineSwitcher({ host, connection }: { host: string; connection
       }}
     >
       <DropdownMenuTrigger asChild>
-        <button className="ghost machine" type="button" title={machineTip} aria-label={`Switch machine: ${host}`}>
-          {(connection === 'reconnecting' || connection === 'offline') && <span className={cn('dot', connection)} aria-hidden="true" />}
+        <button className={cn(ghost, 'text-muted-foreground')} type="button" title={machineTip} aria-label={`Switch machine: ${host}`}>
+          {(connection === 'reconnecting' || connection === 'offline') && (
+            <span
+              className={cn(
+                'size-1.75 flex-none rounded-full',
+                connection === 'offline' ? 'bg-destructive' : 'animate-pulse bg-warning motion-reduce:animate-none',
+              )}
+              aria-hidden="true"
+            />
+          )}
           <span>{host}</span>
           <ChevronDown className="size-3 shrink-0" aria-hidden="true" />
         </button>

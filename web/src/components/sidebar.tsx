@@ -4,8 +4,9 @@ import type { Task, Worker } from '@contracts/api'
 import { WorkerIcon } from '@/components/worker-icon'
 import { useStoredFlag } from '@/lib/stored'
 import { latestWorker, rowTone, STAGE_LABELS, STATUS_LABELS, taskStage, workersByTask } from '@/lib/status'
-import type { TaskStage } from '@/lib/status'
+import type { RowTone, TaskStage } from '@/lib/status'
 import type { Selection } from '@/lib/selection'
+import { ghost, row, rowAside, rowLabel, rows } from '@/lib/styles'
 import { cn } from '@/lib/utils'
 
 const STAGES: TaskStage[] = ['working', 'reviewing', 'done']
@@ -24,12 +25,12 @@ export function Sidebar({
   const byTask = workersByTask(workers)
   const orphans = workers.filter(worker => !worker.taskId)
   return (
-    <nav className="sections" aria-label="Tasks">
+    <nav className="flex-1 overflow-auto p-2 max-md:px-2.5" aria-label="Tasks">
       {STAGES.map(stage => {
-        const rows = tasks.filter(task => taskStage(task, byTask.get(task.id) ?? []) === stage)
+        const stageTasks = tasks.filter(task => taskStage(task, byTask.get(task.id) ?? []) === stage)
         return (
-          <Section key={stage} id={stage} label={STAGE_LABELS[stage]} count={rows.length}>
-            {rows.map(task => {
+          <Section key={stage} id={stage} label={STAGE_LABELS[stage]} count={stageTasks.length}>
+            {stageTasks.map(task => {
               const latest = latestWorker(byTask.get(task.id) ?? [])
               return (
                 <Row
@@ -37,7 +38,7 @@ export function Sidebar({
                   label={task.title}
                   tip={`${task.title} · ${STAGE_LABELS[stage]}`}
                   icon={<WorkerIcon engine={latest?.engine ?? null} running={stage !== 'done'} />}
-                  tone={stage === 'reviewing' && latest ? rowTone(latest.status) : ''}
+                  tone={stage === 'reviewing' && latest ? rowTone(latest.status) : null}
                   selected={selection?.kind === 'task' && selection.id === task.id}
                   onOpen={() => onSelect({ kind: 'task', id: task.id })}
                 />
@@ -69,16 +70,21 @@ function Section({ id, label, count, children }: { id: string; label: string; co
   const [open, setOpen] = useStoredFlag(`section:${id}`, true)
   return (
     <div>
-      <button className="ghost section-head" type="button" aria-expanded={open} onClick={() => setOpen(!open)}>
+      <button
+        className={cn(ghost, 'w-full px-1.5 py-1 text-2xs font-semibold text-muted-foreground max-md:min-h-11')}
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+      >
         <span>{label}</span>
-        <span className="count">{count}</span>
+        <span className="ml-auto font-medium text-faint tabular-nums">{count}</span>
       </button>
-      {open && (count > 0 ? <div className="rows">{children}</div> : <div className="none">None</div>)}
+      {open && (count > 0 ? <div className={rows}>{children}</div> : <div className="pr-2 pb-2.5 pl-6.5 text-xs text-faint">None</div>)}
     </div>
   )
 }
 
-export function Row({
+function Row({
   label,
   tip,
   icon,
@@ -90,22 +96,16 @@ export function Row({
   label: string
   tip: string
   icon: ReactNode
-  tone: string
+  tone: RowTone | null
   aside?: string
   selected?: boolean
   onOpen: () => void
 }) {
   return (
-    <button
-      className={cn('ghost row', tone, selected && 'selected')}
-      type="button"
-      title={tip}
-      aria-current={selected || undefined}
-      onClick={onOpen}
-    >
+    <button className={row(tone, selected)} type="button" title={tip} aria-current={selected || undefined} onClick={onOpen}>
       {icon}
-      <span className="label">{label}</span>
-      {aside && <span className="aside">{aside}</span>}
+      <span className={rowLabel}>{label}</span>
+      {aside && <span className={rowAside}>{aside}</span>}
     </button>
   )
 }
