@@ -10,6 +10,7 @@ import type { SpawnPiped } from '../exec.js'
 export type FakeAcpOptions = {
   http?: boolean
   loadSession?: boolean
+  failLoadSession?: boolean
   systemPrompt?: boolean
   configOptions?: SessionConfigOption[]
   configOptionsByModel?: Record<string, SessionConfigOption[]>
@@ -19,6 +20,7 @@ export type FakeAcpOptions = {
   askPermission?: boolean
   hang?: boolean
   toolCallFirst?: boolean
+  usageUpdates?: { used: number; size: number; sessionId?: string }[]
 }
 
 export type FakeAcpLog = {
@@ -82,6 +84,7 @@ export function fakeAcpAgent(options: FakeAcpOptions = {}): { spawn: SpawnPiped;
       })
       .onRequest('session/load', async ({ params, client }) => {
         log.loads.push({ sessionId: params.sessionId, mcpServers: params.mcpServers, ...promptOf(params.systemPrompt) })
+        if (options.failLoadSession) throw new Error('Session not found')
         await client.notify('session/update', {
           sessionId: params.sessionId,
           update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Earlier reply. ' } },
@@ -126,11 +129,17 @@ export function fakeAcpAgent(options: FakeAcpOptions = {}): { spawn: SpawnPiped;
         }
         const reply = options.reply ?? 'Done.'
         const half = Math.ceil(reply.length / 2)
-        for (const part of [reply.slice(0, half), reply.slice(half)])
+        for (const part of [reply.slice(0, half), reply.slice(half)]) {
           await client.notify('session/update', {
             sessionId: params.sessionId,
             update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: part } },
           })
+          for (const update of options.usageUpdates ?? [])
+            await client.notify('session/update', {
+              sessionId: update.sessionId ?? params.sessionId,
+              update: { sessionUpdate: 'usage_update', used: update.used, size: update.size },
+            })
+        }
         return { stopReason: 'end_turn' }
       })
     app.connect(ndJsonStream(Writable.toWeb(stdout), Readable.toWeb(stdin) as ReadableStream<Uint8Array>))

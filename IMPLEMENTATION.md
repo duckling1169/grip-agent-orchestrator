@@ -72,7 +72,7 @@ Engine, model or effort changes apply at the next turn boundary. A change, or a 
 
 ## Leader tools
 
-`task_create`, `task_update` (notes and plan), `task_get`, `tasks`, `delegate`, `message`, `stop`, `workers`, `result`, `models`, `quota`, `integrate`, `ready`, `accept`, `reopen`, `follow_up` (set or cancel a timer), `memory_read`, `memory_update`. `accept` is refused unless the current turn started from a user message. Completions arrive through the inbox, so there is no tool for waiting on workers. The tasks step ships the task, worker, integration and delivery tools; `models`, `quota`, `follow_up` and the memory tools arrive with their build steps.
+`task_create`, `task_update` (notes and plan), `task_get`, `tasks`, `delegate`, `message`, `stop`, `workers`, `result`, `models`, `quota`, `integrate`, `ready`, `accept`, `reopen`, `follow_up` (set or cancel a timer), `memory_read`, `memory_update`. `accept` is refused unless the current turn started from a user message. Completions arrive through the inbox, so there is no tool for waiting on workers.
 
 ## Layout
 
@@ -116,7 +116,7 @@ Each step ends with its tests green and `format:check`, `typecheck`, `test` and 
 3. **Leader loop.** Inbox with batching and source-ID deduplication, turn runner for Claude and ACP leaders, leader MCP tools, user-first ordering, and interrupted-turn redelivery.
 4. **Tasks and delivery.** Task rows, integrate with the per-repo lock, ready, accept and reopen. Fake-backed journey: two tasks in one repo, a desktop edit, feedback, restart midway.
 5. **Web.** Built in slices, following the reviewed mockup:
-   1. Server: Tailscale identity and allowed logins, write checks, the local bearer for the CLI, a database revision bumped after each committed write, an SSE snapshot per revision, detail reads for tasks and workers, and actions to message, stop, send now, retry a failed turn, set the Orchestrator's model and effort, and message or stop a worker. Switching the Orchestrator's engine waits for step 6.
+   1. Server: Tailscale identity and allowed logins, write checks, the local bearer for the CLI, a database revision bumped after each committed write, an SSE snapshot per revision, detail reads for tasks and workers, and actions to message, stop, send now, retry a failed turn, set the Orchestrator's model and effort, and message or stop a worker.
    2. Web app: React, Vite, Tailwind and shadcn with the mockup's layout, the fake-backed `web:preview`, and Playwright on desktop and mobile.
    3. Quota and model lists.
    4. Push for tasks waiting on the user.

@@ -1,10 +1,21 @@
-import type { ConversationEntry, LeaderSettings, LeaderTurn, LeaderTurnStatus, Turn, Worker } from '../contracts/api.js'
+import type { ConversationEntry, LeaderSettings, LeaderTurn, LeaderTurnStatus, Recovery, Turn, Worker } from '../contracts/api.js'
 import type { Engine } from '../contracts/engines.js'
+import { LEADER_ENGINES } from '../contracts/engines.js'
 import type { Database } from '../db/database.js'
 import { numberOrNull, textOrNull } from '../db/rows.js'
 import type { Row } from '../db/rows.js'
 
-export type LeaderState = LeaderSettings & { nativeSessionId: string | null }
+export type LeaderState = LeaderSettings & {
+  nativeSessionId: string | null
+  sessionEpoch: number
+  sessionChars: number
+  sessionTurns: number
+  contextUsed: number | null
+  contextLimit: number | null
+}
+export type SessionPolicy = Partial<typeof DEFAULT_SESSION_POLICY>
+
+const DEFAULT_SESSION_POLICY = { maxChars: 128000, maxTurns: 20, contextRatio: 0.8 }
 
 export type WorkerTurnEnded = {
   workerId: string
@@ -17,7 +28,9 @@ export type WorkerTurnEnded = {
 }
 
 export type InboxItem =
-  { kind: 'user_message'; source: string; body: { text: string } } | { kind: 'worker_turn_ended'; source: string; body: WorkerTurnEnded }
+  | { kind: 'user_message'; source: string; body: { text: string } }
+  | { kind: 'worker_turn_ended'; source: string; body: WorkerTurnEnded }
+  | { kind: 'follow_up'; source: string; body: { id: string; prompt: string; dueAt: string } }
 
 export type ReceivedItem = InboxItem & { id: number; receivedAt: string; leaderTurnId: number | null; interruptedDeliveries: number }
 
@@ -26,6 +39,9 @@ export type LeaderTurnEnding = {
   output: string | null
   error: string | null
   nativeSessionId: string | null
+  recovery?: Recovery | null
+  context?: { used: number; limit: number }
+  inputChars?: number
 }
 
 export function workerTurnEnded(worker: Worker, turn: Turn): InboxItem {
@@ -51,7 +67,10 @@ export function userMessage(text: string, id: string): InboxItem {
 const now = () => new Date().toISOString()
 
 export class ConversationStore {
-  constructor(private readonly database: Database) {}
+  constructor(
+    private readonly database: Database,
+    private readonly policy: SessionPolicy = {},
+  ) {}
 
   receive(item: InboxItem): boolean {
     const inserted = this.database
@@ -67,38 +86,74 @@ export class ConversationStore {
       model: textOrNull(row, 'model'),
       effort: textOrNull(row, 'effort'),
       nativeSessionId: textOrNull(row, 'native_session_id'),
+      sessionEpoch: Number(row.session_epoch),
+      sessionChars: Number(row.session_chars),
+      sessionTurns: Number(row.session_turns),
+      contextUsed: numberOrNull(row, 'context_used'),
+      contextLimit: numberOrNull(row, 'context_limit'),
     }
   }
 
-  beginTurn(): { turn: LeaderTurn; items: ReceivedItem[] } | null {
+  beginTurn(): { turn: LeaderTurn; items: ReceivedItem[]; nativeSessionId: string | null } | null {
     return this.database.transaction(() => {
       if (this.database.prepare(`SELECT 1 FROM leader_turns WHERE status = 'running'`).get()) return null
       const pending = this.pendingItems()
       if (pending.length === 0) return null
-      const leader = this.leader()
+      let leader = this.leader()
+      if (leader.nativeSessionId && this.sessionFull(leader)) {
+        this.resetNative()
+        leader = this.leader()
+      }
       const inserted = this.database
-        .prepare(`INSERT INTO leader_turns (engine, model, effort, status, started_at) VALUES (?, ?, ?, 'running', ?) RETURNING id`)
-        .get(leader.engine, leader.model, leader.effort, now()) as Row
+        .prepare(
+          `INSERT INTO leader_turns (engine, model, effort, status, started_at, session_epoch) VALUES (?, ?, ?, 'running', ?, ?) RETURNING id`,
+        )
+        .get(leader.engine, leader.model, leader.effort, now(), leader.sessionEpoch) as Row
       const turnId = Number(inserted.id)
       this.database.prepare('UPDATE inbox SET leader_turn_id = ? WHERE leader_turn_id IS NULL').run(turnId)
-      return { turn: this.mustGetTurn(turnId), items: pending.map(item => ({ ...item, leaderTurnId: turnId })) }
+      return {
+        turn: this.mustGetTurn(turnId),
+        items: pending.map(item => ({ ...item, leaderTurnId: turnId })),
+        nativeSessionId: leader.nativeSessionId,
+      }
     })
   }
 
   endTurn(turnId: number, ending: LeaderTurnEnding): LeaderTurn {
     this.database.transaction(() => {
       const ended = this.database
-        .prepare(`UPDATE leader_turns SET status = ?, output = ?, error = ?, ended_at = ? WHERE id = ? AND status = 'running'`)
-        .run(ending.status, ending.output, ending.error, now(), turnId)
-      if (ended.changes > 0 && ending.nativeSessionId) {
-        this.database.prepare('UPDATE leader SET native_session_id = ? WHERE id = 1').run(ending.nativeSessionId)
+        .prepare(
+          `UPDATE leader_turns SET status = ?, output = ?, error = ?, recovery = ?, ended_at = ? WHERE id = ? AND status = 'running'`,
+        )
+        .run(ending.status, ending.output, ending.error, ending.recovery ? JSON.stringify(ending.recovery) : null, now(), turnId)
+      const turn = this.database.prepare('SELECT session_epoch FROM leader_turns WHERE id = ?').get(turnId) as Row | undefined
+      if (ended.changes > 0 && Number(turn?.session_epoch) === this.leader().sessionEpoch) {
+        if (ending.status === 'finished' && ending.nativeSessionId) {
+          this.database
+            .prepare(
+              `UPDATE leader SET native_session_id = ?, session_chars = session_chars + ?, session_turns = session_turns + 1, context_used = ?, context_limit = ? WHERE id = 1`,
+            )
+            .run(
+              ending.nativeSessionId,
+              (ending.inputChars ?? 0) + (ending.output?.length ?? 0),
+              ending.context?.used ?? null,
+              ending.context?.limit ?? null,
+            )
+        } else this.resetNative()
       }
     })
     return this.mustGetTurn(turnId)
   }
 
-  configure(settings: Pick<LeaderSettings, 'model' | 'effort'>): LeaderState {
-    this.database.prepare('UPDATE leader SET model = ?, effort = ? WHERE id = 1').run(settings.model, settings.effort)
+  configure(settings: LeaderSettings): LeaderState {
+    if (!(LEADER_ENGINES as readonly Engine[]).includes(settings.engine)) throw new Error(`${settings.engine} cannot lead Moxy`)
+    const current = this.leader()
+    if (current.engine !== settings.engine || current.model !== settings.model || current.effort !== settings.effort) {
+      this.database
+        .prepare('UPDATE leader SET engine = ?, model = ?, effort = ? WHERE id = 1')
+        .run(settings.engine, settings.model, settings.effort)
+      this.resetNative()
+    }
     return this.leader()
   }
 
@@ -106,14 +161,17 @@ export class ConversationStore {
     const row = this.database
       .prepare(`UPDATE leader_turns SET status = 'stopped', error = ?, ended_at = ? WHERE status = 'running' RETURNING id`)
       .get(reason, now()) as Row | undefined
-    return row ? this.mustGetTurn(Number(row.id)) : null
+    if (!row) return null
+    this.resetNative()
+    return this.mustGetTurn(Number(row.id))
   }
 
-  retryTurn(turnId: number): LeaderTurn {
+  retryTurn(turnId: number, settings?: LeaderSettings): LeaderTurn {
     return this.database.transaction(() => {
       const turn = this.mustGetTurn(turnId)
       if (turn.status !== 'failed' || turn.retried)
         throw new Error(`leader turn ${turnId} is ${turn.retried ? 'already retried' : turn.status}; only a failed turn can be retried`)
+      if (settings) this.configure(settings)
       this.database.prepare('UPDATE leader_turns SET retried_at = ? WHERE id = ?').run(now(), turnId)
       this.database.prepare('UPDATE inbox SET leader_turn_id = NULL WHERE leader_turn_id = ?').run(turnId)
       return this.mustGetTurn(turnId)
@@ -132,6 +190,7 @@ export class ConversationStore {
         .get(reason, now()) as Row | undefined
       if (!row) return null
       const turnId = Number(row.id)
+      this.resetNative()
       this.database
         .prepare('UPDATE inbox SET leader_turn_id = NULL, interrupted_deliveries = interrupted_deliveries + 1 WHERE leader_turn_id = ?')
         .run(turnId)
@@ -174,6 +233,20 @@ export class ConversationStore {
     return rows.map(toItem)
   }
 
+  private sessionFull(leader: LeaderState): boolean {
+    const policy = { ...DEFAULT_SESSION_POLICY, ...this.policy }
+    const contextRatio = leader.contextUsed !== null && leader.contextLimit ? leader.contextUsed / leader.contextLimit : 0
+    return leader.sessionChars >= policy.maxChars || leader.sessionTurns >= policy.maxTurns || contextRatio >= policy.contextRatio
+  }
+
+  private resetNative(): void {
+    this.database
+      .prepare(
+        'UPDATE leader SET native_session_id = NULL, session_epoch = session_epoch + 1, session_chars = 0, session_turns = 0, context_used = NULL, context_limit = NULL WHERE id = 1',
+      )
+      .run()
+  }
+
   private mustGetTurn(id: number): LeaderTurn {
     const row = this.database.prepare('SELECT * FROM leader_turns WHERE id = ?').get(id) as Row | undefined
     if (!row) throw new Error(`unknown leader turn ${id}`)
@@ -205,5 +278,6 @@ function toTurn(row: Row): LeaderTurn {
     startedAt: String(row.started_at),
     endedAt: textOrNull(row, 'ended_at'),
     retried: row.retried_at !== null,
+    recovery: row.recovery === null || row.recovery === undefined ? null : (JSON.parse(String(row.recovery)) as Recovery),
   }
 }

@@ -279,7 +279,9 @@ describe('web server', () => {
     const turn = failed.conversation.find(entry => entry.type === 'moxy')
     expect(turn).toMatchObject({ turn: { error: 'usage limit reached', retried: false } })
 
-    const settings = await json(call(moxy, '/api/leader/settings', { method: 'POST', body: { model: 'claude-opus-5-5', effort: 'high' } }))
+    const settings = await json(
+      call(moxy, '/api/leader/settings', { method: 'POST', body: { engine: 'claude', model: 'claude-opus-5-5', effort: 'high' } }),
+    )
     expect(settings).toMatchObject({ engine: 'claude', model: 'claude-opus-5-5', effort: 'high' })
     await call(moxy, '/api/leader/retry', { method: 'POST', body: { turnId: turn?.type === 'moxy' ? turn.turn.id : -1 } })
     const retried = await until(stream, answered('Hi!'))

@@ -68,7 +68,10 @@ describe('startMoxy', () => {
     expect((await mcp.listTools()).tools.map(tool => tool.name).sort()).toEqual([
       'accept',
       'delegate',
+      'follow_up',
       'integrate',
+      'memory_read',
+      'memory_update',
       'message',
       'models',
       'quota',
@@ -88,6 +91,24 @@ describe('startMoxy', () => {
     })
     expect(await mcp.callTool({ name: 'quota', arguments: {} })).toMatchObject({
       content: [{ text: expect.stringContaining('checkedAt') }],
+    })
+    expect(
+      await mcp.callTool({
+        name: 'memory_update',
+        arguments: { instructions: 'Keep changes focused', preferences: 'Use the repo preview' },
+      }),
+    ).not.toHaveProperty('isError')
+    expect(await mcp.callTool({ name: 'memory_read', arguments: {} })).toMatchObject({
+      content: [{ text: expect.stringContaining('Keep changes focused') }],
+    })
+    const scheduled = await mcp.callTool({
+      name: 'follow_up',
+      arguments: { action: 'schedule', due_at: '2099-01-01T00:00:00Z', prompt: 'Check the task again' },
+    })
+    const timer = JSON.parse((scheduled.content as { text: string }[])[0]?.text ?? '{}') as { id: string }
+    expect(timer.id).toBeTruthy()
+    expect(await mcp.callTool({ name: 'follow_up', arguments: { action: 'cancel', id: timer.id } })).toMatchObject({
+      content: [{ text: expect.stringContaining('cancelled') }],
     })
     const task = JSON.parse((created.content as { text: string }[])[0]?.text ?? '{}') as { id: string }
     await mcp.callTool({ name: 'ready', arguments: { task_id: task.id, how_to_try: 'Read them' } })

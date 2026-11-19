@@ -15,7 +15,6 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { api } from '@/lib/api'
 import { useFetched } from '@/lib/use-fetched'
-import { cn } from '@/lib/utils'
 
 type Choice = { value: string | null; label: string }
 
@@ -85,16 +84,16 @@ export function Composer({
         </div>
         <div className="footer">
           <Picker
-            label="Orchestrator"
+            label="Next-turn orchestrator"
             trigger={<EngineIcon engine={leader.engine} className="size-3.5" />}
             triggerLabel={`Orchestrator: ${engineName(leader.engine)}`}
             choices={LEADER_ENGINES.map(engine => ({ value: engine, label: engineName(engine) }))}
             value={leader.engine}
             disabled={offline}
-            isLocked={value => value !== leader.engine}
-            lockedNote="Switching the Orchestrator is not available yet"
             icon={value => value && <EngineIcon engine={value as LeaderSettings['engine']} className="size-3.5" />}
-            onChange={() => undefined}
+            onChange={engine => {
+              if (engine) void act(() => api.configure({ engine: engine as LeaderSettings['engine'], model: null, effort: null }))
+            }}
           />
           <Picker
             label="Next-turn model"
@@ -106,7 +105,7 @@ export function Composer({
             )}
             value={leader.model}
             disabled={offline}
-            onChange={model => void act(() => api.configure({ model, effort: null }))}
+            onChange={model => void act(() => api.configure({ engine: leader.engine, model, effort: null }))}
           />
           <Picker
             label="Next-turn effort"
@@ -118,7 +117,7 @@ export function Composer({
             )}
             value={leader.effort}
             disabled={offline}
-            onChange={effort => void act(() => api.configure({ model: leader.model, effort }))}
+            onChange={effort => void act(() => api.configure({ engine: leader.engine, model: leader.model, effort }))}
           />
         </div>
         {(catalog.error || catalog.data?.error) && (
@@ -153,8 +152,6 @@ function Picker({
   choices,
   value,
   disabled,
-  isLocked,
-  lockedNote,
   icon,
   onChange,
 }: {
@@ -164,8 +161,6 @@ function Picker({
   choices: Choice[]
   value: string | null
   disabled: boolean
-  isLocked?: (value: string | null) => boolean
-  lockedNote?: string
   icon?: (value: string | null) => ReactNode
   onChange: (value: string | null) => void
 }) {
@@ -186,21 +181,12 @@ function Picker({
             if (choice && choice.value !== value) onChange(choice.value)
           }}
         >
-          {choices.map(choice => {
-            const locked = isLocked?.(choice.value) ?? false
-            return (
-              <DropdownMenuRadioItem
-                key={key(choice.value)}
-                value={key(choice.value)}
-                disabled={locked}
-                title={locked ? lockedNote : undefined}
-                className={cn('gap-2', locked && 'opacity-50')}
-              >
-                {icon?.(choice.value)}
-                {choice.label}
-              </DropdownMenuRadioItem>
-            )
-          })}
+          {choices.map(choice => (
+            <DropdownMenuRadioItem key={key(choice.value)} value={key(choice.value)} className="gap-2">
+              {icon && <span aria-hidden="true">{icon(choice.value)}</span>}
+              {choice.label}
+            </DropdownMenuRadioItem>
+          ))}
         </DropdownMenuRadioGroup>
       </DropdownMenuContent>
     </DropdownMenu>

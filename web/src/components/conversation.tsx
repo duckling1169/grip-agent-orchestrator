@@ -1,7 +1,7 @@
 import { Check, CircleAlert, Copy, RotateCw } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
-import type { ConversationEntry, LeaderTurn } from '@contracts/api'
+import type { ConversationEntry, LeaderSettings, LeaderTurn, Recovery } from '@contracts/api'
 import { engineName } from '@/components/engine-icon'
 import { Markdown } from '@/components/markdown'
 import { WorkerIcon } from '@/components/worker-icon'
@@ -9,6 +9,7 @@ import { api } from '@/lib/api'
 import { clockTime, elapsed } from '@/lib/format'
 
 type UserEntry = Extract<ConversationEntry, { type: 'user' }>
+type Retry = (turnId: number, settings?: LeaderSettings) => void
 
 export function Conversation({
   entries,
@@ -54,7 +55,14 @@ export function Conversation({
             const turn = entry.turn
             const hasMark = turn.status === 'failed' && lastUserOfTurn.has(turn.id)
             if (turn.retried || hasMark) return null
-            return <MoxyTurn key={`moxy-${turn.id}`} turn={turn} offline={offline} onRetry={() => act(() => api.retry(turn.id))} />
+            return (
+              <MoxyTurn
+                key={`moxy-${turn.id}`}
+                turn={turn}
+                offline={offline}
+                onRetry={settings => act(() => api.retry(turn.id, settings))}
+              />
+            )
           }
           const turn = entry.leaderTurnId === null ? null : turns.get(entry.leaderTurnId)
           const failed = turn?.status === 'failed' && !turn.retried && lastUserOfTurn.get(turn.id) === entry.inboxId ? turn : null
@@ -65,7 +73,7 @@ export function Conversation({
               failed={failed}
               queued={entry.leaderTurnId === null && running}
               offline={offline}
-              onRetry={turnId => act(() => api.retry(turnId))}
+              onRetry={(turnId, settings) => act(() => api.retry(turnId, settings))}
               onSendNow={() => act(() => api.sendNow())}
             />
           )
@@ -87,7 +95,7 @@ function UserMessage({
   failed: LeaderTurn | null
   queued: boolean
   offline: boolean
-  onRetry: (turnId: number) => void
+  onRetry: Retry
   onSendNow: () => void
 }) {
   const bubble = (
@@ -115,6 +123,11 @@ function UserMessage({
       ) : (
         bubble
       )}
+      {failed?.recovery && (
+        <div className="after-user">
+          <TurnRecovery recovery={failed.recovery} offline={offline} onRetry={settings => onRetry(failed.id, settings)} />
+        </div>
+      )}
       {queued && (
         <div className="after-user">
           <span className="next">Queued</span>
@@ -133,17 +146,18 @@ function UserMessage({
   )
 }
 
-function MoxyTurn({ turn, offline, onRetry }: { turn: LeaderTurn; offline: boolean; onRetry: () => void }) {
+function MoxyTurn({ turn, offline, onRetry }: { turn: LeaderTurn; offline: boolean; onRetry: (settings?: LeaderSettings) => void }) {
   if (turn.status === 'running') return <Working turn={turn} />
   if (turn.status === 'failed')
     return (
       <div className="msg-moxy">
         <div className="note-line fail">
           {turn.error ?? 'Moxy could not reply'}{' '}
-          <button className="ghost link" type="button" disabled={offline} onClick={onRetry}>
+          <button className="ghost link" type="button" disabled={offline} onClick={() => onRetry()}>
             Retry
           </button>
         </div>
+        {turn.recovery && <TurnRecovery recovery={turn.recovery} offline={offline} onRetry={onRetry} />}
       </div>
     )
   if (!turn.output) return turn.status === 'stopped' ? <div className="note-line">Stopped</div> : null
@@ -152,6 +166,35 @@ function MoxyTurn({ turn, offline, onRetry }: { turn: LeaderTurn; offline: boole
       <Markdown text={turn.output} />
       {turn.status === 'stopped' && <div className="note-line">Stopped</div>}
       <Byline turn={turn} text={turn.output} />
+    </div>
+  )
+}
+
+function TurnRecovery({
+  recovery,
+  offline,
+  onRetry,
+}: {
+  recovery: Recovery
+  offline: boolean
+  onRetry: (settings: LeaderSettings) => void
+}) {
+  const suggested = recovery.suggested
+  return (
+    <div className="note-line fail">
+      {engineName(recovery.provider)}: {recovery.reason}.{' '}
+      {recovery.resetsAt ? (
+        <>
+          Resets <time dateTime={recovery.resetsAt}>{clockTime(recovery.resetsAt)}</time>.{' '}
+        </>
+      ) : (
+        'Reset time unavailable. '
+      )}
+      {suggested && (
+        <button className="ghost link" type="button" disabled={offline} onClick={() => onRetry(suggested)}>
+          Switch to {engineName(suggested.engine)} and retry
+        </button>
+      )}
     </div>
   )
 }

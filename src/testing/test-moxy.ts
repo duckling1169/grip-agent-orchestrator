@@ -2,6 +2,7 @@ import { onTestFinished } from 'vitest'
 
 import { startMoxy } from '../app.js'
 import type { Moxy, MoxyOptions } from '../app.js'
+import { inboxPart } from '../moxy/prompt.js'
 import type { LeaderRunner, LeaderTurnRequest } from '../runtime/leaders/leader.js'
 import { FAKE_CLAW_CLI, freePort, silentLog, temporaryHome } from './harness.js'
 
@@ -14,7 +15,7 @@ export function echoLeader(): EchoLeader {
     requests: [],
     async run(request) {
       this.requests.push(request)
-      return { output: `You said: ${request.message}`, error: null, nativeSessionId: 'native-1' }
+      return { output: `You said: ${inboxPart(request.message)}`, error: null, nativeSessionId: 'native-1' }
     },
     async stop() {},
   }
@@ -38,6 +39,7 @@ export async function startTestMoxy(options: MoxyOptions = {}): Promise<Moxy> {
       claude: async () => ({ engine: 'claude', windows: [] }),
     },
     models: { get: async engine => ({ engine, models: [], error: null }) },
+    leaderAvailable: () => true,
     pushSender: async () => ({ ok: true }),
     machines: {
       get: async () => ({ machines: [], checkedAt: new Date().toISOString(), error: null }),

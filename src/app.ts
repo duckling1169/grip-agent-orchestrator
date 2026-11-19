@@ -10,6 +10,10 @@ import type { Log } from './log.js'
 import { DEFAULT_MCP_PORT, startMcpServer } from './mcp/server.js'
 import { LeaderLoop } from './moxy/loop.js'
 import { ConversationStore, workerTurnEnded } from './moxy/store.js'
+import { FollowUps } from './moxy/follow-ups.js'
+import { Memory } from './moxy/memory.js'
+import { handoffContext } from './moxy/context.js'
+import type { Engine } from './contracts/engines.js'
 import { moxyPaths } from './paths.js'
 import { tailscaleOwner } from './platform/tailscale.js'
 import { PushNotifier } from './platform/push.js'
@@ -28,7 +32,7 @@ import { ClawClient } from './runtime/claw/client.js'
 import { assertSupportedClaw, installedClawCli } from './runtime/claw/install.js'
 import { ClawProcess } from './runtime/claw/process.js'
 import { isEngineInstalled } from './runtime/engines.js'
-import { ClawLeader, LEADER_SESSION } from './runtime/leaders/claw-leader.js'
+import { ClawLeader, LEADER_SESSION_PREFIX } from './runtime/leaders/claw-leader.js'
 import { leaderRunners } from './runtime/leaders/runners.js'
 import type { LeaderRunners } from './runtime/leaders/runners.js'
 import { Tasks } from './tasks/service.js'
@@ -59,6 +63,7 @@ export type MoxyOptions = {
   models?: Pick<ModelCatalog, 'get'>
   pushSender?: PushSender
   machines?: Pick<MachineDiscovery, 'get' | 'refresh'>
+  leaderAvailable?: (engine: Engine) => boolean
 }
 
 export type Moxy = {
@@ -70,6 +75,8 @@ export type Moxy = {
   loop: LeaderLoop
   quota: Quota
   push: PushNotifier
+  followUps: FollowUps
+  memory: Memory
   clawPort: number
   clawVersion: string
   mcpPort: number
@@ -112,6 +119,9 @@ export async function startMoxy(options: MoxyOptions = {}): Promise<Moxy> {
 
     const conversation = new ConversationStore(database)
     let loop: LeaderLoop | null = null
+    const memory = new Memory(database)
+    const followUps = new FollowUps(database, { wake: () => loop?.wake(), onError: error => log(`follow-up failed: ${errorText(error)}`) })
+    undo.push(() => followUps.close())
     const worktrees = new Worktrees()
     const workers = new Workers({
       store: new WorkerStore(database),
@@ -144,7 +154,7 @@ export async function startMoxy(options: MoxyOptions = {}): Promise<Moxy> {
 
     const mcpToken = await loadOrCreateToken(paths.mcpToken)
     const mcp = await startMcpServer({
-      tools: { workers, tasks, conversation, quota, models },
+      tools: { workers, tasks, conversation, quota, models, followUps, memory },
       token: mcpToken,
       port: options.mcpPort ?? DEFAULT_MCP_PORT,
       version: MOXY_VERSION,
@@ -153,7 +163,8 @@ export async function startMoxy(options: MoxyOptions = {}): Promise<Moxy> {
 
     const interruptedLeader = conversation.interruptRunningTurn('Moxy restarted during this turn')
     if (interruptedLeader) log(`marked leader turn ${interruptedLeader.id} interrupted; its messages will be delivered again`)
-    await client.stopSession(LEADER_SESSION).catch(() => undefined)
+    for (const session of await client.listSessions())
+      if (session.name.startsWith(LEADER_SESSION_PREFIX)) await client.stopSession(session.name).catch(() => undefined)
     for (const integration of tasks.reconcile()) log(`integration of ${integration.branch} into ${integration.repoRoot} was interrupted`)
     const { interruptedTurns, orphanedSessions } = await workers.reconcile()
     if (interruptedTurns.length) log(`marked ${interruptedTurns.length} interrupted worker turn(s)`)
@@ -166,6 +177,13 @@ export async function startMoxy(options: MoxyOptions = {}): Promise<Moxy> {
       cwd: options.workspace ?? homedir(),
       timeoutMs: options.leaderTimeoutMs ?? LEADER_TURN_TIMEOUT_MS,
       log,
+      seed: turnId => handoffContext({ tasks: tasks.list(), conversation: conversation.conversation(), memory: memory.read() }, turnId),
+      instructions: () => {
+        const instructions = memory.read().instructions
+        return instructions ? `[User standing instructions]\n${instructions}` : ''
+      },
+      quota: () => quota.snapshot(),
+      available: options.leaderAvailable ?? isEngineInstalled,
       onTurnEnded: turn => {
         quota.afterTurn(turn.engine)
         log(`leader turn ${turn.id} ${turn.status}${turn.error ? `: ${turn.error}` : ''}`)
@@ -195,12 +213,14 @@ export async function startMoxy(options: MoxyOptions = {}): Promise<Moxy> {
     undo.push(() => web.close())
     log(`Moxy on 127.0.0.1:${web.port}, MCP on 127.0.0.1:${mcp.port}`)
     activeLoop.wake()
+    followUps.start()
     quota.startTimer(settings.current().quotaRefreshMinutes * 60_000)
 
     let stopping: Promise<void> | null = null
     const stop = () =>
       (stopping ??= (async () => {
         log('stopping')
+        followUps.close()
         const quotaClosed = quota.close()
         const pushClosed = push.close()
         await web.close()
@@ -222,6 +242,8 @@ export async function startMoxy(options: MoxyOptions = {}): Promise<Moxy> {
       loop: activeLoop,
       quota,
       push,
+      followUps,
+      memory,
       clawPort,
       clawVersion: version,
       mcpPort: mcp.port,

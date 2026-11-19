@@ -4,7 +4,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { z } from 'zod'
 
 import type { PostedMessage, Snapshot } from '../contracts/api.js'
-import { isEngine } from '../contracts/engines.js'
+import { isEngine, LEADER_ENGINES } from '../contracts/engines.js'
 import { MoxySettingsBody } from '../contracts/settings.js'
 import type { Database } from '../db/database.js'
 import { errorText } from '../errors.js'
@@ -56,8 +56,8 @@ class HttpError extends Error {
 }
 
 const MessageBody = z.object({ text: z.string().trim().min(1, 'text is required'), id: z.string().min(1).optional() })
-const RetryBody = z.object({ turnId: z.number().int() })
-const SettingsBody = z.object({ model: z.string().min(1).nullable(), effort: z.string().min(1).nullable() })
+const SettingsBody = z.object({ engine: z.enum(LEADER_ENGINES), model: z.string().min(1).nullable(), effort: z.string().min(1).nullable() })
+const RetryBody = z.object({ turnId: z.number().int(), settings: SettingsBody.optional() })
 const WorkerMessageBody = z.object({ text: z.string().trim().min(1, 'text is required') })
 const PushDeviceBody = z.object({ endpoint: z.string().url().max(4096) })
 const PushSubscribeBody = z.object({
@@ -170,7 +170,8 @@ export async function startWebServer(options: WebServerOptions): Promise<Loopbac
     if (method === 'POST' && path === '/api/leader/stop') return { stopped: await loop.stop() }
     if (method === 'POST' && path === '/api/leader/send-now') return { stopped: await loop.sendNow() }
     if (method === 'POST' && path === '/api/leader/retry') {
-      const turn = conversation.retryTurn((await body(req, RetryBody)).turnId)
+      const retry = await body(req, RetryBody)
+      const turn = conversation.retryTurn(retry.turnId, retry.settings)
       loop.wake()
       return turn
     }

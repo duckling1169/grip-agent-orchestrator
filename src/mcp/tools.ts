@@ -12,6 +12,10 @@ import type { Workers } from '../workers/service.js'
 import type { Worker } from '../contracts/api.js'
 import type { ModelCatalog } from '../providers/models.js'
 import type { Quota } from '../providers/quota.js'
+import { FOLLOW_UP_PROMPT_LIMIT } from '../moxy/follow-ups.js'
+import type { FollowUps } from '../moxy/follow-ups.js'
+import { MEMORY_LIMITS } from '../moxy/memory.js'
+import type { Memory } from '../moxy/memory.js'
 
 export type LeaderToolsDeps = {
   workers: Workers
@@ -19,6 +23,8 @@ export type LeaderToolsDeps = {
   conversation: ConversationStore
   models: Pick<ModelCatalog, 'get'>
   quota: Pick<Quota, 'snapshot'>
+  followUps: FollowUps
+  memory: Memory
 }
 
 const workerId = z.string().describe('A worker id from delegate or workers')
@@ -47,8 +53,58 @@ function summarize(worker: Worker) {
   }
 }
 
-export function createLeaderMcpServer({ workers, tasks, conversation, models, quota }: LeaderToolsDeps, version: string): McpServer {
+export function createLeaderMcpServer(
+  { workers, tasks, conversation, models, quota, followUps, memory }: LeaderToolsDeps,
+  version: string,
+): McpServer {
   const server = new McpServer({ name: MOXY_MCP_NAME, version })
+
+  server.registerTool(
+    'memory_read',
+    {
+      title: 'Read user memory',
+      description: 'Standing instructions and durable preferences shared across tasks. Keep pointers rather than copies of repo contents.',
+      ...readOnly,
+    },
+    () => asToolResult(() => memory.read()),
+  )
+  server.registerTool(
+    'memory_update',
+    {
+      title: 'Update user memory',
+      description:
+        'Replace standing instructions or durable preference notes. Store only preferences and corrections, never credentials or repo content that can be read again.',
+      inputSchema: {
+        instructions: z.string().max(MEMORY_LIMITS.instructions).optional(),
+        preferences: z.string().max(MEMORY_LIMITS.preferences).optional(),
+      },
+    },
+    update => asToolResult(() => memory.update(update)),
+  )
+  server.registerTool(
+    'follow_up',
+    {
+      title: 'Schedule a follow-up',
+      description:
+        'Schedule a future inbox message, such as checking a task when quota resets, cancel a pending timer, or list pending timers. A follow-up is not a new user message and cannot accept tasks.',
+      inputSchema: {
+        action: z.enum(['schedule', 'cancel', 'list']),
+        due_at: z.string().optional(),
+        prompt: z.string().max(FOLLOW_UP_PROMPT_LIMIT).optional(),
+        id: z.string().optional(),
+      },
+    },
+    args =>
+      asToolResult(() => {
+        if (args.action === 'list') return followUps.list().filter(timer => timer.status === 'pending')
+        if (args.action === 'cancel') {
+          if (!args.id) throw new Error('id is required to cancel a follow-up')
+          return followUps.cancel(args.id)
+        }
+        if (!args.due_at || !args.prompt) throw new Error('due_at and prompt are required to schedule a follow-up')
+        return followUps.schedule({ dueAt: args.due_at, prompt: args.prompt })
+      }),
+  )
 
   server.registerTool(
     'models',

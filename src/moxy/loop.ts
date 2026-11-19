@@ -1,9 +1,11 @@
-import type { LeaderTurn } from '../contracts/api.js'
+import type { EngineQuota, LeaderTurn } from '../contracts/api.js'
+import type { Engine } from '../contracts/engines.js'
+import { recoveryFor } from '../providers/recovery.js'
 import { errorText } from '../errors.js'
 import type { Log } from '../log.js'
 import type { LeaderRunner, McpEndpoint } from '../runtime/leaders/leader.js'
 import type { LeaderRunners } from '../runtime/leaders/runners.js'
-import { renderInbox } from './prompt.js'
+import { renderInbox, withContext } from './prompt.js'
 import type { ConversationStore, LeaderTurnEnding, ReceivedItem } from './store.js'
 
 export type LeaderLoopOptions = {
@@ -14,6 +16,10 @@ export type LeaderLoopOptions = {
   timeoutMs: number
   log: Log
   onTurnEnded?: (turn: LeaderTurn) => void
+  seed?: (turnId: number) => string
+  instructions?: () => string
+  quota?: () => EngineQuota[]
+  available?: (engine: Engine) => boolean
 }
 
 export class LeaderLoop {
@@ -71,21 +77,42 @@ export class LeaderLoop {
     while (!this.closed) {
       const begun = this.options.conversation.beginTurn()
       if (!begun) return
-      await this.runTurn(begun.turn, begun.items)
+      await this.runTurn(begun.turn, begun.items, begun.nativeSessionId)
     }
   }
 
-  private async runTurn(turn: LeaderTurn, items: ReceivedItem[]): Promise<void> {
+  private async runTurn(turn: LeaderTurn, items: ReceivedItem[], nativeSessionId: string | null): Promise<void> {
     let ending: LeaderTurnEnding
+    let message = ''
+    const recovery = (error: string | null) =>
+      recoveryFor(turn.engine, error, this.options.quota?.() ?? [], this.options.available ?? (() => false))
     try {
+      const exhausted = recovery(null)
+      if (exhausted) {
+        const failed = this.options.conversation.endTurn(turn.id, {
+          status: 'failed',
+          output: null,
+          error: exhausted.reason,
+          recovery: exhausted,
+          nativeSessionId: null,
+        })
+        this.options.onTurnEnded?.(failed)
+        return
+      }
+      const freshContext = this.options.seed?.(turn.id) ?? ''
+      const instructions = this.options.instructions?.() ?? ''
+      const prefix = [instructions, nativeSessionId ? '' : freshContext].filter(Boolean).join('\n\n')
+      message = withContext(prefix, renderInbox(items))
       this.runner = this.options.runners(turn.engine)
       const reply = await this.runner.run({
         engine: turn.engine,
         model: turn.model,
         effort: turn.effort,
-        nativeSessionId: this.options.conversation.leader().nativeSessionId,
+        nativeSessionId,
+        sessionKey: String(turn.id),
         cwd: this.options.cwd,
-        message: renderInbox(items),
+        message,
+        freshContext,
         mcp: this.options.mcp,
         timeoutMs: this.options.timeoutMs,
       })
@@ -94,12 +121,23 @@ export class LeaderLoop {
         output: reply.output || null,
         error: reply.error,
         nativeSessionId: reply.nativeSessionId,
+        recovery: reply.error ? recovery(reply.error) : null,
+        context: reply.context,
+        inputChars: message.length,
       }
     } catch (error) {
-      ending = { status: 'failed', output: null, error: errorText(error), nativeSessionId: null }
+      ending = {
+        status: 'failed',
+        output: null,
+        error: errorText(error),
+        recovery: recovery(errorText(error)),
+        nativeSessionId: null,
+        inputChars: message.length,
+      }
     } finally {
       this.runner = null
     }
-    this.options.onTurnEnded?.(this.options.conversation.endTurn(turn.id, ending))
+    const ended = this.options.conversation.endTurn(turn.id, ending)
+    this.options.onTurnEnded?.(ended)
   }
 }

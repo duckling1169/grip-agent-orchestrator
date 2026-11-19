@@ -74,6 +74,8 @@ export type WorktreeDiff = {
 
 export type LeaderTurnStatus = 'running' | 'finished' | 'failed' | 'stopped' | 'interrupted'
 
+export type Recovery = { provider: Engine; resetsAt: string | null; suggested: LeaderSettings | null; reason: string }
+
 export type LeaderTurn = {
   id: number
   engine: Engine
@@ -85,6 +87,7 @@ export type LeaderTurn = {
   startedAt: string
   endedAt: string | null
   retried: boolean
+  recovery: Recovery | null
 }
 
 export type LeaderSettings = { engine: Engine; model: string | null; effort: string | null }

@@ -3,6 +3,26 @@ import type { Page } from '@playwright/test'
 
 const isMobile = (page: Page) => (page.viewportSize()?.width ?? 0) < 768
 
+test('engine changes apply to the next turn and can switch and retry a quota failure', async ({ page }) => {
+  await openIdle(page)
+  await page.getByRole('button', { name: /^Orchestrator:/ }).click()
+  const codex = page.getByRole('menuitemradio', { name: 'Codex', exact: true })
+  await expect(codex).toBeEnabled()
+  await codex.click()
+  await expect(page.getByRole('button', { name: 'Orchestrator: Codex' })).toBeVisible()
+  await page.getByRole('button', { name: /^Orchestrator:/ }).click()
+  await page.getByRole('menuitemradio', { name: 'Claude', exact: true }).click()
+  await send(page, `Please fail for recovery ${Date.now()}`)
+  await expect(page.getByRole('button', { name: /Switch to Codex and retry/ })).toBeVisible({ timeout: 15000 })
+  await page.getByRole('button', { name: /Switch to Codex and retry/ }).click()
+  await expect(page.getByRole('button', { name: 'Orchestrator: Codex' })).toBeVisible()
+  await expect(page.locator('.msg-moxy').filter({ hasText: 'This is the local preview' }).last()).toBeVisible({ timeout: 15000 })
+  await expect(page.getByRole('status')).toHaveCount(0, { timeout: 15000 })
+  await page.screenshot({ path: `test-results/recovery-${isMobile(page) ? 'mobile' : 'desktop'}.png`, animations: 'disabled' })
+  await page.getByRole('button', { name: /^Orchestrator:/ }).click()
+  await page.getByRole('menuitemradio', { name: 'Claude', exact: true }).click()
+})
+
 test('the machine switcher opens another Moxy without forwarding this machine credentials or task selection', async ({ page }) => {
   await page.goto('/?task=dark-mode')
   await page.getByRole('button', { name: /^Switch machine:/ }).click()

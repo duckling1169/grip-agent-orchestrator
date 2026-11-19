@@ -7,8 +7,9 @@ import { fileURLToPath } from 'node:url'
 
 import { startMoxy } from '../src/app.js'
 import type { EngineUsage } from '../src/contracts/api.js'
+import { inboxPart } from '../src/moxy/prompt.js'
 import { userMessage } from '../src/moxy/store.js'
-import type { LeaderReply, LeaderRunner } from '../src/runtime/leaders/leader.js'
+import type { LeaderReply, LeaderRunner, LeaderTurnRequest } from '../src/runtime/leaders/leader.js'
 import { TaskStore } from '../src/tasks/store.js'
 import { WorkerStore } from '../src/workers/store.js'
 import type { MachineList } from '../src/contracts/machines.js'
@@ -23,15 +24,16 @@ class PreviewLeader implements LeaderRunner {
   delayMs = 0
   private cancel: (() => void) | null = null
 
-  run(request: { message: string }): Promise<LeaderReply> {
+  run(request: LeaderTurnRequest): Promise<LeaderReply> {
+    const message = inboxPart(request.message)
     return new Promise(resolve => {
       const reply = (output: string, error: string | null = null) => {
         this.cancel = null
         resolve({ output, error, nativeSessionId: 'preview' })
       }
       const timer = setTimeout(() => {
-        if (/\bfail\b/i.test(request.message)) reply('', 'Claude usage limit reached; it resets at 16:00')
-        else reply(previewReply(request.message))
+        if (request.engine === 'claude' && /\bfail\b/i.test(message)) reply('', 'Claude usage limit reached; it resets at 16:00')
+        else reply(previewReply(message))
       }, this.delayMs)
       this.cancel = () => {
         clearTimeout(timer)
@@ -118,6 +120,7 @@ const moxy = await startMoxy({
   webPort: await freePort(),
   clawCli: FAKE_CLAW_CLI,
   leaders: () => leader,
+  leaderAvailable: () => true,
   pushSender: async () => ({ ok: true }),
   machines: { get: previewMachines, refresh: previewMachines },
   quotaReaders: {

@@ -1,7 +1,7 @@
 import type { Schema } from './database.js'
 
 export const MOXY_SCHEMA: Schema = {
-  version: 1,
+  version: 2,
   statements: [
     `CREATE TABLE tasks (
       id TEXT PRIMARY KEY,
@@ -64,7 +64,12 @@ export const MOXY_SCHEMA: Schema = {
       engine TEXT NOT NULL,
       model TEXT,
       effort TEXT,
-      native_session_id TEXT
+      native_session_id TEXT,
+      session_epoch INTEGER NOT NULL DEFAULT 0,
+      session_chars INTEGER NOT NULL DEFAULT 0,
+      session_turns INTEGER NOT NULL DEFAULT 0,
+      context_used INTEGER,
+      context_limit INTEGER
     ) STRICT`,
     `INSERT INTO leader (id, engine) VALUES (1, 'claude')`,
     `CREATE TABLE leader_turns (
@@ -77,17 +82,36 @@ export const MOXY_SCHEMA: Schema = {
       error TEXT,
       started_at TEXT NOT NULL,
       ended_at TEXT,
-      retried_at TEXT
+      retried_at TEXT,
+      session_epoch INTEGER NOT NULL DEFAULT 0,
+      recovery TEXT
     ) STRICT`,
     `CREATE TABLE inbox (
       id INTEGER PRIMARY KEY,
       source TEXT NOT NULL UNIQUE,
-      kind TEXT NOT NULL CHECK (kind IN ('user_message', 'worker_turn_ended')),
+      kind TEXT NOT NULL CHECK (kind IN ('user_message', 'worker_turn_ended', 'follow_up')),
       body TEXT NOT NULL,
       received_at TEXT NOT NULL,
       leader_turn_id INTEGER REFERENCES leader_turns (id),
       interrupted_deliveries INTEGER NOT NULL DEFAULT 0
     ) STRICT`,
     `CREATE INDEX inbox_pending ON inbox (id) WHERE leader_turn_id IS NULL`,
+    `CREATE TABLE follow_ups (
+      id TEXT PRIMARY KEY,
+      source TEXT NOT NULL UNIQUE,
+      prompt TEXT NOT NULL,
+      due_at TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('pending', 'done', 'cancelled')),
+      created_at TEXT NOT NULL,
+      ended_at TEXT
+    ) STRICT`,
+    `CREATE INDEX follow_ups_due ON follow_ups (due_at) WHERE status = 'pending'`,
+    `CREATE TABLE memory (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      instructions TEXT NOT NULL DEFAULT '',
+      preferences TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL
+    ) STRICT`,
+    `INSERT INTO memory (id, updated_at) VALUES (1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`,
   ],
 }

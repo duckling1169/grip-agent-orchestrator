@@ -52,12 +52,18 @@ export class AcpLeader implements LeaderRunner {
 
     let sessionId: string | null = null
     let output = ''
+    let context: LeaderReply['context']
     let replying = false
     let startsNewParagraph = false
     const app = client({ name: 'moxy' })
       .onNotification('session/update', ({ params }) => {
         const update = params.update
         if (!replying || params.sessionId !== sessionId) return
+        if (update.sessionUpdate === 'usage_update') {
+          if (Number.isFinite(update.used) && update.used >= 0 && Number.isFinite(update.size) && update.size > 0)
+            context = { used: update.used, limit: update.size }
+          return
+        }
         if (update.sessionUpdate !== 'agent_message_chunk') {
           startsNewParagraph = output.length > 0
           return
@@ -87,7 +93,11 @@ export class AcpLeader implements LeaderRunner {
       }
       await configure(agent, opened.sessionId, opened.configOptions, request)
       replying = true
-      const text = takesSystemPrompt || opened.loaded ? request.message : `${LEADER_PROMPT}\n\n${request.message}`
+      const message =
+        request.nativeSessionId && !opened.loaded && request.freshContext
+          ? `${request.freshContext}\n\n${request.message}`
+          : request.message
+      const text = takesSystemPrompt || opened.loaded ? message : `${LEADER_PROMPT}\n\n${message}`
       const response = await agent.request('session/prompt', { sessionId: opened.sessionId, prompt: [{ type: 'text', text }] })
       return response.stopReason
     })
@@ -106,9 +116,9 @@ export class AcpLeader implements LeaderRunner {
           )
         }),
       ])
-      return { output, error: stopError(stopReason), nativeSessionId: sessionId }
+      return { output, error: stopError(stopReason), nativeSessionId: sessionId, ...(context ? { context } : {}) }
     } catch (error) {
-      return { output, error: errorText(error), nativeSessionId: sessionId }
+      return { output, error: errorText(error), nativeSessionId: sessionId, ...(context ? { context } : {}) }
     } finally {
       if (timer) clearTimeout(timer)
       if (this.running === running) this.running = null
