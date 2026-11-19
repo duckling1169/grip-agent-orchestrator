@@ -3,13 +3,13 @@ import { join } from 'node:path'
 
 import { describe, expect, it, onTestFinished } from 'vitest'
 
-import { PLAIN_COMMANDS_RULE } from '../contracts/engines.js'
+import { engineSpec, ENGINES, PLAIN_COMMANDS_RULE } from '../contracts/engines.js'
 import { Database } from '../db/database.js'
 import { MOXY_SCHEMA } from '../db/schema.js'
 import { Worktrees } from '../repos/worktrees.js'
 import { FakeClaw } from '../testing/fake-claw.js'
 import { silentLog, temporaryHome, temporaryRepo } from '../testing/harness.js'
-import { FOREGROUND_COMMANDS_RULE, sessionName, Workers } from './service.js'
+import { FOREGROUND_COMMANDS_RULE, sessionName, WORKER_SESSION_OPTIONS, Workers } from './service.js'
 import { WorkerStore } from './store.js'
 
 async function setup(options: { installed?: boolean } = {}) {
@@ -65,7 +65,6 @@ describe('Workers', () => {
     })
     expect(claw.starts[0]?.appendSystemPrompt).toContain(PLAIN_COMMANDS_RULE)
     expect(claw.starts[0]?.appendSystemPrompt).toContain(FOREGROUND_COMMANDS_RULE)
-    expect(claw.sends[0]?.message).toBe('# Add a feature\nDetails follow.')
     await writeFile(join(worker.cwd, 'feature.txt'), 'new\n')
     claw.answer(sessionName(worker.id), { output: 'Added the feature.', sessionId: 'native-1' })
     await workers.settled(worker.id)
@@ -80,6 +79,17 @@ describe('Workers', () => {
     expect(claw.stops).toContain(sessionName(worker.id))
   })
 
+  it.each(ENGINES)('gives a %s worker the same rules and tool limits', async engine => {
+    const { claw, workers } = await setup()
+    const worker = await workers.delegate({ folder: await temporaryRepo(), engine, prompt: 'Do the task' })
+    await claw.turnStarted(sessionName(worker.id))
+    expect(claw.starts[0]).toMatchObject({ engine: engineSpec(engine).claw, ...WORKER_SESSION_OPTIONS })
+    expect(claw.starts[0]?.appendSystemPrompt).toContain(FOREGROUND_COMMANDS_RULE)
+    expect(claw.sends[0]?.message).toBe('Do the task')
+    claw.answer(sessionName(worker.id), { output: 'Done' })
+    await workers.settled(worker.id)
+  })
+
   it('starts and resumes agy with bypass permissions and a standard worktree branch', async () => {
     const { claw, workers } = await setup()
     const repo = await temporaryRepo()
@@ -87,14 +97,10 @@ describe('Workers', () => {
     const name = sessionName(worker.id)
     await claw.turnStarted(name)
     expect(claw.starts[0]).toMatchObject({ cwd: worker.cwd, engine: 'agy', permissionMode: 'bypassPermissions' })
-    expect(claw.starts[0]?.appendSystemPrompt).toBeUndefined()
-    expect(claw.sends[0]?.message).toContain(FOREGROUND_COMMANDS_RULE)
-    expect(claw.sends[0]?.message).toContain(PLAIN_COMMANDS_RULE)
-    expect(claw.sends[0]?.message.endsWith('Read and update the checkout')).toBe(true)
+    expect(claw.sends[0]?.message).toBe('Read and update the checkout')
     expect(worker.repo?.branch).toBe(`moxy/agy-read-and-update-the-checkout-${worker.id}`)
     claw.answer(name, { output: 'Done', sessionId: 'agy-native' })
     await workers.settled(worker.id)
-    expect((await workers.result(worker.id, { diff: false })).turns[0]?.input).toBe('Read and update the checkout')
 
     workers.message(worker.id, 'Continue')
     await claw.turnStarted(name)

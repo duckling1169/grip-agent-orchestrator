@@ -59,11 +59,11 @@ export const WORKER_PROMPT =
   'before you reply. Do not leave subagents or background jobs running when your turn ends: they stop with it, and ' +
   `nobody sees their results. ${FOREGROUND_COMMANDS_RULE} ${PLAIN_COMMANDS_RULE}`
 
-/** Engines without a system prompt option get the worker rules at the top of a new session's first message. */
-export function withWorkerRules(engine: Engine, input: string, resuming: boolean): string {
-  if (engine === 'claude' || resuming) return input
-  return `Rules from Moxy for this session: ${WORKER_PROMPT}\n\n---\n\n${input}`
-}
+/**
+ * Every engine gets the same rules and the same limits. Claw delivers `appendSystemPrompt` as a system prompt or
+ * developer instructions where the CLI has one, and otherwise at the top of a new conversation's first message.
+ */
+export const WORKER_SESSION_OPTIONS = { disallowedTools: [MOXY_MCP_TOOLS], appendSystemPrompt: WORKER_PROMPT }
 
 export class Workers {
   private readonly inFlight = new Map<string, Promise<void>>()
@@ -233,11 +233,10 @@ export class Workers {
         ...(worker.model ? { model: worker.model } : {}),
         ...(worker.effort ? { effort: worker.effort } : {}),
         ...(worker.nativeSessionId ? { resumeSessionId: worker.nativeSessionId } : {}),
-        ...(worker.engine === 'claude' ? { disallowedTools: [MOXY_MCP_TOOLS], appendSystemPrompt: WORKER_PROMPT } : {}),
+        ...WORKER_SESSION_OPTIONS,
       })
       if (this.store.turnStatus(turn) !== 'running') throw new Error('stopped before the turn began')
-      const message = withWorkerRules(worker.engine, input, Boolean(worker.nativeSessionId))
-      const sent = await claw.sendMessage(name, message, {
+      const sent = await claw.sendMessage(name, input, {
         timeoutMs: this.options.turnTimeoutMs ?? DEFAULT_TURN_TIMEOUT_MS,
         ...(worker.effort ? { effort: worker.effort } : {}),
       })
