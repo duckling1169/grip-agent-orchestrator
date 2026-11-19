@@ -122,7 +122,7 @@ Each step ends with its tests green and `format:check`, `typecheck`, `test` and 
    4. Push for tasks waiting on the user.
    5. The machine switcher.
 6. **Handoff and recovery.** Next-turn engine changes, context rotation, quota-failure switch-and-retry, timers and follow-ups, and user memory.
-7. **Install.** Install and uninstall, logon task, Tailscale Serve on the standard ports, explicit Claw upgrade command, and README.
+7. **Install.** Install and uninstall, logon task, Tailscale Serve on the standard ports, status, stop and restart through a local-only shutdown, keep-awake while work runs, explicit Claw upgrade command, and README.
 
 ## Open questions
 

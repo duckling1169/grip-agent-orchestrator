@@ -2,7 +2,36 @@
 
 One persistent conversation that coordinates coding agents across repositories and providers, from any device on your tailnet. [DESIGN.md](DESIGN.md) describes the product; [IMPLEMENTATION.md](IMPLEMENTATION.md) describes how it is built and what comes next.
 
-Moxy is under construction. It runs workers, tasks, the leader conversation and a desktop/mobile web app. Engine handoff and installation follow the build order in [IMPLEMENTATION.md](IMPLEMENTATION.md).
+## Install
+
+Moxy installs on Windows. It needs Node 24.11 or later and Tailscale signed in. Run it from a normal terminal, not an elevated one:
+
+```text
+npm ci
+npm run build
+node dist/cli.js install
+```
+
+Install does these steps, and it is safe to run again:
+
+1. It installs Claw (`@enderfga/claw-orchestrator`, `>=7.23.4 <8`) when no supported release is installed.
+2. It allows the signed-in Tailscale login to use Moxy, through `allowedLogins` in `~/.moxy/config.json`.
+3. It publishes Moxy on your tailnet with `tailscale serve --bg 18798`. If something else already serves this machine's HTTPS root, install leaves it unchanged and prints the command for you to run.
+4. It registers a Windows logon task named Moxy. The task starts Moxy when you log on, with your normal rights and no window, and restarts it if it fails. Moxy logs to `~/.moxy/logs/moxy.log`.
+5. It starts Moxy, unless Moxy already runs. In that case, run `moxy restart` to move it to the task.
+
+Then open `https://<this machine's tailnet name>/` on any of your tailnet devices. While a turn or worker runs, Moxy keeps the machine from sleeping; the display can still turn off.
+
+| Command             | What it does                                                                       |
+| ------------------- | ---------------------------------------------------------------------------------- |
+| `moxy status`       | Shows whether Moxy runs, its logon task, Tailscale, Claw and what is working       |
+| `moxy stop`         | Stops Moxy when nothing works; `--force` stops it anyway                           |
+| `moxy restart`      | Stops Moxy and starts it again through its logon task, for example after a build   |
+| `moxy upgrade-claw` | Stops Moxy, installs the newest Claw in the supported range, and starts Moxy again |
+| `moxy uninstall`    | Removes the logon task. Moxy's data, Claw and `tailscale serve` stay               |
+| `moxy say <text>`   | Sends Moxy a message and prints its reply                                          |
+
+Claw never upgrades itself; `moxy upgrade-claw` is the only way it changes. Run the commands with `node dist/cli.js <command>`, or put `moxy` on your PATH with `npm link`. Only a command on Moxy's own machine can stop Moxy.
 
 ## Develop
 

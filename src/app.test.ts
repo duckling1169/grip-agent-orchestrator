@@ -6,6 +6,8 @@ import { describe, expect, it } from 'vitest'
 
 import type { MoxyOptions } from './app.js'
 import { DatabaseInUseError } from './db/database.js'
+import { userMessage } from './moxy/store.js'
+import type { LeaderReply } from './runtime/leaders/leader.js'
 import { ClawClient } from './runtime/claw/client.js'
 import { freePort } from './testing/harness.js'
 import { echoLeader, startTestMoxy } from './testing/test-moxy.js'
@@ -29,6 +31,21 @@ describe('startMoxy', () => {
     expect(await client.health(500)).toBeNull()
 
     await start({ home: moxy.paths.home })
+  })
+
+  it('keeps the machine awake only while a turn runs', async () => {
+    const held: boolean[] = []
+    let finish = () => {}
+    const slowLeader = {
+      run: () => new Promise<LeaderReply>(resolve => (finish = () => resolve({ output: 'Done.', error: null, nativeSessionId: null }))),
+      stop: async () => {},
+    }
+    const moxy = await startTestMoxy({ leaders: () => slowLeader, keepAwake: { set: active => held.push(active), release: () => {} } })
+    moxy.conversation.receive(userMessage('Work on it', 'awake'))
+    moxy.loop.wake()
+    await expect.poll(() => held.at(-1)).toBe(true)
+    finish()
+    await expect.poll(() => held.at(-1)).toBe(false)
   })
 
   it('refuses a second Moxy on the same data home without starting Claw', async () => {

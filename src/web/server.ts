@@ -21,7 +21,7 @@ import type { PushNotifier } from '../platform/push.js'
 import type { MachineDiscovery } from '../platform/machines.js'
 import type { Tasks } from '../tasks/service.js'
 import type { Workers } from '../workers/service.js'
-import { crossSiteWrite, identify } from './identity.js'
+import { crossSiteWrite, identify, LOCAL_LOGIN } from './identity.js'
 import { serveStatic } from './static.js'
 
 export const DEFAULT_WEB_PORT = 18798
@@ -44,6 +44,7 @@ export type WebServerOptions = {
   settings: Settings
   push: PushNotifier
   machines: Pick<MachineDiscovery, 'get' | 'refresh'>
+  shutdown: () => void
 }
 
 class HttpError extends Error {
@@ -130,6 +131,11 @@ export async function startWebServer(options: WebServerOptions): Promise<Loopbac
     const method = req.method ?? 'GET'
     if (method === 'GET' && path === '/api/events') return openStream(res, login)
     if (method === 'GET' && path === '/api/state') return snapshot(login)
+    if (method === 'POST' && path === '/api/shutdown') {
+      if (login !== LOCAL_LOGIN) throw new HttpError(403, 'Moxy can be stopped only from its own machine')
+      setImmediate(options.shutdown)
+      return { pid: process.pid }
+    }
     if (method === 'GET' && path === '/api/machines') {
       const refresh = new URL(req.url ?? '/', 'http://127.0.0.1').searchParams.get('refresh') === 'true'
       return refresh ? options.machines.refresh() : options.machines.get()

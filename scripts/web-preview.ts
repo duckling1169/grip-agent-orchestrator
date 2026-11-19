@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url'
 import { startMoxy } from '../src/app.js'
 import type { EngineUsage } from '../src/contracts/api.js'
 import { inboxPart } from '../src/moxy/prompt.js'
+import { KeepAwake } from '../src/platform/keep-awake.js'
 import { userMessage } from '../src/moxy/store.js'
 import type { LeaderReply, LeaderRunner, LeaderTurnRequest } from '../src/runtime/leaders/leader.js'
 import { TaskStore } from '../src/tasks/store.js'
@@ -121,6 +122,7 @@ const moxy = await startMoxy({
   clawCli: FAKE_CLAW_CLI,
   leaders: () => leader,
   leaderAvailable: () => true,
+  keepAwake: new KeepAwake({ command: null }),
   pushSender: async () => ({ ok: true }),
   machines: { get: previewMachines, refresh: previewMachines },
   quotaReaders: {

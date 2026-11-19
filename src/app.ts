@@ -15,6 +15,7 @@ import { Memory } from './moxy/memory.js'
 import { handoffContext } from './moxy/context.js'
 import type { Engine } from './contracts/engines.js'
 import { moxyPaths } from './paths.js'
+import { KeepAwake } from './platform/keep-awake.js'
 import { tailscaleOwner } from './platform/tailscale.js'
 import { PushNotifier } from './platform/push.js'
 import type { PushSender } from './platform/push.js'
@@ -64,6 +65,7 @@ export type MoxyOptions = {
   pushSender?: PushSender
   machines?: Pick<MachineDiscovery, 'get' | 'refresh'>
   leaderAvailable?: (engine: Engine) => boolean
+  keepAwake?: Pick<KeepAwake, 'set' | 'release'>
 }
 
 export type Moxy = {
@@ -82,6 +84,7 @@ export type Moxy = {
   mcpPort: number
   webPort: number
   stop(): Promise<void>
+  stopped: Promise<void>
 }
 
 export async function startMoxy(options: MoxyOptions = {}): Promise<Moxy> {
@@ -208,6 +211,7 @@ export async function startMoxy(options: MoxyOptions = {}): Promise<Moxy> {
       settings,
       push,
       machines: options.machines ?? new MachineDiscovery(),
+      shutdown: () => void stop().catch(error => log(`stop failed: ${errorText(error)}`)),
     })
     if (config.allowedLogins.length === 0) log(`no Tailscale login is allowed yet; add one to allowedLogins in ${paths.config}`)
     undo.push(() => web.close())
@@ -216,10 +220,20 @@ export async function startMoxy(options: MoxyOptions = {}): Promise<Moxy> {
     followUps.start()
     quota.startTimer(settings.current().quotaRefreshMinutes * 60_000)
 
+    const keepAwake = options.keepAwake ?? new KeepAwake({ log })
+    const workRunning = database.prepare(
+      `SELECT EXISTS (SELECT 1 FROM worker_turns WHERE status = 'running') OR EXISTS (SELECT 1 FROM leader_turns WHERE status = 'running') AS running`,
+    )
+    const stopFollowingWork = database.onChange(() => keepAwake.set(Number(workRunning.get()?.running) === 1))
+
+    let markStopped = () => {}
+    const stopped = new Promise<void>(resolve => (markStopped = resolve))
     let stopping: Promise<void> | null = null
     const stop = () =>
       (stopping ??= (async () => {
         log('stopping')
+        stopFollowingWork()
+        keepAwake.release()
         followUps.close()
         const quotaClosed = quota.close()
         const pushClosed = push.close()
@@ -232,7 +246,7 @@ export async function startMoxy(options: MoxyOptions = {}): Promise<Moxy> {
         await quotaClosed
         await pushClosed
         database.close()
-      })())
+      })().finally(markStopped))
     return {
       paths,
       database,
@@ -249,6 +263,7 @@ export async function startMoxy(options: MoxyOptions = {}): Promise<Moxy> {
       mcpPort: mcp.port,
       webPort: web.port,
       stop,
+      stopped,
     }
   } catch (error) {
     await unwind()

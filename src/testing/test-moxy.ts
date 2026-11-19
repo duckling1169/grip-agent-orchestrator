@@ -3,6 +3,7 @@ import { onTestFinished } from 'vitest'
 import { startMoxy } from '../app.js'
 import type { Moxy, MoxyOptions } from '../app.js'
 import { inboxPart } from '../moxy/prompt.js'
+import { KeepAwake } from '../platform/keep-awake.js'
 import type { LeaderRunner, LeaderTurnRequest } from '../runtime/leaders/leader.js'
 import { FAKE_CLAW_CLI, freePort, silentLog, temporaryHome } from './harness.js'
 
@@ -40,6 +41,7 @@ export async function startTestMoxy(options: MoxyOptions = {}): Promise<Moxy> {
     },
     models: { get: async engine => ({ engine, models: [], error: null }) },
     leaderAvailable: () => true,
+    keepAwake: new KeepAwake({ command: null }),
     pushSender: async () => ({ ok: true }),
     machines: {
       get: async () => ({ machines: [], checkedAt: new Date().toISOString(), error: null }),

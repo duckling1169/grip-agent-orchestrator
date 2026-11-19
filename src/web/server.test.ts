@@ -306,4 +306,21 @@ describe('web server', () => {
     expect(page.status).toBe(200)
     expect(await page.text()).toContain('<title>Moxy</title>')
   })
+
+  it('stops only when asked from its own machine', async () => {
+    const moxy = await startTestMoxy()
+    const remote = await call(moxy, '/api/shutdown', { method: 'POST', body: {} })
+    expect(remote.status).toBe(403)
+    const localToken = (await readFile(moxy.paths.webToken, 'utf8')).trim()
+    const local = await json(
+      call(moxy, '/api/shutdown', {
+        method: 'POST',
+        body: {},
+        headers: { 'Tailscale-User-Login': '', Authorization: `Bearer ${localToken}` },
+      }),
+    )
+    expect(local).toEqual({ pid: process.pid })
+    await moxy.stopped
+    await expect(fetch(`http://127.0.0.1:${moxy.webPort}/health`)).rejects.toThrow()
+  })
 })
