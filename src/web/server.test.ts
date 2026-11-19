@@ -1,8 +1,12 @@
+import { mkdir, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
+
 import { describe, expect, it } from 'vitest'
 
 import type { Moxy } from '../app.js'
 import type { Snapshot } from '../contracts/api.js'
 import type { LeaderReply, LeaderRunner } from '../runtime/leaders/leader.js'
+import { temporaryHome } from '../testing/harness.js'
 import { ALLOWED_LOGIN, startTestMoxy } from '../testing/test-moxy.js'
 
 type Call = { method?: string; body?: unknown; headers?: Record<string, string> }
@@ -124,6 +128,16 @@ describe('web server', () => {
     const moxy = await startTestMoxy()
     expect(await json(call(moxy, '/api/workers/nope'))).toEqual({ error: 'unknown worker nope' })
     expect((await call(moxy, '/api/nothing')).status).toBe(404)
+  })
+
+  it('serves the web app once it is built', async () => {
+    const staticDir = join(await temporaryHome(), 'dist')
+    const moxy = await startTestMoxy({ staticDir })
     expect((await call(moxy, '/')).status).toBe(503)
+    await mkdir(staticDir)
+    await writeFile(join(staticDir, 'index.html'), '<title>Moxy</title>')
+    const page = await call(moxy, '/')
+    expect(page.status).toBe(200)
+    expect(await page.text()).toContain('<title>Moxy</title>')
   })
 })

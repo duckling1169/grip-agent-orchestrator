@@ -23,6 +23,8 @@ export const ENGINE_SPECS = {
 export type Engine = keyof typeof ENGINE_SPECS
 export const ENGINES = Object.keys(ENGINE_SPECS) as Engine[]
 
+export const LEADER_ENGINES = ['claude', 'codex', 'agy', 'kimi', 'deepseek'] as const satisfies readonly Engine[]
+
 export function engineSpec(engine: Engine): EngineSpec {
   return ENGINE_SPECS[engine]
 }

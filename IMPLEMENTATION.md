@@ -132,4 +132,6 @@ Each step ends with its tests green and `format:check`, `typecheck`, `test` and 
 ## Credits
 
 - The inbox, timers and memory design follows William Hu's [Building always-on agents](https://claude.com/resources/articles/building-always-on-agents) (Anthropic, 2026).
+- Engine icons in `web/src/icons/` are from [Lobe Icons](https://github.com/lobehub/lobe-icons) (`@lobehub/icons-static-svg` 1.104.0, MIT).
+- The web app uses [shadcn/ui](https://ui.shadcn.com) components (MIT) and [Lucide](https://lucide.dev) icons (ISC).
 - Review as a parent turn or reviewer worker follows the delegation patterns of [Roo Code](https://docs.roocode.com/features/boomerang-tasks), Claude Code subagents and [OpenHands](https://www.openhands.dev/blog/20260506-the-verification-stack).

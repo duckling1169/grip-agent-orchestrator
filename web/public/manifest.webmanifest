@@ -1,0 +1,11 @@
+{
+  "id": "/",
+  "name": "Moxy",
+  "short_name": "Moxy",
+  "description": "One conversation that coordinates your coding agents.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0a0a0a",
+  "theme_color": "#0a0a0a"
+}
