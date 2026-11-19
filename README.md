@@ -51,7 +51,7 @@ Checks: `npm run format:check`, `npm run typecheck`, `npm test` and `npm run bui
 
 `npm run web:preview` opens a fake-backed app at `http://localhost:18799`; it never calls real models. Run `npm run test:web` for desktop and mobile journeys.
 
-`npm run check:workers [engine…]` is a live check that each installed engine can work in a worktree without an approval prompt. Each engine gets one small turn on its cheapest model: it writes a file, commits it and runs `node --version`. The check runs in a scratch repo and its own Claw, and removes both afterwards. It spends real quota, so run it by hand after changing engine permissions or upgrading Claw or an engine CLI.
+`npm run check:workers [engine…]` is a live check that each installed engine can work in a worktree without an approval prompt. Each engine gets one small turn on its cheapest model. It creates `check.txt`, writes `terminal.txt` with a terminal command, commits both files and runs `node --version`. The check runs in a scratch repo and its own Claw, and removes both afterwards. It spends real quota, so run it by hand after changing engine permissions or upgrading Claw or an engine CLI.
 
 ## Models and quota
 
