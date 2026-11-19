@@ -11,7 +11,7 @@ import { api } from '@/lib/api'
 import { fileChanges, patchLines } from '@/lib/diff'
 import { clockTime, elapsed, folderName } from '@/lib/format'
 import type { Selection } from '@/lib/selection'
-import { latestWorker, rowTone, STATUS_LABELS, TASK_LABELS } from '@/lib/status'
+import { latestWorker, rowTone, STAGE_LABELS, STATUS_LABELS, taskStage } from '@/lib/status'
 import { useFetched } from '@/lib/use-fetched'
 import { cn } from '@/lib/utils'
 
@@ -31,12 +31,13 @@ export function TaskInspector({ id, ...props }: InspectorProps & { id: string })
   if (!data || data.task.id !== id) return <Placeholder error={error} {...props} />
   const { task, workers, integrations } = data
   const latest = latestWorker(workers)
+  const stage = taskStage(task, workers)
   return (
     <>
       <Head title={task.title} {...props}>
         <div className="insp-sub">
-          <WorkerIcon engine={latest?.engine ?? null} running={workers.some(worker => worker.status === 'running')} small />
-          <span>{TASK_LABELS[task.status]}</span>
+          <WorkerIcon engine={latest?.engine ?? null} running={stage !== 'done'} small />
+          <span>{STAGE_LABELS[stage]}</span>
           {task.repoRoot && (
             <>
               <span aria-hidden="true">·</span>
@@ -80,7 +81,7 @@ export function TaskInspector({ id, ...props }: InspectorProps & { id: string })
 
 function Delivery({ task }: { task: Task }) {
   return (
-    <div className={cn('card', task.status === 'waiting' && 'waiting')}>
+    <div className="card">
       <div className="field-label">How to try it</div>
       <Markdown text={task.howToTry ?? ''} />
       {(task.revision || task.supersededBy) && (

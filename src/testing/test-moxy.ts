@@ -6,7 +6,8 @@ import { inboxPart } from '../moxy/prompt.js'
 import { KeepAwake } from '../platform/keep-awake.js'
 import { ModelCatalog } from '../providers/models.js'
 import type { LeaderRunner, LeaderTurnRequest } from '../runtime/leaders/leader.js'
-import { FAKE_CLAW_CLI, freePort, silentLog, temporaryHome } from './harness.js'
+import { freePort } from '../ports.js'
+import { FAKE_CLAW_CLI, silentLog, temporaryHome } from './harness.js'
 
 export const ALLOWED_LOGIN = 'you@example.com'
 

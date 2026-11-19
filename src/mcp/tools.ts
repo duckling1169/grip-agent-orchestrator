@@ -6,7 +6,6 @@ import { ENGINES } from '../contracts/engines.js'
 import { MOXY_MCP_NAME } from '../contracts/mcp.js'
 import type { Engine } from '../contracts/engines.js'
 import { errorText } from '../errors.js'
-import type { ConversationStore } from '../moxy/store.js'
 import type { Tasks } from '../tasks/service.js'
 import type { Workers } from '../workers/service.js'
 import type { Worker } from '../contracts/api.js'
@@ -21,7 +20,6 @@ import type { Memory } from '../moxy/memory.js'
 export type LeaderToolsDeps = {
   workers: Workers
   tasks: Tasks
-  conversation: ConversationStore
   models: Pick<ModelCatalog, 'get'>
   quota: Pick<Quota, 'snapshot'>
   followUps: FollowUps
@@ -55,10 +53,7 @@ function summarize(worker: Worker) {
   }
 }
 
-export function createLeaderMcpServer(
-  { workers, tasks, conversation, models, quota, followUps, memory }: LeaderToolsDeps,
-  version: string,
-): McpServer {
+export function createLeaderMcpServer({ workers, tasks, models, quota, followUps, memory }: LeaderToolsDeps, version: string): McpServer {
   const server = new McpServer({ name: MOXY_MCP_NAME, version })
 
   server.registerTool(
@@ -274,10 +269,10 @@ export function createLeaderMcpServer(
   server.registerTool(
     'ready',
     {
-      title: 'Hand a task to the user',
+      title: 'Finish a task',
       description:
-        'Mark a reviewed and verified task as waiting on the user, with the revision to try (for repo tasks) and how to try it. ' +
-        'Tell the user in your reply too.',
+        'Mark a reviewed and verified task as done, with the revision to try (for repo tasks) and how to try it. The user gets a ' +
+        'notification; tell them in your reply too.',
       inputSchema: {
         task_id: taskId,
         revision: z.string().optional().describe('The integrated commit the user tries'),
@@ -288,25 +283,10 @@ export function createLeaderMcpServer(
   )
 
   server.registerTool(
-    'accept',
-    {
-      title: 'Close an accepted task',
-      description: 'Close a waiting task because the user said in this turn that it is done. Only works in a turn the user started.',
-      inputSchema: { task_id: taskId },
-    },
-    args =>
-      asToolResult(() => {
-        if (!conversation.runningTurnStartedByUser())
-          throw new Error('only the user can accept a task, and this turn did not start from a user message')
-        return tasks.accept(args.task_id)
-      }),
-  )
-
-  server.registerTool(
     'reopen',
     {
       title: 'Continue a task after feedback',
-      description: "Set a waiting or done task back to working and add the user's feedback to its notes.",
+      description: "Set a done task back to working and add the user's feedback to its notes.",
       inputSchema: { task_id: taskId, feedback: z.string().describe("The user's feedback, in their terms") },
     },
     args => asToolResult(() => tasks.reopen(args.task_id, args.feedback)),

@@ -10,7 +10,7 @@ export const MOXY_SCHEMA: Schema = {
       plan TEXT NOT NULL DEFAULT '',
       notes TEXT NOT NULL DEFAULT '',
       testing TEXT NOT NULL DEFAULT '',
-      status TEXT NOT NULL CHECK (status IN ('working', 'waiting', 'done')),
+      status TEXT NOT NULL CHECK (status IN ('working', 'done')),
       revision TEXT,
       how_to_try TEXT,
       superseded_by TEXT,

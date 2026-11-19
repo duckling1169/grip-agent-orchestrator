@@ -169,7 +169,7 @@ describe('web server', () => {
       errors: ['Push service unavailable'],
     })
     const task = await moxy.tasks.create({ title: 'Still ready' })
-    expect(await moxy.tasks.ready(task.id, { howToTry: 'Read it' })).toMatchObject({ status: 'waiting' })
+    expect(await moxy.tasks.ready(task.id, { howToTry: 'Read it' })).toMatchObject({ status: 'done' })
   })
 
   it('serves provider models, persists settings, and streams quota refreshes with protected writes', async () => {

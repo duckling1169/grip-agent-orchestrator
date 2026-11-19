@@ -55,7 +55,6 @@ export function App() {
 
   const offline = connection === 'offline'
   const running = snapshot.conversation.some(entry => entry.type === 'moxy' && entry.turn.status === 'running')
-  const waiting = snapshot.tasks.filter(task => task.status === 'waiting').length
   const inspecting = selection !== null && inspectorOpen
   const select = (next: Selection) => {
     setSelection(next)
@@ -133,13 +132,7 @@ export function App() {
       </div>
       <nav className="tabbar" aria-label="Sections">
         <TabButton on={tab === 'moxy'} icon={<MessageSquare />} label="Moxy" onClick={() => setTab('moxy')} />
-        <TabButton on={tab === 'tasks' || tab === 'inspect'} icon={<ListTodo />} label="Tasks" onClick={() => setTab('tasks')}>
-          {waiting > 0 && (
-            <span className="badge" aria-label={`${waiting} waiting on you`}>
-              {waiting}
-            </span>
-          )}
-        </TabButton>
+        <TabButton on={tab === 'tasks' || tab === 'inspect'} icon={<ListTodo />} label="Tasks" onClick={() => setTab('tasks')} />
         <TabButton on={tab === 'quota'} icon={<Gauge />} label="Quota" onClick={() => setTab('quota')} />
         <TabButton on={tab === 'settings'} icon={<SettingsIcon />} label="Settings" onClick={() => setTab('settings')} />
       </nav>
@@ -235,24 +228,11 @@ function Column({ className, width, label, children }: { className: string; widt
   )
 }
 
-function TabButton({
-  on,
-  icon,
-  label,
-  onClick,
-  children,
-}: {
-  on: boolean
-  icon: ReactNode
-  label: string
-  onClick: () => void
-  children?: ReactNode
-}) {
+function TabButton({ on, icon, label, onClick }: { on: boolean; icon: ReactNode; label: string; onClick: () => void }) {
   return (
     <button className={cn('ghost tabbtn', on && 'on')} type="button" aria-current={on || undefined} onClick={onClick}>
       {icon}
       {label}
-      {children}
     </button>
   )
 }

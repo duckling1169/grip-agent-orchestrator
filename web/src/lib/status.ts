@@ -8,7 +8,14 @@ export const STATUS_LABELS: Record<TurnStatus, string> = {
   interrupted: 'Interrupted',
 }
 
-export const TASK_LABELS: Record<Task['status'], string> = { working: 'Working', waiting: 'Waiting on you', done: 'Done' }
+export type TaskStage = 'working' | 'reviewing' | 'done'
+
+export const STAGE_LABELS: Record<TaskStage, string> = { working: 'Working', reviewing: 'Reviewing', done: 'Done' }
+
+export function taskStage(task: Task, workers: Worker[]): TaskStage {
+  if (task.status === 'done') return 'done'
+  return workers.some(worker => worker.status === 'running') ? 'working' : 'reviewing'
+}
 
 export function rowTone(status: TurnStatus): string {
   if (status === 'failed') return 'failed'

@@ -29,7 +29,7 @@ export function leaderPrompt({ machine, engine, repoFolders, repos }: LeaderProm
 # The user
 - Keep replies short and plain: the user often reads them on a phone. Report outcomes and what needs the user, not each step.
 - When a request is unclear, such as which repository it means, ask one clear question instead of guessing or searching the disk.
-- Only the user accepts a task. When they give feedback on delivered work, reopen the task and continue it.
+- Calling ready finishes a task: it moves to Done and the user gets a notification. When they give feedback on finished work, reopen the task and continue it.
 - Ask before anything destructive or outside the task, such as deleting data, force-pushing or changing another repository.
 
 # Commands

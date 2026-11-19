@@ -68,9 +68,7 @@ export class Tasks {
       const repo = await this.options.worktrees.repoOf(folder).catch(() => null)
       if (!repo || !samePath(repo.root, task.repoRoot)) throw new Error(`${folder} is not in task ${taskId}'s repo ${task.repoRoot}`)
     }
-    const worker = await this.options.workers.delegate({ ...input, folder, taskId })
-    this.store.setStatus(taskId, 'working', ['waiting'])
-    return worker
+    return this.options.workers.delegate({ ...input, folder, taskId })
   }
 
   async integrate(taskId: string, workerId: string): Promise<Integration> {
@@ -94,7 +92,7 @@ export class Tasks {
       return this.store.endIntegration(id, { status: 'refused', revision: null, error: errorText(error) })
     }
     const merged = this.store.endIntegration(id, { status: 'merged', revision, error: null })
-    this.store.supersedeWaiting(repo.root, revision)
+    this.store.supersedeDone(repo.root, revision)
     return merged
   }
 
@@ -107,15 +105,9 @@ export class Tasks {
     const revision = task.repoRoot && delivery.revision ? await this.options.worktrees.commit(task.repoRoot, delivery.revision) : null
     const current = this.store.mustGet(taskId)
     const delivered = this.store.deliver(taskId, revision, howToTry)
-    if (current.status !== 'waiting' || current.revision !== revision || current.howToTry !== howToTry || current.supersededBy !== null)
+    if (current.status !== 'done' || current.revision !== revision || current.howToTry !== howToTry || current.supersededBy !== null)
       this.options.onReady?.(delivered)
     return delivered
-  }
-
-  accept(taskId: string): Task {
-    const accepted = this.store.setStatus(taskId, 'done', ['waiting'])
-    if (accepted) return accepted
-    throw new Error(`task ${taskId} is ${this.store.mustGet(taskId).status}; only a task waiting on the user can be accepted`)
   }
 
   reopen(taskId: string, feedback: string): Task {

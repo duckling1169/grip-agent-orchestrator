@@ -2,7 +2,7 @@
 
 import { request as httpRequest } from 'node:http'
 
-import type { ClawEngine, ClawPermissionMode } from '../../contracts/engines.js'
+import type { ClawEngine, ClawPermissionMode, ClawSandboxMode } from '../../contracts/engines.js'
 import { elapsedText, errorText } from '../../errors.js'
 
 export type ClawHealth = { version: string; sessions: number }
@@ -21,6 +21,7 @@ export type StartSessionOptions = {
   allowedTools?: string[]
   disallowedTools?: string[]
   permissionMode?: ClawPermissionMode
+  sandboxMode?: ClawSandboxMode
   appendSystemPrompt?: string
 }
 

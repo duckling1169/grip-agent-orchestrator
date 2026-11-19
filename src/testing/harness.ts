@@ -1,5 +1,4 @@
 import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
-import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -27,17 +26,6 @@ export async function temporaryRepo(): Promise<string> {
   await git('add', '.')
   await git('commit', '-q', '-m', 'start')
   return realpath(repo)
-}
-
-export function freePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const server = createServer()
-    server.once('error', reject)
-    server.listen(0, '127.0.0.1', () => {
-      const { port } = server.address() as { port: number }
-      server.close(() => resolve(port))
-    })
-  })
 }
 
 export const silentLog = () => {}

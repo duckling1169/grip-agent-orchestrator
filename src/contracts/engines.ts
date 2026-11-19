@@ -1,5 +1,6 @@
 export type ClawEngine = 'claude' | 'codex-app' | 'agy' | 'cursor' | 'grok' | 'opencode' | 'acp'
 export type ClawPermissionMode = 'auto'
+export type ClawSandboxMode = 'danger-full-access'
 
 export type EngineSpec = {
   name: string
@@ -7,11 +8,12 @@ export type EngineSpec = {
   acpAgent?: string
   bin: string
   permissionMode?: ClawPermissionMode
+  sandboxMode?: ClawSandboxMode
 }
 
 export const ENGINE_SPECS = {
   claude: { name: 'Claude', claw: 'claude', bin: 'claude', permissionMode: 'auto' },
-  codex: { name: 'Codex', claw: 'codex-app', bin: 'codex' },
+  codex: { name: 'Codex', claw: 'codex-app', bin: 'codex', sandboxMode: 'danger-full-access' },
   agy: { name: 'Gemini', claw: 'agy', bin: 'agy', permissionMode: 'auto' },
   cursor: { name: 'Cursor', claw: 'cursor', bin: 'cursor-agent' },
   grok: { name: 'Grok', claw: 'grok', bin: 'grok', permissionMode: 'auto' },

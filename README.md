@@ -51,6 +51,8 @@ Checks: `npm run format:check`, `npm run typecheck`, `npm test` and `npm run bui
 
 `npm run web:preview` opens a fake-backed app at `http://localhost:18799`; it never calls real models. Run `npm run test:web` for desktop and mobile journeys.
 
+`npm run check:workers [engine…]` is a live check that each installed engine can work in a worktree without an approval prompt. Each engine gets one small turn on its cheapest model: it writes a file, commits it and runs `node --version`. The check runs in a scratch repo and its own Claw, and removes both afterwards. It spends real quota, so run it by hand after changing engine permissions or upgrading Claw or an engine CLI.
+
 ## Models and quota
 
 ACP engines report their models and model-specific effort choices when a session opens. Discovery sends no prompt and caches successful results for 30 minutes. Claude uses its CLI's Opus, Sonnet and Haiku choices; effort choices are shown only when reported by a provider.
@@ -61,11 +63,11 @@ Automatic refresh defaults to every five minutes, beginning after the first inte
 
 ## Notifications
 
-Enable notifications in Settings on each device that should hear when a task is ready for you. Permission is requested only when you choose Enable notifications. Use the HTTPS Tailscale Serve address; on iPhone and iPad, add Moxy to the Home Screen and open it there first.
+Enable notifications in Settings on each device that should hear when Moxy finishes a task. Permission is requested only when you choose Enable notifications. Use the HTTPS Tailscale Serve address; on iPhone and iPad, add Moxy to the Home Screen and open it there first.
 
 Subscriptions belong to the signed-in Tailscale login. Settings shows your registered device count, lets you disable this device, and can send a test to all your registered devices. Test results report how many notifications the push services accepted or rejected; they cannot confirm that a device displayed them. Expired subscriptions are removed automatically.
 
-Task-ready notifications contain the task title and a link to its inspector, never code, output, repo paths or testing notes. Opening a notification does not accept the task. Repeating an unchanged delivery, restarting Moxy, and stopping or finishing workers do not send notifications. Push services retain an undelivered notification for at most 24 hours. Keys and subscriptions persist in `push.json` in Moxy's data home; only the public key and your device count are exposed through the API.
+Task-ready notifications contain the task title and a link to its inspector, never code, output, repo paths or testing notes. Repeating an unchanged delivery, restarting Moxy, and stopping or finishing workers do not send notifications. Push services retain an undelivered notification for at most 24 hours. Keys and subscriptions persist in `push.json` in Moxy's data home; only the public key and your device count are exposed through the API.
 
 The fake preview and automated checks use fake push senders and browser subscriptions. Actual delivery to sleeping or closed devices still needs a deliberate live check through the HTTPS tailnet address.
 

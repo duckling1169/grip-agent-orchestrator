@@ -198,16 +198,6 @@ export class ConversationStore {
     })
   }
 
-  runningTurnStartedByUser(): boolean {
-    const row = this.database
-      .prepare(
-        `SELECT 1 FROM inbox JOIN leader_turns ON leader_turns.id = inbox.leader_turn_id
-         WHERE leader_turns.status = 'running' AND inbox.kind = 'user_message' LIMIT 1`,
-      )
-      .get()
-    return row !== undefined
-  }
-
   conversation(): ConversationEntry[] {
     const users = (this.database.prepare(`SELECT * FROM inbox WHERE kind = 'user_message' ORDER BY id`).all() as Row[]).map(toItem)
     const turns = (this.database.prepare('SELECT * FROM leader_turns ORDER BY id').all() as Row[]).map(toTurn)

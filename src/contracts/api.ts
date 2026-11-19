@@ -1,6 +1,6 @@
 import type { Engine } from './engines.js'
 
-export type TaskStatus = 'working' | 'waiting' | 'done'
+export type TaskStatus = 'working' | 'done'
 
 export type Task = {
   id: string

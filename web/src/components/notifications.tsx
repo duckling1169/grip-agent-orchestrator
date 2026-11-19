@@ -49,7 +49,7 @@ export function NotificationSettings({ offline }: { offline: boolean }) {
   return (
     <section aria-label="Notifications">
       <h2>Notifications</h2>
-      <p className="note-line">Get a notification when a task is ready for you. Notifications contain titles only.</p>
+      <p className="note-line">Get a notification when Moxy finishes a task. Notifications contain titles only.</p>
       {offline ? (
         <p className="note-line">Notification status unavailable while offline.</p>
       ) : !state && !error ? (

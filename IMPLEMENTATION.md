@@ -7,7 +7,7 @@
 - One daemon, one SQLite file, one leader conversation. No second runtime, broker, workflow engine or agent framework.
 - Claw runs workers. Moxy adds tasks, worktrees, integration, device access and quota. Do not rebuild Claw's execution kernel.
 - Review is a leader turn, not a stored lifecycle. The leader reads results and runs checks; heavier review is another worker with a review prompt.
-- Only the user closes a task. Acceptance must come from a turn that a user message started.
+- The leader finishes a task with `ready` once it has reviewed, integrated and verified the work. The user's feedback reopens it.
 - Record intent before every external call (Claw, Git), and reconcile after a restart. Never promise exactly-once; never launch a duplicate silently.
 - No legacy code, deprecated paths, compatibility shims, aliases or migrations from earlier versions. Moxy has no history to stay compatible with.
 - Name things well and keep code DRY. Add an abstraction only when two real callers need it.
@@ -43,13 +43,13 @@ Task notes hold one task's progress. Moxy also keeps memory that applies to ever
 
 ### Tasks
 
-A task is a row: repo, title, plan and decisions, testing notes, and status `working`, `waiting` (on the user, with the delivered revision and how to try it) or `done`. Feedback on a `waiting` or `done` task sets it back to `working` and is appended to its notes. Delegating new work on a `waiting` task also sets it back to `working`. Workers belong to a task, or stand alone when the user starts one directly; a task's workers must work in the task's repo.
+A task is a row: repo, title, plan and decisions, testing notes, and status `working` or `done` (with the delivered revision and how to try it). The UI splits `working` into Working while a worker runs and Reviewing while the leader has the finished work. Feedback on a `done` task sets it back to `working` and is appended to its notes; a `done` task takes no new workers until it is reopened. Workers belong to a task, or stand alone when the user starts one directly; a task's workers must work in the task's repo.
 
 The leader keeps task detail out of its own context. It reads and writes task notes through tools, so a fresh native session can be rebuilt from the task rows and recent messages.
 
 ### Workers
 
-`delegate` records the worker and its first turn in one transaction (engine, model, effort, task and the planned worktree), then creates the worktree, then starts the Claw session. A worker's status is its latest turn's status. Each turn's input, output, model and effort are stored with the turn in SQLite; diffs come from git when asked. A Claw session lives for one turn, and the next turn resumes the engine's native conversation.
+`delegate` records the worker and its first turn in one transaction (engine, model, effort, task and the planned worktree), then creates the worktree, then starts the Claw session. A worker's status is its latest turn's status. Each turn's input, output, model and effort are stored with the turn in SQLite; diffs come from git when asked. A Claw session lives for one turn, and the next turn resumes the engine's native conversation. Nobody can answer a worker's approval prompt, so each engine runs with permissions that let it commit in its worktree: Claude and agy in their auto modes, Codex with `danger-full-access` because a worktree's git data sits in the main repo's `.git` folder outside Codex's workspace sandbox, and ACP agents with Claw's default of allowing every request. `npm run check:workers` checks this live.
 
 Claw returns a turn's output only to the request that sent it, so a turn cannot be reattached after Moxy restarts. On restart, every running turn is marked interrupted and posted to the inbox like any other ended turn, every leftover `moxy-w-` session is stopped, and sessions with no running turn are reported as orphaned. The leader's `moxy-leader` session is stopped the same way. Stopping Moxy marks running turns interrupted before Claw stops.
 
@@ -72,7 +72,7 @@ Engine, model or effort changes apply at the next turn boundary. A change, or a 
 
 ## Leader tools
 
-`task_create`, `task_update` (notes and plan), `task_get`, `tasks`, `delegate`, `message`, `stop`, `workers`, `result`, `models`, `quota`, `integrate`, `ready`, `accept`, `reopen`, `follow_up` (set or cancel a timer), `memory_read`, `memory_update`. `accept` is refused unless the current turn started from a user message. Completions arrive through the inbox, so there is no tool for waiting on workers.
+`task_create`, `task_update` (notes and plan), `task_get`, `tasks`, `delegate`, `message`, `stop`, `workers`, `result`, `models`, `quota`, `integrate`, `ready`, `reopen`, `follow_up` (set or cancel a timer), `memory_read`, `memory_update`. `delegate` needs a model and effort the engine reports, when it reports any. Completions arrive through the inbox, so there is no tool for waiting on workers.
 
 ## Layout
 
@@ -114,12 +114,12 @@ Each step ends with its tests green and `format:check`, `typecheck`, `test` and 
 1. **Skeleton.** In a new worktree, remove the existing source and start Moxy-only: package name, `moxy` CLI, `~/.moxy` home, Node 24, CI, SQLite spike, schema versioning, single-writer lock, daemon lifecycle, Claw process, fakes and temporary-home harness. Ports and home are configurable for tests.
 2. **Workers.** Delegate, message, stop and result through Claw with worktrees and per-turn records. Restart reconciliation tests at intent, started and finished points.
 3. **Leader loop.** Inbox with batching and source-ID deduplication, turn runner for Claude and ACP leaders, leader MCP tools, user-first ordering, and interrupted-turn redelivery.
-4. **Tasks and delivery.** Task rows, integrate with the per-repo lock, ready, accept and reopen. Fake-backed journey: two tasks in one repo, a desktop edit, feedback, restart midway.
+4. **Tasks and delivery.** Task rows, integrate with the per-repo lock, ready and reopen. Fake-backed journey: two tasks in one repo, a desktop edit, feedback, restart midway.
 5. **Web.** Built in slices, following the reviewed mockup:
    1. Server: Tailscale identity and allowed logins, write checks, the local bearer for the CLI, a database revision bumped after each committed write, an SSE snapshot per revision, detail reads for tasks and workers, and actions to message, stop, send now, retry a failed turn, set the Orchestrator's model and effort, and message or stop a worker.
    2. Web app: React, Vite, Tailwind and shadcn with the mockup's layout, the fake-backed `web:preview`, and Playwright on desktop and mobile.
    3. Quota and model lists.
-   4. Push for tasks waiting on the user.
+   4. Push for finished tasks.
    5. The machine switcher.
 6. **Handoff and recovery.** Next-turn engine changes, context rotation, quota-failure switch-and-retry, timers and follow-ups, and user memory.
 7. **Install.** Install and uninstall, logon task, Tailscale Serve on the standard ports, status, stop and restart through a local-only shutdown, keep-awake while work runs, explicit Claw upgrade command, and README.

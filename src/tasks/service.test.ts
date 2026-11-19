@@ -73,7 +73,7 @@ describe('Tasks', () => {
   it('announces a committed delivery once, and stays quiet on restart or an identical ready call', async () => {
     const deliveries: Task[] = []
     const { tasks, restart, taskStore } = await setup(task => {
-      expect(taskStore().mustGet(task.id).status).toBe('waiting')
+      expect(taskStore().mustGet(task.id).status).toBe('done')
       deliveries.push(task)
     })
     const task = await tasks.create({ title: 'Release notes' })
@@ -90,7 +90,7 @@ describe('Tasks', () => {
     expect(deliveries).toHaveLength(2)
   })
 
-  it('integrates two tasks in one repo, survives a desktop edit and hands both to the user', async () => {
+  it('integrates two tasks in one repo, survives a desktop edit and finishes them', async () => {
     const { repo, tasks, work, git } = await setup()
     const header = await tasks.create({ title: 'Add a header', folder: repo, testing: 'Refresh http://localhost:5173' })
     const footer = await tasks.create({ title: 'Add a footer', folder: join(repo, '.') })
@@ -109,7 +109,7 @@ describe('Tasks', () => {
     const first = await tasks.integrate(header.id, headerWorker.id)
     expect(first).toMatchObject({ status: 'merged' })
     const readyHeader = await tasks.ready(header.id, { revision: String(first.revision), howToTry: 'Refresh the page' })
-    expect(readyHeader).toMatchObject({ status: 'waiting', revision: first.revision, supersededBy: null })
+    expect(readyHeader).toMatchObject({ status: 'done', revision: first.revision, supersededBy: null })
 
     const second = await tasks.integrate(footer.id, footerWorker.id)
     expect(second).toMatchObject({ status: 'merged' })
@@ -154,16 +154,15 @@ describe('Tasks', () => {
     expect(await tasks.integrate(task.id, worker.id)).toMatchObject({ status: 'refused', error: `${repo} is on elsewhere, not main` })
   })
 
-  it('accepts only waiting work, and feedback reopens a task with the feedback in its notes', async () => {
+  it('finishes a task when it is ready, and feedback reopens it with the feedback in its notes', async () => {
     const { tasks } = await setup()
     const task = await tasks.create({ title: 'Write release notes' })
-    expect(() => tasks.accept(task.id)).toThrow('is working; only a task waiting on the user can be accepted')
     await expect(tasks.ready(task.id, { revision: 'HEAD', howToTry: 'Read them' })).rejects.toThrow('has no revision')
 
-    await tasks.ready(task.id, { howToTry: 'Read notes.md' })
+    expect(await tasks.ready(task.id, { howToTry: 'Read notes.md' })).toMatchObject({ status: 'done' })
+    await expect(tasks.delegate(task.id, { engine: 'codex', prompt: 'More', folder: '/' })).rejects.toThrow('is done; reopen it first')
     expect(tasks.reopen(task.id, 'Too long')).toMatchObject({ status: 'working', notes: 'Feedback: Too long' })
     await tasks.ready(task.id, { howToTry: 'Read notes.md' })
-    expect(tasks.accept(task.id)).toMatchObject({ status: 'done' })
     expect(tasks.reopen(task.id, 'One more thing')).toMatchObject({
       status: 'working',
       notes: 'Feedback: Too long\n\nFeedback: One more thing',

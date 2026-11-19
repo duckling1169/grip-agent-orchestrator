@@ -86,7 +86,7 @@ describe('Workers', () => {
 
     await claw.turnStarted(sessionName(worker.id))
     expect(worker.repo).toBeNull()
-    expect(claw.starts[0]).toMatchObject({ engine: 'codex-app' })
+    expect(claw.starts[0]).toMatchObject({ engine: 'codex-app', sandboxMode: 'danger-full-access' })
     expect(claw.starts[0]?.permissionMode).toBeUndefined()
     expect((await workers.result(worker.id)).facts).toBeNull()
   })

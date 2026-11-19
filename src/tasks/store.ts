@@ -34,18 +34,10 @@ export class TaskStore {
 
   deliver(id: string, revision: string | null, howToTry: string): Task {
     const run = this.database
-      .prepare(`UPDATE tasks SET status = 'waiting', revision = ?, how_to_try = ?, superseded_by = NULL, updated_at = ? WHERE id = ?`)
+      .prepare(`UPDATE tasks SET status = 'done', revision = ?, how_to_try = ?, superseded_by = NULL, updated_at = ? WHERE id = ?`)
       .run(revision, howToTry, now(), id)
     this.changed(run, id)
     return this.mustGet(id)
-  }
-
-  setStatus(id: string, status: TaskStatus, from: readonly TaskStatus[]): Task | null {
-    const placeholders = from.map(() => '?').join(', ')
-    const run = this.database
-      .prepare(`UPDATE tasks SET status = ?, updated_at = ? WHERE id = ? AND status IN (${placeholders})`)
-      .run(status, now(), id, ...from)
-    return run.changes > 0 ? this.mustGet(id) : null
   }
 
   reopen(id: string, note: string): Task {
@@ -59,11 +51,11 @@ export class TaskStore {
     return this.mustGet(id)
   }
 
-  supersedeWaiting(repoRoot: string, revision: string): string[] {
+  supersedeDone(repoRoot: string, revision: string): string[] {
     const rows = this.database
       .prepare(
         `UPDATE tasks SET superseded_by = ?, updated_at = ?
-         WHERE repo_root = ? AND status = 'waiting' AND revision IS NOT ? RETURNING id`,
+         WHERE repo_root = ? AND status = 'done' AND superseded_by IS NULL AND revision IS NOT ? RETURNING id`,
       )
       .all(revision, now(), repoRoot, revision) as Row[]
     return rows.map(row => String(row.id))

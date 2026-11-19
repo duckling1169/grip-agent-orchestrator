@@ -9,7 +9,7 @@ import { DatabaseInUseError } from './db/database.js'
 import { userMessage } from './moxy/store.js'
 import type { LeaderReply } from './runtime/leaders/leader.js'
 import { ClawClient } from './runtime/claw/client.js'
-import { freePort } from './testing/harness.js'
+import { freePort } from './ports.js'
 import { echoLeader, startTestMoxy } from './testing/test-moxy.js'
 import { MoxyClient } from './web/client.js'
 
@@ -83,7 +83,6 @@ describe('startMoxy', () => {
       }),
     )
     expect((await mcp.listTools()).tools.map(tool => tool.name).sort()).toEqual([
-      'accept',
       'delegate',
       'follow_up',
       'integrate',
@@ -128,14 +127,18 @@ describe('startMoxy', () => {
       content: [{ text: expect.stringContaining('cancelled') }],
     })
     const task = JSON.parse((created.content as { text: string }[])[0]?.text ?? '{}') as { id: string }
-    await mcp.callTool({ name: 'ready', arguments: { task_id: task.id, how_to_try: 'Read them' } })
-    expect(await mcp.callTool({ name: 'accept', arguments: { task_id: task.id } })).toMatchObject({
-      isError: true,
-      content: [{ text: 'only the user can accept a task, and this turn did not start from a user message' }],
-    })
     expect(
       await mcp.callTool({ name: 'delegate', arguments: { task_id: task.id, engine: 'claude', prompt: 'Add notes', model: 'opus' } }),
     ).toMatchObject({ isError: true, content: [{ text: expect.stringContaining('choose an effort for Claude opus') }] })
+    expect(await mcp.callTool({ name: 'ready', arguments: { task_id: task.id, how_to_try: 'Read them' } })).toMatchObject({
+      content: [{ text: expect.stringContaining('"status": "done"') }],
+    })
+    expect(
+      await mcp.callTool({
+        name: 'delegate',
+        arguments: { task_id: task.id, engine: 'claude', prompt: 'More notes', model: 'haiku' },
+      }),
+    ).toMatchObject({ isError: true, content: [{ text: expect.stringContaining('is done; reopen it first') }] })
     expect(await mcp.callTool({ name: 'workers', arguments: {} })).toMatchObject({ content: [{ type: 'text', text: '[]' }] })
     await mcp.close()
   })

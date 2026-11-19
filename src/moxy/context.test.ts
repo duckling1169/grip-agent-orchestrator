@@ -48,7 +48,7 @@ describe('handoffContext', () => {
   it('preserves open task pointers, plans, feedback, testing conventions and user preferences', () => {
     const context = handoffContext(
       {
-        tasks: [task('working'), task('waiting', { status: 'waiting' }), task('closed', { status: 'done', notes: 'DONE TASK DETAILS' })],
+        tasks: [task('working'), task('second'), task('closed', { status: 'done', notes: 'DONE TASK DETAILS' })],
         conversation: [],
         memory,
       },
@@ -56,7 +56,7 @@ describe('handoffContext', () => {
     )
     for (const text of [
       'working',
-      'waiting',
+      'second',
       'C:/repos/moxy',
       'Keep changes focused',
       'Feedback: fix mobile layout',

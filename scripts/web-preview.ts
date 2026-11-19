@@ -1,6 +1,5 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { createServer, request } from 'node:http'
-import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -8,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { startMoxy } from '../src/app.js'
 import type { EngineUsage } from '../src/contracts/api.js'
 import { inboxPart } from '../src/moxy/prompt.js'
+import { freePort } from '../src/ports.js'
 import { KeepAwake } from '../src/platform/keep-awake.js'
 import { userMessage } from '../src/moxy/store.js'
 import type { LeaderReply, LeaderRunner, LeaderTurnRequest } from '../src/runtime/leaders/leader.js'
@@ -51,17 +51,6 @@ class PreviewLeader implements LeaderRunner {
 function previewReply(message: string): string {
   const quoted = (message.split('\n')[0] ?? '').slice(0, 80)
   return `Got it: “${quoted}”\n\nThis is the local preview, so no model ran. I would:\n\n- record it as a task\n- start a worker on it\n- tell you when it is ready to try`
-}
-
-function freePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const server = createServer()
-    server.once('error', reject)
-    server.listen(0, '127.0.0.1', () => {
-      const { port } = server.address() as AddressInfo
-      server.close(() => resolve(port))
-    })
-  })
 }
 
 const home = await mkdtemp(join(tmpdir(), 'moxy-web-preview-'))
@@ -205,8 +194,6 @@ tasks.create({
 })
 worker('codex-vite', { title: 'Upgrade Vite', engine: 'codex', taskId: 'vite' }, 'Upgrade Vite and its plugins.')
 finish('codex-vite', 'finished', 'Upgraded Vite and both plugins. The build and tests pass.')
-tasks.deliver('vite', 'b7d2e01f', 'Run `npm run dev`; the port is still 5173.')
-tasks.setStatus('vite', 'done', ['waiting'])
 
 worker(
   'agy-cold-start',

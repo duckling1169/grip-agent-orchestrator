@@ -80,17 +80,6 @@ async function setup() {
 }
 
 describe('ConversationStore', () => {
-  it('knows whether the running turn started from a user message', async () => {
-    const { conversation } = await setup()
-    conversation.receive({ kind: 'worker_turn_ended', source: 'worker:w1:1', body: workerEvent() })
-    conversation.beginTurn()
-    expect(conversation.runningTurnStartedByUser()).toBe(false)
-    conversation.endTurn(1, { status: 'finished', output: null, error: null, nativeSessionId: null })
-    conversation.receive(userMessage('Ship it', 'a'))
-    conversation.beginTurn()
-    expect(conversation.runningTurnStartedByUser()).toBe(true)
-  })
-
   it('drops a second item from the same source', async () => {
     const { conversation } = await setup()
     expect(conversation.receive(userMessage('hi', 'a'))).toBe(true)

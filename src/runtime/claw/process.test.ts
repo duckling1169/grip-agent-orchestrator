@@ -3,7 +3,8 @@ import { join } from 'node:path'
 
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { FAKE_CLAW_CLI, freePort, temporaryHome } from '../../testing/harness.js'
+import { freePort } from '../../ports.js'
+import { FAKE_CLAW_CLI, temporaryHome } from '../../testing/harness.js'
 import { ClawClient } from './client.js'
 import { ClawProcess } from './process.js'
 

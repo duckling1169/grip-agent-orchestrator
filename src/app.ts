@@ -160,7 +160,7 @@ export async function startMoxy(options: MoxyOptions = {}): Promise<Moxy> {
 
     const mcpToken = await loadOrCreateToken(paths.mcpToken)
     const mcp = await startMcpServer({
-      tools: { workers, tasks, conversation, quota, models, followUps, memory },
+      tools: { workers, tasks, quota, models, followUps, memory },
       token: mcpToken,
       port: options.mcpPort ?? DEFAULT_MCP_PORT,
       version: MOXY_VERSION,

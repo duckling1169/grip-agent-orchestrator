@@ -197,6 +197,7 @@ export class Workers {
         engine: spec.claw,
         ...(spec.acpAgent ? { acpAgent: spec.acpAgent } : {}),
         ...(spec.permissionMode ? { permissionMode: spec.permissionMode } : {}),
+        ...(spec.sandboxMode ? { sandboxMode: spec.sandboxMode } : {}),
         ...(worker.model ? { model: worker.model } : {}),
         ...(worker.effort ? { effort: worker.effort } : {}),
         ...(worker.nativeSessionId ? { resumeSessionId: worker.nativeSessionId } : {}),

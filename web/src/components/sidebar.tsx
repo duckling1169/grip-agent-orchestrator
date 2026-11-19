@@ -3,15 +3,12 @@ import type { ReactNode } from 'react'
 import type { Task, Worker } from '@contracts/api'
 import { WorkerIcon } from '@/components/worker-icon'
 import { useStoredFlag } from '@/lib/stored'
-import { latestWorker, rowTone, STATUS_LABELS, TASK_LABELS, workersByTask } from '@/lib/status'
+import { latestWorker, rowTone, STAGE_LABELS, STATUS_LABELS, taskStage, workersByTask } from '@/lib/status'
+import type { TaskStage } from '@/lib/status'
 import type { Selection } from '@/lib/selection'
 import { cn } from '@/lib/utils'
 
-const SECTIONS = [
-  { status: 'waiting', label: 'Waiting on you' },
-  { status: 'working', label: 'Working' },
-  { status: 'done', label: 'Done' },
-] as const
+const STAGES: TaskStage[] = ['working', 'reviewing', 'done']
 
 export function Sidebar({
   tasks,
@@ -28,27 +25,19 @@ export function Sidebar({
   const orphans = workers.filter(worker => !worker.taskId)
   return (
     <nav className="sections" aria-label="Tasks">
-      {SECTIONS.map(section => {
-        const rows = tasks.filter(task => task.status === section.status)
+      {STAGES.map(stage => {
+        const rows = tasks.filter(task => taskStage(task, byTask.get(task.id) ?? []) === stage)
         return (
-          <Section
-            key={section.status}
-            id={section.status}
-            label={section.label}
-            count={rows.length}
-            attention={section.status === 'waiting'}
-          >
+          <Section key={stage} id={stage} label={STAGE_LABELS[stage]} count={rows.length}>
             {rows.map(task => {
-              const taskWorkers = byTask.get(task.id) ?? []
-              const latest = latestWorker(taskWorkers)
-              const running = taskWorkers.some(worker => worker.status === 'running')
+              const latest = latestWorker(byTask.get(task.id) ?? [])
               return (
                 <Row
                   key={task.id}
                   label={task.title}
-                  tip={`${task.title} · ${TASK_LABELS[task.status]}`}
-                  icon={<WorkerIcon engine={latest?.engine ?? null} running={running} />}
-                  tone={task.status === 'working' && latest && !running ? rowTone(latest.status) : ''}
+                  tip={`${task.title} · ${STAGE_LABELS[stage]}`}
+                  icon={<WorkerIcon engine={latest?.engine ?? null} running={stage !== 'done'} />}
+                  tone={stage === 'reviewing' && latest ? rowTone(latest.status) : ''}
                   selected={selection?.kind === 'task' && selection.id === task.id}
                   onOpen={() => onSelect({ kind: 'task', id: task.id })}
                 />
@@ -76,25 +65,13 @@ export function Sidebar({
   )
 }
 
-function Section({
-  id,
-  label,
-  count,
-  attention,
-  children,
-}: {
-  id: string
-  label: string
-  count: number
-  attention?: boolean
-  children: ReactNode
-}) {
+function Section({ id, label, count, children }: { id: string; label: string; count: number; children: ReactNode }) {
   const [open, setOpen] = useStoredFlag(`section:${id}`, true)
   return (
     <div>
       <button className="ghost section-head" type="button" aria-expanded={open} onClick={() => setOpen(!open)}>
         <span>{label}</span>
-        <span className={cn('count', attention && count > 0 && 'attention')}>{count}</span>
+        <span className="count">{count}</span>
       </button>
       {open && (count > 0 ? <div className="rows">{children}</div> : <div className="none">None</div>)}
     </div>

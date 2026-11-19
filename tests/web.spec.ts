@@ -208,14 +208,26 @@ test('a browser unsubscribe failure still shows that Moxy disabled this device',
   await expect(notifications.getByRole('button', { name: 'Disable on this device' })).toHaveCount(0)
 })
 
-test('notification task links open the task inspector without accepting the task', async ({ page }) => {
+test('notification task links open the finished task in the inspector', async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem('moxy:inspector-open', 'false'))
   await page.goto('/?task=dark-mode')
   const inspector = page.getByRole('complementary', { name: 'Inspector' })
   await expect(inspector.getByText('How to try it', { exact: true })).toBeVisible()
   await expect(inspector.getByText('localhost:5173/settings', { exact: true })).toBeVisible()
-  const state = await (await page.request.get('/api/state')).json()
-  expect(state.tasks.find((task: { id: string }) => task.id === 'dark-mode').status).toBe('waiting')
+  await expect(inspector.getByText('Done', { exact: true })).toBeVisible()
+})
+
+test('tasks sit under Working while a worker runs, Reviewing while Moxy checks them, then Done', async ({ page }) => {
+  await openIdle(page)
+  if (isMobile(page)) await page.getByRole('button', { name: 'Tasks', exact: true }).click()
+  const sections = page.getByRole('navigation', { name: 'Tasks' })
+  const section = (label: string) =>
+    sections.locator(':scope > div').filter({ has: page.getByRole('button', { name: new RegExp(`^${label}\\s*\\d+$`) }) })
+  await expect(section('Working').getByRole('button', { name: 'Departures board pagination' })).toBeVisible()
+  await expect(section('Reviewing').getByRole('button', { name: 'Upgrade Vite to 8' })).toBeVisible()
+  await expect(section('Done').getByRole('button', { name: 'Dark mode toggle in settings' })).toBeVisible()
+  await expect(page.getByText('Waiting on you')).toHaveCount(0)
+  await page.screenshot({ path: `test-results/task-stages-${isMobile(page) ? 'mobile' : 'desktop'}.png` })
 })
 
 async function openIdle(page: Page) {
@@ -274,10 +286,7 @@ test('a failed turn can be retried from its message', async ({ page }) => {
 
 test('a task opens in the inspector and leads to its workers', async ({ page }) => {
   await page.goto('/')
-  if (isMobile(page)) {
-    await expect(page.getByRole('button', { name: /^Tasks/ })).toContainText('1')
-    await page.getByRole('button', { name: /^Tasks/ }).click()
-  }
+  if (isMobile(page)) await page.getByRole('button', { name: 'Tasks', exact: true }).click()
   await page
     .getByRole('button', { name: /Departures board pagination/ })
     .first()

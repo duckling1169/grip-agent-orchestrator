@@ -52,7 +52,6 @@ describe('FollowUps', () => {
     expect(turn?.items).toMatchObject([
       { kind: 'follow_up', source: scheduled.source, body: { id: scheduled.id, prompt: scheduled.prompt, dueAt: scheduled.dueAt } },
     ])
-    expect(conversation.runningTurnStartedByUser()).toBe(false)
     const restarted = fixture.restart()
     restarted.followUps.start()
     expect(restarted.database.prepare('SELECT COUNT(*) AS count FROM inbox').get()?.count).toBe(1)
