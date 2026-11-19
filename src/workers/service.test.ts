@@ -9,7 +9,7 @@ import { MOXY_SCHEMA } from '../db/schema.js'
 import { Worktrees } from '../repos/worktrees.js'
 import { FakeClaw } from '../testing/fake-claw.js'
 import { silentLog, temporaryHome, temporaryRepo } from '../testing/harness.js'
-import { sessionName, Workers } from './service.js'
+import { FOREGROUND_COMMANDS_RULE, sessionName, Workers } from './service.js'
 import { WorkerStore } from './store.js'
 
 async function setup(options: { installed?: boolean } = {}) {
@@ -64,6 +64,8 @@ describe('Workers', () => {
       disallowedTools: ['mcp__moxy'],
     })
     expect(claw.starts[0]?.appendSystemPrompt).toContain(PLAIN_COMMANDS_RULE)
+    expect(claw.starts[0]?.appendSystemPrompt).toContain(FOREGROUND_COMMANDS_RULE)
+    expect(claw.sends[0]?.message).toBe('# Add a feature\nDetails follow.')
     await writeFile(join(worker.cwd, 'feature.txt'), 'new\n')
     claw.answer(sessionName(worker.id), { output: 'Added the feature.', sessionId: 'native-1' })
     await workers.settled(worker.id)
@@ -85,13 +87,19 @@ describe('Workers', () => {
     const name = sessionName(worker.id)
     await claw.turnStarted(name)
     expect(claw.starts[0]).toMatchObject({ cwd: worker.cwd, engine: 'agy', permissionMode: 'bypassPermissions' })
+    expect(claw.starts[0]?.appendSystemPrompt).toBeUndefined()
+    expect(claw.sends[0]?.message).toContain(FOREGROUND_COMMANDS_RULE)
+    expect(claw.sends[0]?.message).toContain(PLAIN_COMMANDS_RULE)
+    expect(claw.sends[0]?.message.endsWith('Read and update the checkout')).toBe(true)
     expect(worker.repo?.branch).toBe(`moxy/agy-read-and-update-the-checkout-${worker.id}`)
     claw.answer(name, { output: 'Done', sessionId: 'agy-native' })
     await workers.settled(worker.id)
+    expect((await workers.result(worker.id, { diff: false })).turns[0]?.input).toBe('Read and update the checkout')
 
     workers.message(worker.id, 'Continue')
     await claw.turnStarted(name)
     expect(claw.starts[1]).toMatchObject({ cwd: worker.cwd, permissionMode: 'bypassPermissions', resumeSessionId: 'agy-native' })
+    expect(claw.sends[1]?.message).toBe('Continue')
     claw.answer(name, { output: 'Done' })
     await workers.settled(worker.id)
   })
