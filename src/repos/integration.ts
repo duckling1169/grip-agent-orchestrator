@@ -1,6 +1,7 @@
+import { lastLine } from '../errors.js'
 import { exec as defaultExec } from '../exec.js'
 import type { Exec } from '../exec.js'
-import { git, gitOk, lastLine } from './git.js'
+import { git, gitOk } from './git.js'
 import { parseStatusFiles } from './git-parse.js'
 
 export type IntegrationRequest = { repoRoot: string; base: string; branch: string; worktree: string; title: string }

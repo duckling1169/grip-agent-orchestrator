@@ -1,4 +1,4 @@
-import { ListTodo, MessageSquare, PanelLeft, PanelRight, Settings as SettingsIcon } from 'lucide-react'
+import { Gauge, ListTodo, MessageSquare, PanelLeft, PanelRight, Settings as SettingsIcon } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 
@@ -9,6 +9,7 @@ import { TaskInspector, WorkerInspector } from '@/components/inspector'
 import { ResizeHandle, useColumnWidth } from '@/components/resize-handle'
 import type { ColumnWidth } from '@/components/resize-handle'
 import { Settings } from '@/components/settings'
+import { Quota } from '@/components/quota'
 import { Sidebar } from '@/components/sidebar'
 import type { Connection } from '@/lib/live'
 import { useLiveState } from '@/lib/live'
@@ -18,7 +19,7 @@ import { useTheme } from '@/lib/theme'
 import { cn } from '@/lib/utils'
 
 export type Side = 'left' | 'right'
-type MobileTab = 'moxy' | 'tasks' | 'settings' | 'inspect'
+type MobileTab = 'moxy' | 'tasks' | 'settings' | 'inspect' | 'quota'
 
 const ERROR_SHOWN_MS = 6000
 
@@ -82,6 +83,9 @@ export function App() {
       <div className={cn('body', side === 'right' && 'right')}>
         <Column className={cn('sidebar', !sidebarOpen && 'collapsed')} width={sidebarWidth} label="Tasks and workers">
           <Sidebar tasks={snapshot.tasks} workers={snapshot.workers} selection={selection} onSelect={select} />
+          <div className="sidebar-quota">
+            <Quota quota={snapshot.quota} offline={offline} onError={setError} />
+          </div>
           <ResizeHandle
             column={sidebarWidth}
             edge={side === 'left' ? 'right' : 'left'}
@@ -98,7 +102,10 @@ export function App() {
           )}
           <Composer leader={snapshot.leader} running={running} offline={offline} onError={setError} />
         </main>
-        <Settings snapshot={snapshot} theme={theme} side={[side, setSide]} />
+        <section className="quota-page" aria-label="Quota">
+          <Quota quota={snapshot.quota} offline={offline} onError={setError} />
+        </section>
+        <Settings snapshot={snapshot} offline={offline} theme={theme} side={[side, setSide]} />
         {selection && (
           <Column className={cn('inspector', !inspectorOpen && 'collapsed')} width={inspectorWidth} label="Inspector">
             <ResizeHandle
@@ -124,6 +131,7 @@ export function App() {
             </span>
           )}
         </TabButton>
+        <TabButton on={tab === 'quota'} icon={<Gauge />} label="Quota" onClick={() => setTab('quota')} />
         <TabButton on={tab === 'settings'} icon={<SettingsIcon />} label="Settings" onClick={() => setTab('settings')} />
       </nav>
     </div>

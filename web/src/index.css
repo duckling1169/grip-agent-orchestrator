@@ -1014,3 +1014,114 @@
     animation: none;
   }
 }
+
+@layer components {
+  .quota-page {
+    display: none;
+    flex: 1;
+    min-width: 0;
+    overflow: auto;
+    padding: 18px 16px;
+  }
+  .sidebar-quota {
+    border-top: 1px solid var(--line);
+    max-height: 48%;
+    overflow: auto;
+    padding: 10px 8px;
+  }
+  .quota {
+    font-size: 12px;
+  }
+  .quota h2 {
+    color: var(--faint);
+    font-size: 11.5px;
+    font-weight: 600;
+    padding: 0 6px 6px;
+  }
+  .quota-table {
+    width: 100%;
+    table-layout: fixed;
+    border-collapse: collapse;
+  }
+  .quota-table .quota-check-column {
+    width: 48px;
+  }
+  .quota-table .quota-usage-column {
+    width: 37px;
+  }
+  .quota-table th,
+  .quota-table td {
+    padding: 7px 4px;
+    text-align: left;
+    font-weight: 400;
+    vertical-align: middle;
+  }
+  .quota-table thead th {
+    padding-top: 0;
+    padding-bottom: 4px;
+    vertical-align: bottom;
+    color: var(--faint);
+    font-size: 9px;
+    font-weight: 500;
+  }
+  .quota-family {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+  }
+  .quota-table .quota-remaining {
+    text-align: right;
+    white-space: nowrap;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+  }
+  .quota-table thead .quota-remaining {
+    font-size: 9px;
+  }
+  .quota-check {
+    display: grid;
+    justify-items: start;
+    gap: 1px;
+    font-size: 9px;
+    line-height: 1.3;
+  }
+  .quota-check .text-action {
+    min-height: 0;
+    font-size: inherit;
+    line-height: inherit;
+  }
+  .quota-extra-windows {
+    font-size: 10px;
+    overflow-wrap: anywhere;
+  }
+  .quota-extra-windows > span + span {
+    margin-left: 8px;
+  }
+  .quota-cost {
+    padding: 3px 4px;
+    font-size: 10px;
+  }
+  .setting input {
+    width: 70px;
+    min-width: 0;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 4px 6px;
+    background: var(--raised);
+  }
+  .setting {
+    flex-wrap: wrap;
+  }
+  .tabbar {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  @media (max-width: 767px) {
+    .sidebar-quota {
+      display: none;
+    }
+    .tab-quota .quota-page {
+      display: block;
+    }
+  }
+}

@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { startMoxy } from '../src/app.js'
+import type { EngineUsage } from '../src/contracts/api.js'
 import { userMessage } from '../src/moxy/store.js'
 import type { LeaderReply, LeaderRunner } from '../src/runtime/leaders/leader.js'
 import { TaskStore } from '../src/tasks/store.js'
@@ -61,6 +62,20 @@ function freePort(): Promise<number> {
 
 const home = await mkdtemp(join(tmpdir(), 'moxy-web-preview-'))
 const leader = new PreviewLeader()
+let claudeReads = 0
+const usage = (engine: EngineUsage['engine'], usedPercent: number, stale = false): EngineUsage => ({
+  engine,
+  windows: [
+    { name: '5h', usedPercent, resetsAt: new Date(Date.now() + 3_600_000).toISOString(), stale, observedAt: new Date().toISOString() },
+    {
+      name: 'week',
+      usedPercent: 72,
+      resetsAt: new Date(Date.now() + 3 * 86_400_000).toISOString(),
+      stale,
+      observedAt: new Date().toISOString(),
+    },
+  ],
+})
 const moxy = await startMoxy({
   home,
   clawPort: await freePort(),
@@ -68,10 +83,29 @@ const moxy = await startMoxy({
   webPort: await freePort(),
   clawCli: FAKE_CLAW_CLI,
   leaders: () => leader,
+  quotaReaders: {
+    claude: async () => usage('claude', ++claudeReads === 1 ? 35 : 42, true),
+    codex: async () => usage('codex', 22),
+    agy: async () => {
+      throw new Error('Gemini quota temporarily unavailable')
+    },
+  },
+  models: {
+    get: async engine => ({
+      engine,
+      models: [
+        { id: 'preview-opus', label: 'Claude Opus preview', efforts: ['medium', 'high'], defaultEffort: 'medium', isDefault: true },
+        { id: 'preview-sonnet', label: 'Claude Sonnet preview', efforts: ['low', 'high'], defaultEffort: 'low', isDefault: false },
+      ],
+      error: null,
+    }),
+  },
   workspace: home,
   tailscaleOwner: async () => LOGIN,
   log: () => {},
 })
+
+await moxy.quota.refresh(['claude', 'codex', 'agy'])
 
 const tasks = new TaskStore(moxy.database)
 const workers = new WorkerStore(moxy.database)

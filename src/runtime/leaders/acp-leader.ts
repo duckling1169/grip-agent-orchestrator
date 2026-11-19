@@ -1,39 +1,18 @@
 // Uses the Agent Client Protocol TypeScript SDK: https://github.com/agentclientprotocol/typescript-sdk
 
 import { createRequire } from 'node:module'
-import { Readable, Writable } from 'node:stream'
 
-import { client, ndJsonStream, PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
+import { client, PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
 import type { ClientContext, McpServer, SessionConfigOption, StopReason, SystemPrompt } from '@agentclientprotocol/sdk'
 
-import type { Engine } from '../../contracts/engines.js'
 import { MOXY_MCP_NAME } from '../../contracts/mcp.js'
 import { errorText } from '../../errors.js'
-import { exec as defaultExec, spawnPiped } from '../../exec.js'
-import type { Exec, SpawnPiped } from '../../exec.js'
+import { startAcpProcess } from '../acp-process.js'
+import type { AcpCommand, AcpProcessOptions } from '../acp-process.js'
 import { LEADER_PROMPT } from './leader.js'
 import type { LeaderReply, LeaderRunner, LeaderTurnRequest, McpEndpoint } from './leader.js'
 
-export type AcpCommand = { command: string; args: readonly string[]; env?: Record<string, string> }
-
 const require = createRequire(import.meta.url)
-
-export const ACP_LEADER_COMMANDS = {
-  codex: (): AcpCommand => ({
-    command: process.execPath,
-    args: [require.resolve('@agentclientprotocol/codex-acp/dist/index.js')],
-    env: { NO_BROWSER: '1' },
-  }),
-  agy: (): AcpCommand => ({ command: 'agy', args: ['acp'] }),
-  kimi: (): AcpCommand => ({ command: 'kimi', args: ['acp'] }),
-  deepseek: (): AcpCommand => ({ command: 'dsh', args: ['--profile', 'acp'] }),
-} satisfies Partial<Record<Engine, () => AcpCommand>>
-
-export type AcpLeaderEngine = keyof typeof ACP_LEADER_COMMANDS
-
-export function isAcpLeaderEngine(engine: Engine): engine is AcpLeaderEngine {
-  return Object.hasOwn(ACP_LEADER_COMMANDS, engine)
-}
 
 const BRIDGE_AUTHORIZATION_ENV = 'MOXY_AUTHORIZATION'
 
@@ -53,11 +32,7 @@ export function mcpRemoteBridge(mcp: McpEndpoint): McpServer {
   }
 }
 
-export type AcpLeaderOptions = {
-  spawn?: SpawnPiped
-  exec?: Exec
-  stopGraceMs?: number
-}
+export type AcpLeaderOptions = AcpProcessOptions & { stopGraceMs?: number }
 
 type RunningTurn = { cancel: () => Promise<void>; kill: () => void; done: Promise<unknown> }
 
@@ -72,25 +47,8 @@ export class AcpLeader implements LeaderRunner {
   ) {}
 
   async run(request: LeaderTurnRequest): Promise<LeaderReply> {
-    const child = (this.options.spawn ?? spawnPiped)(this.agent.command, this.agent.args, {
-      cwd: request.cwd,
-      ...(this.agent.env ? { env: this.agent.env } : {}),
-    })
-    let stderr = ''
-    child.stderr.setEncoding('utf8').on('data', (chunk: string) => (stderr = (stderr + chunk).slice(-4000)))
-    child.stdin.on('error', () => undefined)
-    const exited = new Promise<number | null>(resolve => {
-      child.on('close', code => resolve(code))
-      child.on('error', () => resolve(null))
-    })
-    const spawnFailed = new Promise<never>((_, reject) => child.on('error', reject))
-    spawnFailed.catch(() => undefined)
-    const kill = () => {
-      if (child.exitCode !== null) return
-      if (process.platform === 'win32' && child.pid !== undefined) {
-        void (this.options.exec ?? defaultExec)('taskkill', ['/PID', String(child.pid), '/T', '/F']).catch(() => undefined)
-      } else child.kill()
-    }
+    const agentProcess = startAcpProcess(this.agent, request.cwd, this.options)
+    const { kill } = agentProcess
 
     let sessionId: string | null = null
     let output = ''
@@ -114,9 +72,8 @@ export class AcpLeader implements LeaderRunner {
         return { outcome: allow ? { outcome: 'selected', optionId: allow.optionId } : { outcome: 'cancelled' } }
       })
 
-    const stream = ndJsonStream(Writable.toWeb(child.stdin), Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>)
     let cancel: () => Promise<void> = async () => kill()
-    const turn = app.connectWith(stream, async agent => {
+    const turn = app.connectWith(agentProcess.stream, async agent => {
       const init = await agent.request('initialize', { protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
       const server = moxyServer(request.mcp, init.agentCapabilities?.mcpCapabilities?.http === true)
       const takesSystemPrompt = Boolean(init.agentCapabilities?.sessionCapabilities?.systemPrompt)
@@ -141,10 +98,7 @@ export class AcpLeader implements LeaderRunner {
     try {
       const stopReason = await Promise.race([
         turn,
-        spawnFailed,
-        exited.then(code => {
-          throw new Error(`${this.agent.command} exited (${code ?? 'signal'}) during the turn${stderr ? `: ${lastLine(stderr)}` : ''}`)
-        }),
+        agentProcess.failed('during the turn'),
         new Promise<never>((_, reject) => {
           timer = setTimeout(
             () => reject(new Error(`no reply within ${Math.round(request.timeoutMs / 60_000)} minutes`)),
@@ -217,7 +171,7 @@ async function configure(
     if (!value || !option || option.type !== 'select' || option.currentValue === value) return
     const values = option.options.flatMap(choice => ('options' in choice ? choice.options : [choice])).map(choice => choice.value)
     if (!values.includes(value)) throw new Error(`${request.engine} has no ${category} "${value}"; it offers ${values.join(', ')}`)
-    await agent.request('session/set_config_option', { sessionId, configId: option.id, value })
+    options = (await agent.request('session/set_config_option', { sessionId, configId: option.id, value })).configOptions
   }
   await choose('model', request.model)
   await choose('thought_level', request.effort)
@@ -237,5 +191,3 @@ function stopError(reason: StopReason): string | null {
       return 'the turn reached its limit of model requests'
   }
 }
-
-const lastLine = (text: string) => text.trim().split(/\r?\n/).pop() ?? ''

@@ -70,6 +70,8 @@ describe('startMoxy', () => {
       'delegate',
       'integrate',
       'message',
+      'models',
+      'quota',
       'ready',
       'reopen',
       'result',
@@ -81,6 +83,12 @@ describe('startMoxy', () => {
       'workers',
     ])
     const created = await mcp.callTool({ name: 'task_create', arguments: { title: 'Notes' } })
+    expect(await mcp.callTool({ name: 'models', arguments: { engine: 'codex' } })).toMatchObject({
+      content: [{ text: expect.stringContaining('codex') }],
+    })
+    expect(await mcp.callTool({ name: 'quota', arguments: {} })).toMatchObject({
+      content: [{ text: expect.stringContaining('checkedAt') }],
+    })
     const task = JSON.parse((created.content as { text: string }[])[0]?.text ?? '{}') as { id: string }
     await mcp.callTool({ name: 'ready', arguments: { task_id: task.id, how_to_try: 'Read them' } })
     expect(await mcp.callTool({ name: 'accept', arguments: { task_id: task.id } })).toMatchObject({

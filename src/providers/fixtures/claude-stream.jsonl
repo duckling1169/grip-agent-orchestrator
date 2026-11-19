@@ -1,0 +1,4 @@
+{"type":"system","subtype":"init","session_id":"00000000-0000-0000-0000-000000000001","model":"claude-haiku-5-5"}
+{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","resetsAt":1794978204,"unifiedWindows":{"five_hour":{"utilization":0.23,"resetsAt":1794978204,"status":"allowed"},"seven_day":{"utilization":0.47,"resetsAt":1795394400,"status":"allowed"},"seven_day_opus":{"utilization":0.12,"resetsAt":1795394400,"status":"allowed"}}}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"OK"}]}}
+{"type":"result","subtype":"success","is_error":false,"result":"OK","session_id":"00000000-0000-0000-0000-000000000001"}

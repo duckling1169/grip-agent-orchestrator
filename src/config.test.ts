@@ -26,4 +26,12 @@ describe('loadConfig', () => {
   it('allows nobody when Tailscale has no owner to offer', async () => {
     expect(await loadConfig(join(await temporaryHome(), 'config.json'), async () => null)).toMatchObject({ allowedLogins: [] })
   })
+
+  it('rejects refresh intervals that could turn into a one millisecond paid-probe loop', async () => {
+    const path = join(await temporaryHome(), 'config.json')
+    for (const quotaRefreshMinutes of [0.000001, 1e20]) {
+      await writeFile(path, JSON.stringify({ quotaRefreshMinutes }))
+      await expect(loadConfig(path, async () => null)).rejects.toThrow('quotaRefreshMinutes')
+    }
+  })
 })

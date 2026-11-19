@@ -32,6 +32,12 @@ export async function startTestMoxy(options: MoxyOptions = {}): Promise<Moxy> {
     workspace: '/work',
     tailscaleOwner: async () => ALLOWED_LOGIN,
     log: silentLog,
+    quotaReaders: {
+      codex: async () => ({ engine: 'codex', windows: [] }),
+      agy: async () => ({ engine: 'agy', windows: [] }),
+      claude: async () => ({ engine: 'claude', windows: [] }),
+    },
+    models: { get: async engine => ({ engine, models: [], error: null }) },
     ...options,
   })
   onTestFinished(() => moxy.stop())

@@ -12,6 +12,9 @@ export type FakeAcpOptions = {
   loadSession?: boolean
   systemPrompt?: boolean
   configOptions?: SessionConfigOption[]
+  configOptionsByModel?: Record<string, SessionConfigOption[]>
+  permissionOnOpen?: boolean
+  hangOnOpen?: boolean
   reply?: string
   askPermission?: boolean
   hang?: boolean
@@ -64,8 +67,17 @@ export function fakeAcpAgent(options: FakeAcpOptions = {}): { spawn: SpawnPiped;
           ...(options.systemPrompt ? { sessionCapabilities: { systemPrompt: {} } } : {}),
         },
       }))
-      .onRequest('session/new', ({ params }) => {
+      .onRequest('session/new', async ({ params, client }) => {
         log.newSessions.push({ cwd: params.cwd, mcpServers: params.mcpServers, ...promptOf(params.systemPrompt) })
+        if (options.permissionOnOpen) {
+          const answer = await client.request('session/request_permission', {
+            sessionId: 'fake-opening',
+            toolCall: { toolCallId: 'read-1', title: 'Read a file' },
+            options: [{ optionId: 'yes', name: 'Allow', kind: 'allow_once' }],
+          })
+          log.permission = answer.outcome
+        }
+        if (options.hangOnOpen) await new Promise<void>(resolve => cancels.add(resolve))
         return { sessionId: `fake-${++sessions}`, configOptions: options.configOptions ?? [] }
       })
       .onRequest('session/load', async ({ params, client }) => {
@@ -78,7 +90,7 @@ export function fakeAcpAgent(options: FakeAcpOptions = {}): { spawn: SpawnPiped;
       })
       .onRequest('session/set_config_option', ({ params }) => {
         log.configs.push({ configId: params.configId, value: params.value })
-        return { configOptions: options.configOptions ?? [] }
+        return { configOptions: options.configOptionsByModel?.[String(params.value)] ?? options.configOptions ?? [] }
       })
       .onNotification('session/cancel', () => {
         log.cancelled++

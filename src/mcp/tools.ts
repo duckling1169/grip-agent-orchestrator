@@ -10,8 +10,16 @@ import type { ConversationStore } from '../moxy/store.js'
 import type { Tasks } from '../tasks/service.js'
 import type { Workers } from '../workers/service.js'
 import type { Worker } from '../contracts/api.js'
+import type { ModelCatalog } from '../providers/models.js'
+import type { Quota } from '../providers/quota.js'
 
-export type LeaderToolsDeps = { workers: Workers; tasks: Tasks; conversation: ConversationStore }
+export type LeaderToolsDeps = {
+  workers: Workers
+  tasks: Tasks
+  conversation: ConversationStore
+  models: Pick<ModelCatalog, 'get'>
+  quota: Pick<Quota, 'snapshot'>
+}
 
 const workerId = z.string().describe('A worker id from delegate or workers')
 const taskId = z.string().describe('A task id from task_create or tasks')
@@ -39,8 +47,29 @@ function summarize(worker: Worker) {
   }
 }
 
-export function createLeaderMcpServer({ workers, tasks, conversation }: LeaderToolsDeps, version: string): McpServer {
+export function createLeaderMcpServer({ workers, tasks, conversation, models, quota }: LeaderToolsDeps, version: string): McpServer {
   const server = new McpServer({ name: MOXY_MCP_NAME, version })
+
+  server.registerTool(
+    'models',
+    {
+      title: 'List provider models',
+      description: 'Discover the models and effort levels reported by this engine. Opening an ACP session sends no prompt.',
+      inputSchema: { engine: z.enum(ENGINES as [Engine, ...Engine[]]) },
+      ...readOnly,
+    },
+    ({ engine }) => asToolResult(() => models.get(engine)),
+  )
+
+  server.registerTool(
+    'quota',
+    {
+      title: 'Read provider quota',
+      description: 'Cached provider quota windows with observation time, staleness and errors. Does not spend a Claude probe turn.',
+      ...readOnly,
+    },
+    () => asToolResult(() => quota.snapshot()),
+  )
 
   server.registerTool(
     'task_create',

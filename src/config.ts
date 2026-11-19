@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 
 import { writeFileAtomic } from './files.js'
+import { QuotaRefreshMinutes } from './contracts/settings.js'
 
 export type MoxyConfig = { allowedLogins: string[]; quotaRefreshMinutes: number }
 
@@ -12,9 +13,9 @@ export async function loadConfig(path: string, owner: () => Promise<string | nul
   if (!Array.isArray(logins) || !logins.every(login => typeof login === 'string')) {
     throw new Error(`${path}: allowedLogins must be a list of Tailscale logins`)
   }
-  const minutes = raw.quotaRefreshMinutes ?? DEFAULT_QUOTA_REFRESH_MINUTES
-  if (typeof minutes !== 'number' || !Number.isFinite(minutes) || minutes < 0) {
-    throw new Error(`${path}: quotaRefreshMinutes must be 0 (off) or a number of minutes`)
+  const minutes = QuotaRefreshMinutes.safeParse(raw.quotaRefreshMinutes ?? DEFAULT_QUOTA_REFRESH_MINUTES)
+  if (!minutes.success) {
+    throw new Error(`${path}: quotaRefreshMinutes must be 0 (off) or whole minutes from 1 to 1440`)
   }
   const allowedLogins = logins.map(login => login.trim()).filter(Boolean)
   if (allowedLogins.length === 0) {
@@ -24,10 +25,10 @@ export async function loadConfig(path: string, owner: () => Promise<string | nul
       await writeFileAtomic(path, `${JSON.stringify({ ...raw, allowedLogins }, null, 2)}\n`)
     }
   }
-  return { allowedLogins, quotaRefreshMinutes: minutes }
+  return { allowedLogins, quotaRefreshMinutes: minutes.data }
 }
 
-async function readConfigFile(path: string): Promise<Record<string, unknown>> {
+export async function readConfigFile(path: string): Promise<Record<string, unknown>> {
   let text: string
   try {
     text = await readFile(path, 'utf8')

@@ -14,6 +14,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { api } from '@/lib/api'
+import { useFetched } from '@/lib/use-fetched'
 import { cn } from '@/lib/utils'
 
 type Choice = { value: string | null; label: string }
@@ -31,6 +32,11 @@ export function Composer({
 }) {
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
+  const catalog = useFetched(signal => (offline ? Promise.resolve(null) : api.models(leader.engine, signal)), [leader.engine, offline])
+  const models = catalog.data?.engine === leader.engine ? catalog.data.models : []
+  const selectedModel =
+    models.find(model => model.id === leader.model) ?? (leader.model === null ? models.find(model => model.isDefault) : undefined)
+  const modelLabel = selectedModel?.label ?? leader.model ?? 'Default model'
   const empty = text.trim() === ''
   const stopping = running && empty
   const act = (action: () => Promise<unknown>) => action().catch(error => onError(error instanceof Error ? error.message : String(error)))
@@ -91,24 +97,38 @@ export function Composer({
             onChange={() => undefined}
           />
           <Picker
-            label="Model"
-            trigger={leader.model ?? 'Default model'}
-            triggerLabel={`Orchestrator model: ${leader.model ?? 'default'}`}
-            choices={withCurrent([{ value: null, label: 'Default' }], leader.model)}
+            label="Next-turn model"
+            trigger={modelLabel}
+            triggerLabel={`Next-turn model: ${modelLabel}`}
+            choices={withCurrent(
+              [{ value: null, label: 'Default' }, ...models.map(model => ({ value: model.id, label: model.label }))],
+              leader.model,
+            )}
             value={leader.model}
             disabled={offline}
-            onChange={model => void act(() => api.configure({ model, effort: leader.effort }))}
+            onChange={model => void act(() => api.configure({ model, effort: null }))}
           />
           <Picker
-            label="Effort"
+            label="Next-turn effort"
             trigger={leader.effort ?? 'Default effort'}
-            triggerLabel={`Orchestrator effort: ${leader.effort ?? 'default'}`}
-            choices={withCurrent([{ value: null, label: 'Default' }], leader.effort)}
+            triggerLabel={`Next-turn effort: ${leader.effort ?? 'default'}`}
+            choices={withCurrent(
+              [{ value: null, label: 'Default' }, ...(selectedModel?.efforts ?? []).map(effort => ({ value: effort, label: effort }))],
+              leader.effort,
+            )}
             value={leader.effort}
             disabled={offline}
             onChange={effort => void act(() => api.configure({ model: leader.model, effort }))}
           />
         </div>
+        {(catalog.error || catalog.data?.error) && (
+          <div className="note-line fail">
+            Model list: {catalog.error ?? catalog.data?.error}{' '}
+            <button className="ghost link" type="button" disabled={offline} onClick={catalog.reload}>
+              Retry
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )

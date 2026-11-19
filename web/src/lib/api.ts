@@ -1,4 +1,17 @@
-import type { LeaderSettings, LeaderTurn, PostedMessage, Snapshot, TaskDetail, Worker, WorkerChanges, WorkerDetail } from '@contracts/api'
+import type {
+  EngineModels,
+  EngineQuota,
+  MoxySettings,
+  LeaderSettings,
+  LeaderTurn,
+  PostedMessage,
+  Snapshot,
+  TaskDetail,
+  Worker,
+  WorkerChanges,
+  WorkerDetail,
+} from '@contracts/api'
+import type { Engine } from '@contracts/engines'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, { cache: 'no-store', ...init })
@@ -17,6 +30,9 @@ const workerPath = (id: string) => `/api/workers/${encodeURIComponent(id)}`
 
 export const api = {
   state: () => request<Snapshot>('/api/state'),
+  models: (engine: Engine, signal?: AbortSignal) => request<EngineModels>(`/api/models/${engine}`, { signal }),
+  refreshQuota: (engine: Engine) => post<EngineQuota[]>(`/api/quota/${engine}/refresh`),
+  settings: (settings: MoxySettings) => post<MoxySettings>('/api/settings', settings),
   send: (text: string, id: string) => post<PostedMessage>('/api/messages', { text, id }),
   stop: () => post<{ stopped: boolean }>('/api/leader/stop'),
   sendNow: () => post<{ stopped: boolean }>('/api/leader/send-now'),

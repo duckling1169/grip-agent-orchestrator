@@ -18,3 +18,7 @@ export function elapsedText(startedAt: number, now = Date.now()): string {
   const seconds = Math.round((now - startedAt) / 1000)
   return seconds < 120 ? `after ${seconds} s` : `after ${Math.round(seconds / 60)} min`
 }
+
+export function lastLine(text: string): string {
+  return text.trim().split(/\r?\n/).pop() ?? ''
+}

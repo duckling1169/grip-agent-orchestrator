@@ -61,6 +61,59 @@ const answered = (text: string) => (snapshot: Snapshot) =>
   snapshot.conversation.some(entry => entry.type === 'moxy' && entry.turn.status === 'finished' && entry.turn.output === text)
 
 describe('web server', () => {
+  it('serves provider models, persists settings, and streams quota refreshes with protected writes', async () => {
+    let reads = 0
+    const moxy = await startTestMoxy({
+      quotaReaders: {
+        codex: async () => {
+          reads++
+          return {
+            engine: 'codex',
+            windows: [{ name: '5-hour', usedPercent: 42, resetsAt: null, stale: false, observedAt: new Date().toISOString() }],
+          }
+        },
+        agy: async () => ({ engine: 'agy', windows: [] }),
+        claude: async () => {
+          throw new Error('Claude must only be explicitly refreshed in this test')
+        },
+      },
+      models: {
+        get: async engine => ({
+          engine,
+          models: [{ id: 'test-model', label: 'Test model', efforts: ['low', 'high'], defaultEffort: 'low', isDefault: true }],
+          error: null,
+        }),
+      },
+    })
+    expect(await json(call(moxy, '/api/models/codex'))).toMatchObject({ engine: 'codex', models: [{ id: 'test-model' }] })
+    expect((await call(moxy, '/api/models/unknown')).status).toBe(400)
+    const stream = snapshots(moxy)
+    expect((await until(stream, () => true)).settings).toEqual({ quotaRefreshMinutes: 5 })
+    expect(
+      (await call(moxy, '/api/quota/codex/refresh', { method: 'POST', body: {}, headers: { Origin: 'https://evil.example' } })).status,
+    ).toBe(403)
+    expect(reads).toBe(0)
+    await call(moxy, '/api/quota/codex/refresh', { method: 'POST', body: {} })
+    const refreshed = await until(stream, snapshot => snapshot.quota.some(quota => quota.engine === 'codex' && quota.windows.length > 0))
+    expect(refreshed.quota.find(quota => quota.engine === 'codex')).toMatchObject({
+      windows: [{ usedPercent: 42 }],
+      error: null,
+      busy: false,
+    })
+    expect(reads).toBe(1)
+    expect(await json(call(moxy, '/api/settings', { method: 'POST', body: { quotaRefreshMinutes: 0 } }))).toEqual({
+      quotaRefreshMinutes: 0,
+    })
+    expect((await until(stream, snapshot => snapshot.settings.quotaRefreshMinutes === 0)).revision).toBeGreaterThan(refreshed.revision)
+    expect(JSON.parse(await (await import('node:fs/promises')).readFile(moxy.paths.config, 'utf8'))).toMatchObject({
+      allowedLogins: [ALLOWED_LOGIN],
+      quotaRefreshMinutes: 0,
+    })
+    expect((await call(moxy, '/api/settings', { method: 'POST', body: { quotaRefreshMinutes: -1 } })).status).toBe(400)
+    expect((await call(moxy, '/api/quota/kimi/refresh', { method: 'POST', body: {} })).status).toBe(400)
+    await stream.return(undefined)
+  })
+
   it('answers allowed Tailscale logins and refuses everyone else', async () => {
     const moxy = await startTestMoxy()
     expect(await json(call(moxy, '/health', { headers: { 'Tailscale-User-Login': '' } }))).toEqual({ ok: true, app: 'moxy' })

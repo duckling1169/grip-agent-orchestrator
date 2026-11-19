@@ -4,6 +4,8 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { z } from 'zod'
 
 import type { PostedMessage, Snapshot } from '../contracts/api.js'
+import { isEngine } from '../contracts/engines.js'
+import { MoxySettingsBody } from '../contracts/settings.js'
 import type { Database } from '../db/database.js'
 import { errorText } from '../errors.js'
 import { listenOnLoopback, readJsonBody, sendJson } from '../http.js'
@@ -11,6 +13,10 @@ import type { LoopbackServer } from '../http.js'
 import type { LeaderLoop } from '../moxy/loop.js'
 import { userMessage } from '../moxy/store.js'
 import type { ConversationStore } from '../moxy/store.js'
+import type { ModelCatalog } from '../providers/models.js'
+import type { Quota } from '../providers/quota.js'
+import { QUOTA_ENGINES } from '../providers/quota-readers.js'
+import type { Settings } from '../settings.js'
 import type { Tasks } from '../tasks/service.js'
 import type { Workers } from '../workers/service.js'
 import { crossSiteWrite, identify } from './identity.js'
@@ -31,6 +37,9 @@ export type WebServerOptions = {
   port: number
   host: string
   staticDir: string
+  quota: Quota
+  models: Pick<ModelCatalog, 'get'>
+  settings: Settings
 }
 
 class HttpError extends Error {
@@ -55,16 +64,19 @@ async function body<T>(req: IncomingMessage, schema: z.ZodType<T>): Promise<T> {
 }
 
 export async function startWebServer(options: WebServerOptions): Promise<LoopbackServer> {
-  const { conversation, loop, tasks, workers, database } = options
+  const { conversation, loop, tasks, workers, database, quota, models, settings } = options
   const streams = new Map<ServerResponse, string>()
+  let revision = database.revision
 
   const snapshot = (login: string): Snapshot => {
     const leader = conversation.leader()
     return {
-      revision: database.revision,
+      revision,
       login,
       host: options.host,
       leader: { engine: leader.engine, model: leader.model, effort: leader.effort },
+      settings: settings.current(),
+      quota: quota.snapshot(),
       conversation: conversation.conversation(),
       tasks: tasks.list(),
       workers: workers.list(),
@@ -72,13 +84,17 @@ export async function startWebServer(options: WebServerOptions): Promise<Loopbac
   }
 
   let pending: NodeJS.Timeout | null = null
-  const unsubscribe = database.onChange(() => {
+  const publish = () => {
+    revision++
     if (pending || streams.size === 0) return
     pending = setTimeout(() => {
       pending = null
       for (const [res, login] of streams) res.write(`event: state\ndata: ${JSON.stringify(snapshot(login))}\n\n`)
     }, SNAPSHOT_DELAY_MS)
-  })
+  }
+  const unsubscribe = database.onChange(publish)
+  quota.on('change', publish)
+  settings.on('change', publish)
 
   const openStream = (res: ServerResponse, login: string): void => {
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive' })
@@ -103,6 +119,19 @@ export async function startWebServer(options: WebServerOptions): Promise<Loopbac
     const method = req.method ?? 'GET'
     if (method === 'GET' && path === '/api/events') return openStream(res, login)
     if (method === 'GET' && path === '/api/state') return snapshot(login)
+    if (method === 'POST' && path === '/api/settings') return settings.update(await body(req, MoxySettingsBody))
+    const modelRoute = /^\/api\/models\/([\w-]+)$/.exec(path)
+    if (method === 'GET' && modelRoute) {
+      const engine = modelRoute[1]!
+      if (!isEngine(engine)) throw new HttpError(400, `unknown engine ${engine}`)
+      return models.get(engine)
+    }
+    const quotaRoute = /^\/api\/quota\/([\w-]+)\/refresh$/.exec(path)
+    if (method === 'POST' && quotaRoute) {
+      const engine = QUOTA_ENGINES.find(engine => engine === quotaRoute[1])
+      if (!engine) throw new HttpError(400, `quota is not supported for ${quotaRoute[1]}`)
+      return quota.refresh([engine])
+    }
     if (method === 'POST' && path === '/api/messages') return postMessage(req)
     if (method === 'POST' && path === '/api/leader/stop') return { stopped: await loop.stop() }
     if (method === 'POST' && path === '/api/leader/send-now') return { stopped: await loop.sendNow() }
@@ -150,6 +179,8 @@ export async function startWebServer(options: WebServerOptions): Promise<Loopbac
     port: server.port,
     close: async () => {
       unsubscribe()
+      quota.off('change', publish)
+      settings.off('change', publish)
       if (pending) clearTimeout(pending)
       for (const res of streams.keys()) res.end()
       await server.close()

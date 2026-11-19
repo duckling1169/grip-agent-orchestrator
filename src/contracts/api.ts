@@ -93,11 +93,25 @@ export type ConversationEntry =
   | { type: 'user'; inboxId: number; source: string; text: string; at: string; leaderTurnId: number | null }
   | { type: 'moxy'; turn: LeaderTurn }
 
+export type UsageWindow = { name: string; usedPercent: number; resetsAt: string | null; stale: boolean; observedAt: string | null }
+
+export type EngineUsage = { engine: Engine; windows: UsageWindow[] }
+
+export type EngineQuota = EngineUsage & { checkedAt: string | null; error: string | null; busy: boolean }
+
+export type ModelOption = { id: string; label: string; efforts: string[]; defaultEffort: string | null; isDefault: boolean }
+
+export type EngineModels = { engine: Engine; models: ModelOption[]; error: string | null }
+
+export type MoxySettings = { quotaRefreshMinutes: number }
+
 export type Snapshot = {
   revision: number
   login: string
   host: string
   leader: LeaderSettings
+  settings: MoxySettings
+  quota: EngineQuota[]
   conversation: ConversationEntry[]
   tasks: Task[]
   workers: Worker[]

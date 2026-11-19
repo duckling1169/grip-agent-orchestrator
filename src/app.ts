@@ -13,6 +13,11 @@ import { ConversationStore, workerTurnEnded } from './moxy/store.js'
 import { moxyPaths } from './paths.js'
 import { tailscaleOwner } from './platform/tailscale.js'
 import type { MoxyPaths } from './paths.js'
+import { ModelCatalog } from './providers/models.js'
+import { Quota } from './providers/quota.js'
+import { CliQuotaReaders } from './providers/quota-readers.js'
+import type { QuotaReaders } from './providers/quota-readers.js'
+import { Settings } from './settings.js'
 import { protectedFolders } from './repos/folders.js'
 import { Integrator } from './repos/integration.js'
 import { Worktrees } from './repos/worktrees.js'
@@ -47,6 +52,8 @@ export type MoxyOptions = {
   tailscaleOwner?: () => Promise<string | null>
   staticDir?: string
   log?: Log
+  quotaReaders?: QuotaReaders
+  models?: Pick<ModelCatalog, 'get'>
 }
 
 export type Moxy = {
@@ -56,6 +63,7 @@ export type Moxy = {
   tasks: Tasks
   conversation: ConversationStore
   loop: LeaderLoop
+  quota: Quota
   clawPort: number
   clawVersion: string
   mcpPort: number
@@ -73,6 +81,11 @@ export async function startMoxy(options: MoxyOptions = {}): Promise<Moxy> {
     for (const step of undo.splice(0).reverse()) await step()
   }
   try {
+    const quota = await Quota.open({ path: paths.quota, readers: options.quotaReaders ?? new CliQuotaReaders() })
+    undo.push(() => quota.close())
+    const settings = new Settings(paths.config, { quotaRefreshMinutes: config.quotaRefreshMinutes })
+    const models = options.models ?? new ModelCatalog()
+    settings.on('change', value => quota.startTimer(value.quotaRefreshMinutes * 60_000))
     const clawPort = options.clawPort ?? DEFAULT_CLAW_PORT
     const client = new ClawClient(`http://127.0.0.1:${clawPort}`, await loadOrCreateToken(paths.clawToken))
     const claw = new ClawProcess({
@@ -100,6 +113,7 @@ export async function startMoxy(options: MoxyOptions = {}): Promise<Moxy> {
       isInstalled: isEngineInstalled,
       log,
       onTurnEnded: (worker, turn) => {
+        quota.afterTurn(worker.engine)
         log(`worker ${worker.id} turn ${turn.number} ${turn.status}`)
         if (conversation.receive(workerTurnEnded(worker, turn))) loop?.wake()
       },
@@ -109,7 +123,7 @@ export async function startMoxy(options: MoxyOptions = {}): Promise<Moxy> {
 
     const mcpToken = await loadOrCreateToken(paths.mcpToken)
     const mcp = await startMcpServer({
-      tools: { workers, tasks, conversation },
+      tools: { workers, tasks, conversation, quota, models },
       token: mcpToken,
       port: options.mcpPort ?? DEFAULT_MCP_PORT,
       version: MOXY_VERSION,
@@ -131,7 +145,10 @@ export async function startMoxy(options: MoxyOptions = {}): Promise<Moxy> {
       cwd: options.workspace ?? homedir(),
       timeoutMs: options.leaderTimeoutMs ?? LEADER_TURN_TIMEOUT_MS,
       log,
-      onTurnEnded: turn => log(`leader turn ${turn.id} ${turn.status}${turn.error ? `: ${turn.error}` : ''}`),
+      onTurnEnded: turn => {
+        quota.afterTurn(turn.engine)
+        log(`leader turn ${turn.id} ${turn.status}${turn.error ? `: ${turn.error}` : ''}`)
+      },
     })
     loop = activeLoop
     undo.push(() => activeLoop.close())
@@ -147,22 +164,28 @@ export async function startMoxy(options: MoxyOptions = {}): Promise<Moxy> {
       port: options.webPort ?? DEFAULT_WEB_PORT,
       host: hostname(),
       staticDir: options.staticDir ?? DEFAULT_STATIC_DIR,
+      quota,
+      models,
+      settings,
     })
     if (config.allowedLogins.length === 0) log(`no Tailscale login is allowed yet; add one to allowedLogins in ${paths.config}`)
     undo.push(() => web.close())
     log(`Moxy on 127.0.0.1:${web.port}, MCP on 127.0.0.1:${mcp.port}`)
     activeLoop.wake()
+    quota.startTimer(settings.current().quotaRefreshMinutes * 60_000)
 
     let stopping: Promise<void> | null = null
     const stop = () =>
       (stopping ??= (async () => {
         log('stopping')
+        const quotaClosed = quota.close()
         await web.close()
         await activeLoop.close()
         workers.interruptAll()
         await mcp.close()
         await claw.stop()
         await workers.idle()
+        await quotaClosed
         database.close()
       })())
     return {
@@ -172,6 +195,7 @@ export async function startMoxy(options: MoxyOptions = {}): Promise<Moxy> {
       tasks,
       conversation,
       loop: activeLoop,
+      quota,
       clawPort,
       clawVersion: version,
       mcpPort: mcp.port,

@@ -121,6 +121,37 @@ describe('AcpLeader', () => {
     expect(log.permission).toEqual({ outcome: 'selected', optionId: 'yes' })
   })
 
+  it('chooses effort from the selected model configuration', async () => {
+    const model = {
+      id: 'model',
+      name: 'Model',
+      category: 'model',
+      type: 'select' as const,
+      currentValue: 'a',
+      options: [
+        { value: 'a', name: 'A' },
+        { value: 'b', name: 'B' },
+      ],
+    }
+    const effort = (value: string) => ({
+      id: 'effort',
+      name: 'Effort',
+      category: 'thought_level',
+      type: 'select' as const,
+      currentValue: 'default',
+      options: [
+        { value: 'default', name: 'Default' },
+        { value, name: value },
+      ],
+    })
+    const { leader, log } = leaderWith({ configOptions: [model, effort('high')], configOptionsByModel: { b: [model, effort('medium')] } })
+    expect((await leader.run(request({ engine: 'codex', model: 'b', effort: 'medium' }))).error).toBeNull()
+    expect(log.configs).toEqual([
+      { configId: 'model', value: 'b' },
+      { configId: 'effort', value: 'medium' },
+    ])
+  })
+
   it('cancels a running turn on stop', async () => {
     const { leader, log } = leaderWith({ hang: true })
     const reply = leader.run(request({ engine: 'agy' }))

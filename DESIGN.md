@@ -26,7 +26,7 @@ This document owns product behavior. [IMPLEMENTATION.md](IMPLEMENTATION.md) owns
 - Show next-turn settings while a worker runs and offer Stop and continue; do not imply mid-turn message injection. Label selectors Next-turn model and wall time Time since started.
 - Record model and effort per turn.
 - Inspector: explicit refresh, last-fetched time and bounded refresh while running.
-- Quota: tappable provider windows, staleness and errors, and provider-specific refresh with Claude's cost stated.
+- Quota: a table with shared family, last-checked and remaining 5h/7d headers, and provider-specific recheck controls. Usage tooltips show reset times, observations and staleness; unavailable providers have red family names with error tooltips, and Claude's check cost is stated.
 - Show clipped output, skipped-file reasons, binary or no-text patches and git collection failures distinctly from a clean tree.
 - Report notification test sent and device counts and errors accurately. Label partial worktree and history views and offer Show all.
 
