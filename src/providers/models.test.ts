@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { SessionConfigOption } from '@agentclientprotocol/sdk'
 
 import { fakeAcpAgent } from '../testing/fake-acp-agent.js'
-import { probeAcpModels, ModelCatalog } from './models.js'
+import { checkModelChoice, probeAcpModels, ModelCatalog } from './models.js'
 
 const modelConfig: SessionConfigOption = {
   id: 'model',
@@ -115,5 +115,24 @@ describe('model catalog', () => {
       ['sonnet', ['low', 'medium', 'high', 'xhigh', 'max']],
       ['haiku', []],
     ])
+  })
+})
+
+describe('model choice', () => {
+  const claude = () => new ModelCatalog({ installed: () => true }).get('claude')
+
+  it('requires a listed model and one of its efforts', async () => {
+    const models = await claude()
+    expect(() => checkModelChoice(models, 'sonnet', 'medium')).not.toThrow()
+    expect(() => checkModelChoice(models, undefined, 'medium')).toThrow('choose a Claude model: opus, sonnet, haiku')
+    expect(() => checkModelChoice(models, 'opus')).toThrow('choose an effort for Claude opus: low, medium, high')
+    expect(() => checkModelChoice(models, 'opus', 'huge')).toThrow('choose an effort for Claude opus')
+  })
+
+  it('takes no effort for a model without levels, and checks nothing when the engine lists no models', async () => {
+    const models = await claude()
+    expect(() => checkModelChoice(models, 'haiku')).not.toThrow()
+    expect(() => checkModelChoice(models, 'haiku', 'low')).toThrow('Claude haiku has no effort levels')
+    expect(() => checkModelChoice({ engine: 'grok', models: [], error: null })).not.toThrow()
   })
 })

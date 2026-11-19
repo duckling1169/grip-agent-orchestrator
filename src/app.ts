@@ -183,8 +183,8 @@ export async function startMoxy(options: MoxyOptions = {}): Promise<Moxy> {
       runners: options.leaders ?? leaderRunners(new ClawLeader(client, paths.leaderMcpConfig)),
       mcp: { url: `http://127.0.0.1:${mcp.port}/mcp`, token: mcpToken },
       cwd: workspace,
-      systemPrompt: async () =>
-        leaderPrompt({ machine: hostname(), repoFolders: config.repoFolders, repos: await knownRepos(config.repoFolders) }),
+      systemPrompt: async engine =>
+        leaderPrompt({ machine: hostname(), engine, repoFolders: config.repoFolders, repos: await knownRepos(config.repoFolders) }),
       timeoutMs: options.leaderTimeoutMs ?? LEADER_TURN_TIMEOUT_MS,
       log,
       seed: turnId => handoffContext({ tasks: tasks.list(), conversation: conversation.conversation(), memory: memory.read() }, turnId),

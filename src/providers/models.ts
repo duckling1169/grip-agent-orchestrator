@@ -73,6 +73,16 @@ export class ModelCatalog {
   }
 }
 
+export function checkModelChoice({ engine, models }: EngineModels, model?: string, effort?: string): void {
+  if (!models.length) return
+  const name = engineSpec(engine).name
+  const option = models.find(candidate => candidate.id === model)
+  if (!option) throw new Error(`choose a ${name} model: ${models.map(candidate => candidate.id).join(', ')}`)
+  if (option.efforts.length && !(effort && option.efforts.includes(effort)))
+    throw new Error(`choose an effort for ${name} ${option.id}: ${option.efforts.join(', ')}`)
+  if (!option.efforts.length && effort) throw new Error(`${name} ${option.id} has no effort levels; leave effort out`)
+}
+
 export async function probeAcpModels(
   command: AcpCommand,
   options: AcpProcessOptions & { timeoutMs?: number } = {},

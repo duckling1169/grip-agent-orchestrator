@@ -25,6 +25,12 @@ export const ENGINES = Object.keys(ENGINE_SPECS) as Engine[]
 
 export const LEADER_ENGINES = ['claude', 'codex', 'agy', 'kimi', 'deepseek'] as const satisfies readonly Engine[]
 
+export const PLAIN_COMMANDS_RULE =
+  'Write each shell command as a plain, literal command: no shell variables, loops or command substitution such as $(...), ' +
+  'and one command for each step. Nobody can answer an approval prompt here, so a command that cannot be checked before it ' +
+  'runs is denied. If a command is denied because it needs approval, run the same steps again as plain commands before you ' +
+  'report that it is blocked.'
+
 export function engineSpec(engine: Engine): EngineSpec {
   return ENGINE_SPECS[engine]
 }

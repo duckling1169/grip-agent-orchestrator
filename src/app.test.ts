@@ -133,6 +133,9 @@ describe('startMoxy', () => {
       isError: true,
       content: [{ text: 'only the user can accept a task, and this turn did not start from a user message' }],
     })
+    expect(
+      await mcp.callTool({ name: 'delegate', arguments: { task_id: task.id, engine: 'claude', prompt: 'Add notes', model: 'opus' } }),
+    ).toMatchObject({ isError: true, content: [{ text: expect.stringContaining('choose an effort for Claude opus') }] })
     expect(await mcp.callTool({ name: 'workers', arguments: {} })).toMatchObject({ content: [{ type: 'text', text: '[]' }] })
     await mcp.close()
   })

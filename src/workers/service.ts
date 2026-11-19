@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto'
 import { realpath, stat } from 'node:fs/promises'
 import { resolve } from 'node:path'
 
-import { engineSpec } from '../contracts/engines.js'
+import { engineSpec, PLAIN_COMMANDS_RULE } from '../contracts/engines.js'
 import { MOXY_MCP_TOOLS } from '../contracts/mcp.js'
 import type { Engine } from '../contracts/engines.js'
 import { errorText } from '../errors.js'
@@ -51,7 +51,7 @@ const TITLE_MAX_LENGTH = 80
 export const WORKER_PROMPT =
   'You are a worker started by Moxy. You may use subagents for parts of this task, but wait for each one to finish ' +
   'before you reply. Do not leave subagents or background jobs running when your turn ends: they stop with it, and ' +
-  'nobody sees their results.'
+  `nobody sees their results. ${PLAIN_COMMANDS_RULE}`
 
 export class Workers {
   private readonly inFlight = new Map<string, Promise<void>>()

@@ -3,6 +3,7 @@ import { join } from 'node:path'
 
 import { describe, expect, it, onTestFinished } from 'vitest'
 
+import { PLAIN_COMMANDS_RULE } from '../contracts/engines.js'
 import { Database } from '../db/database.js'
 import { MOXY_SCHEMA } from '../db/schema.js'
 import { Worktrees } from '../repos/worktrees.js'
@@ -62,6 +63,7 @@ describe('Workers', () => {
       model: 'opus',
       disallowedTools: ['mcp__moxy'],
     })
+    expect(claw.starts[0]?.appendSystemPrompt).toContain(PLAIN_COMMANDS_RULE)
     await writeFile(join(worker.cwd, 'feature.txt'), 'new\n')
     claw.answer(sessionName(worker.id), { output: 'Added the feature.', sessionId: 'native-1' })
     await workers.settled(worker.id)

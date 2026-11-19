@@ -13,7 +13,7 @@ export type LeaderLoopOptions = {
   runners: LeaderRunners
   mcp: McpEndpoint
   cwd: string
-  systemPrompt: () => Promise<string>
+  systemPrompt: (engine: Engine) => Promise<string>
   timeoutMs: number
   log: Log
   onTurnEnded?: (turn: LeaderTurn) => void
@@ -112,7 +112,7 @@ export class LeaderLoop {
         nativeSessionId,
         sessionKey: String(turn.id),
         cwd: this.options.cwd,
-        systemPrompt: await this.options.systemPrompt(),
+        systemPrompt: await this.options.systemPrompt(turn.engine),
         message,
         freshContext,
         mcp: this.options.mcp,

@@ -10,6 +10,7 @@ import type { ConversationStore } from '../moxy/store.js'
 import type { Tasks } from '../tasks/service.js'
 import type { Workers } from '../workers/service.js'
 import type { Worker } from '../contracts/api.js'
+import { checkModelChoice } from '../providers/models.js'
 import type { ModelCatalog } from '../providers/models.js'
 import type { Quota } from '../providers/quota.js'
 import { FOLLOW_UP_PROMPT_LIMIT } from '../moxy/follow-ups.js'
@@ -46,6 +47,7 @@ function summarize(worker: Worker) {
     title: worker.title,
     engine: worker.engine,
     model: worker.model,
+    effort: worker.effort,
     status: worker.status,
     turns: worker.turnCount,
     cwd: worker.cwd,
@@ -195,12 +197,19 @@ export function createLeaderMcpServer(
         engine: z.enum(ENGINES as [Engine, ...Engine[]]).describe('Which agent does the work'),
         prompt: z.string().describe('The task, written out in full'),
         title: z.string().optional().describe("Short name for the worker and its branch; defaults to the prompt's first line"),
-        model: z.string().optional(),
-        effort: z.string().optional(),
+        model: z
+          .string()
+          .optional()
+          .describe('Required when the models tool lists models for this engine. Pick one; never rely on a default'),
+        effort: z
+          .string()
+          .optional()
+          .describe('Required when the model offers effort levels. Higher effort spends much more quota; use it only for hard work'),
       },
     },
     ({ task_id, folder, ...rest }) =>
       asToolResult(async () => {
+        checkModelChoice(await models.get(rest.engine), rest.model, rest.effort)
         if (task_id) return summarize(await tasks.delegate(task_id, { ...rest, folder }))
         if (!folder) throw new Error('give a folder or a task_id')
         return summarize(await workers.delegate({ ...rest, folder }))

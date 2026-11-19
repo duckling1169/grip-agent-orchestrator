@@ -60,7 +60,7 @@ async function setup() {
       runners: () => leader,
       mcp: { url: 'http://127.0.0.1:1/mcp', token: 't' },
       cwd: '/work',
-      systemPrompt: async () => 'Leader prompt',
+      systemPrompt: async engine => `Leader prompt for ${engine}`,
       timeoutMs: 1000,
       log: silentLog,
       onTurnEnded: turn => ended.push(turn),
@@ -145,7 +145,13 @@ describe('LeaderLoop', () => {
     conversation.receive(userMessage('Hello', 'a'))
     loop.wake()
     await leader.started(1)
-    expect(leader.requests[0]).toMatchObject({ engine: 'claude', message: 'Hello', cwd: '/work', nativeSessionId: null })
+    expect(leader.requests[0]).toMatchObject({
+      engine: 'claude',
+      systemPrompt: 'Leader prompt for claude',
+      message: 'Hello',
+      cwd: '/work',
+      nativeSessionId: null,
+    })
     leader.reply({ output: 'Hi!', error: null, nativeSessionId: 'native-1' })
     await loop.idle()
 
@@ -182,7 +188,7 @@ describe('LeaderLoop', () => {
       },
       mcp: { url: '', token: '' },
       cwd: '/work',
-      systemPrompt: async () => 'Leader prompt',
+      systemPrompt: async engine => `Leader prompt for ${engine}`,
       timeoutMs: 1000,
       log: silentLog,
       onTurnEnded: turn => ended.push(turn),
