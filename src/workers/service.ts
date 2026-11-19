@@ -51,8 +51,9 @@ const TITLE_MAX_LENGTH = 80
 
 export const FOREGROUND_COMMANDS_RULE =
   'Run every command in the foreground and wait for it to finish, even when it takes many minutes. Never start a ' +
-  'command in the background or detached: if you stop to wait for a background job, your turn ends as failed and ' +
-  'the job stops with it.'
+  'command in the background or detached. If your tool moves a long command to the background by itself, keep ' +
+  'checking its status until it finishes. Never end your turn while a command is still running: the turn ends as ' +
+  'failed and the command stops with it. Prefer several shorter commands to one very long one.'
 
 export const WORKER_PROMPT =
   'You are a worker started by Moxy. You may use subagents for parts of this task, but wait for each one to finish ' +
