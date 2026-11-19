@@ -14,7 +14,13 @@ export type TaskDetail = { task: Task; workers: Worker[]; integrations: Integrat
 
 export type TaskDelegation = Omit<DelegateInput, 'taskId' | 'folder'> & { folder?: string }
 
-export type TasksOptions = { store: TaskStore; workers: Workers; worktrees: Worktrees; integrator: Integrator }
+export type TasksOptions = {
+  store: TaskStore
+  workers: Workers
+  worktrees: Worktrees
+  integrator: Integrator
+  onReady?: (task: Task) => void
+}
 
 export class Tasks {
   constructor(private readonly options: TasksOptions) {}
@@ -99,7 +105,11 @@ export class Tasks {
     if (task.repoRoot && !delivery.revision) throw new Error(`task ${taskId} is in ${task.repoRoot}, so give the revision to try`)
     if (!task.repoRoot && delivery.revision) throw new Error(`task ${taskId} has no repo, so it has no revision`)
     const revision = task.repoRoot && delivery.revision ? await this.options.worktrees.commit(task.repoRoot, delivery.revision) : null
-    return this.store.deliver(taskId, revision, howToTry)
+    const current = this.store.mustGet(taskId)
+    const delivered = this.store.deliver(taskId, revision, howToTry)
+    if (current.status !== 'waiting' || current.revision !== revision || current.howToTry !== howToTry || current.supersededBy !== null)
+      this.options.onReady?.(delivered)
+    return delivered
   }
 
   accept(taskId: string): Task {

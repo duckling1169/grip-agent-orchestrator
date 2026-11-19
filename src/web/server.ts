@@ -17,6 +17,7 @@ import type { ModelCatalog } from '../providers/models.js'
 import type { Quota } from '../providers/quota.js'
 import { QUOTA_ENGINES } from '../providers/quota-readers.js'
 import type { Settings } from '../settings.js'
+import type { PushNotifier } from '../platform/push.js'
 import type { Tasks } from '../tasks/service.js'
 import type { Workers } from '../workers/service.js'
 import { crossSiteWrite, identify } from './identity.js'
@@ -40,6 +41,7 @@ export type WebServerOptions = {
   quota: Quota
   models: Pick<ModelCatalog, 'get'>
   settings: Settings
+  push: PushNotifier
 }
 
 class HttpError extends Error {
@@ -55,6 +57,13 @@ const MessageBody = z.object({ text: z.string().trim().min(1, 'text is required'
 const RetryBody = z.object({ turnId: z.number().int() })
 const SettingsBody = z.object({ model: z.string().min(1).nullable(), effort: z.string().min(1).nullable() })
 const WorkerMessageBody = z.object({ text: z.string().trim().min(1, 'text is required') })
+const PushDeviceBody = z.object({ endpoint: z.string().url().max(4096) })
+const PushSubscribeBody = z.object({
+  subscription: z.object({
+    endpoint: z.string().url().max(4096),
+    keys: z.object({ p256dh: z.string().min(1).max(256), auth: z.string().min(1).max(256) }),
+  }),
+})
 
 async function body<T>(req: IncomingMessage, schema: z.ZodType<T>): Promise<T> {
   const parsed = schema.safeParse((await readJsonBody(req)) ?? {})
@@ -64,7 +73,7 @@ async function body<T>(req: IncomingMessage, schema: z.ZodType<T>): Promise<T> {
 }
 
 export async function startWebServer(options: WebServerOptions): Promise<LoopbackServer> {
-  const { conversation, loop, tasks, workers, database, quota, models, settings } = options
+  const { conversation, loop, tasks, workers, database, quota, models, settings, push } = options
   const streams = new Map<ServerResponse, string>()
   let revision = database.revision
 
@@ -119,6 +128,25 @@ export async function startWebServer(options: WebServerOptions): Promise<Loopbac
     const method = req.method ?? 'GET'
     if (method === 'GET' && path === '/api/events') return openStream(res, login)
     if (method === 'GET' && path === '/api/state') return snapshot(login)
+    if (path === '/api/push' || path.startsWith('/api/push/')) {
+      if (!options.allowedLogins.some(allowed => allowed.toLowerCase() === login.toLowerCase()))
+        throw new HttpError(403, 'Notifications require an allowed Tailscale login')
+      if (method === 'GET' && path === '/api/push') {
+        const endpoint = new URL(req.url ?? '/', 'http://127.0.0.1').searchParams.get('endpoint') ?? undefined
+        return push.status(login, endpoint)
+      }
+      if (method === 'POST' && path === '/api/push/subscribe') {
+        const { subscription } = await body(req, PushSubscribeBody)
+        await push.subscribe(login, subscription)
+        return push.status(login, subscription.endpoint)
+      }
+      if (method === 'POST' && path === '/api/push/unsubscribe') {
+        const { endpoint } = await body(req, PushDeviceBody)
+        await push.unsubscribe(login, endpoint)
+        return push.status(login, endpoint)
+      }
+      if (method === 'POST' && path === '/api/push/test') return push.test(login)
+    }
     if (method === 'POST' && path === '/api/settings') return settings.update(await body(req, MoxySettingsBody))
     const modelRoute = /^\/api\/models\/([\w-]+)$/.exec(path)
     if (method === 'GET' && modelRoute) {

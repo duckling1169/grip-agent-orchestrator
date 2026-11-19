@@ -14,8 +14,9 @@ import { sessionName, Workers } from '../workers/service.js'
 import { WorkerStore } from '../workers/store.js'
 import { Tasks } from './service.js'
 import { TaskStore } from './store.js'
+import type { Task } from '../contracts/api.js'
 
-async function setup() {
+async function setup(onReady?: (task: Task) => void) {
   const path = join(await temporaryHome(), 'moxy.db')
   const repo = await temporaryRepo()
   const claw = new FakeClaw()
@@ -31,7 +32,7 @@ async function setup() {
       isInstalled: () => true,
       log: silentLog,
     })
-    return { workers, tasks: new Tasks({ store: new TaskStore(database), workers, worktrees, integrator: new Integrator() }) }
+    return { workers, tasks: new Tasks({ store: new TaskStore(database), workers, worktrees, integrator: new Integrator(), onReady }) }
   }
   const services = open()
   const work = async (taskId: string, prompt: string, files: Record<string, string>) => {
@@ -58,6 +59,37 @@ async function setup() {
 }
 
 describe('Tasks', () => {
+  it('announces concurrent identical repo deliveries only once', async () => {
+    const deliveries: Task[] = []
+    const { repo, tasks } = await setup(task => deliveries.push(task))
+    const task = await tasks.create({ title: 'Ready once', folder: repo })
+    await Promise.all([
+      tasks.ready(task.id, { revision: 'HEAD', howToTry: 'Read README.md' }),
+      tasks.ready(task.id, { revision: 'HEAD', howToTry: 'Read README.md' }),
+    ])
+    expect(deliveries).toHaveLength(1)
+  })
+
+  it('announces a committed delivery once, and stays quiet on restart or an identical ready call', async () => {
+    const deliveries: Task[] = []
+    const { tasks, restart, taskStore } = await setup(task => {
+      expect(taskStore().mustGet(task.id).status).toBe('waiting')
+      deliveries.push(task)
+    })
+    const task = await tasks.create({ title: 'Release notes' })
+    await expect(tasks.ready(task.id, { howToTry: '' })).rejects.toThrow('say how')
+    expect(deliveries).toHaveLength(0)
+    await tasks.ready(task.id, { howToTry: 'Read notes.md' })
+    await tasks.ready(task.id, { howToTry: 'Read notes.md' })
+    expect(deliveries).toHaveLength(1)
+    const restarted = restart()
+    expect(deliveries).toHaveLength(1)
+    await restarted.tasks.ready(task.id, { howToTry: 'Read notes.md' })
+    expect(deliveries).toHaveLength(1)
+    await restarted.tasks.ready(task.id, { howToTry: 'Read revised notes.md' })
+    expect(deliveries).toHaveLength(2)
+  })
+
   it('integrates two tasks in one repo, survives a desktop edit and hands both to the user', async () => {
     const { repo, tasks, work, git } = await setup()
     const header = await tasks.create({ title: 'Add a header', folder: repo, testing: 'Refresh http://localhost:5173' })

@@ -38,6 +38,7 @@ export async function startTestMoxy(options: MoxyOptions = {}): Promise<Moxy> {
       claude: async () => ({ engine: 'claude', windows: [] }),
     },
     models: { get: async engine => ({ engine, models: [], error: null }) },
+    pushSender: async () => ({ ok: true }),
     ...options,
   })
   onTestFinished(() => moxy.stop())

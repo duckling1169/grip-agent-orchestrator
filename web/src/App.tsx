@@ -25,16 +25,24 @@ const ERROR_SHOWN_MS = 6000
 
 export function App() {
   const { snapshot, connection } = useLiveState()
+  const [linkedTask] = useState(() => {
+    const id = new URLSearchParams(window.location.search).get('task')
+    return id && /^[\w-]{1,128}$/.test(id) ? id : null
+  })
   const theme = useTheme()
   const [side, setSide] = useStoredState<Side>('sidebar-side', stored => (stored === 'right' ? 'right' : 'left'))
   const [sidebarOpen, setSidebarOpen] = useStoredFlag('sidebar-open', true)
   const [inspectorOpen, setInspectorOpen] = useStoredFlag('inspector-open', true)
   const sidebarWidth = useColumnWidth('sidebar', 264, 200, 420)
   const inspectorWidth = useColumnWidth('inspector', 400, 320, 640)
-  const [selection, setSelection] = useState<Selection | null>(null)
+  const [selection, setSelection] = useState<Selection | null>(linkedTask ? { kind: 'task', id: linkedTask } : null)
   const [view, setView] = useState<'conversation' | 'settings'>('conversation')
-  const [tab, setTab] = useState<MobileTab>('moxy')
+  const [tab, setTab] = useState<MobileTab>(linkedTask ? 'inspect' : 'moxy')
   const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (linkedTask) setInspectorOpen(true)
+  }, [linkedTask])
 
   useEffect(() => {
     if (!error) return

@@ -5,6 +5,7 @@ import { THEMES } from '@/lib/theme'
 import type { Theme } from '@/lib/theme'
 import { cn } from '@/lib/utils'
 import { api } from '@/lib/api'
+import { NotificationSettings } from '@/components/notifications'
 
 const THEME_LABELS: Record<Theme, string> = { system: 'System', light: 'Light', dark: 'Dark' }
 const SIDE_LABELS: Record<Side, string> = { left: 'Left', right: 'Right' }
@@ -38,6 +39,7 @@ export function Settings({
   return (
     <section className="settings-page" aria-label="Settings">
       <div className="settings-inner">
+        <NotificationSettings offline={offline} />
         <div>
           <h2>Quota refresh</h2>
           <div className="setting">

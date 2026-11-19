@@ -26,11 +26,22 @@ Quota uses Codex app-server, Gemini's `agy /usage` and Claude's stream output. A
 
 Automatic refresh defaults to every five minutes, beginning after the first interval, and includes Claude. Set `quotaRefreshMinutes` to `0` in Settings or `config.json` to disable it; supported intervals are whole minutes from 1 to 1440. Finishing a Codex or Gemini turn refreshes that provider, at most once per minute; finishing a Claude turn never probes Claude. Cached readings survive restart and stay marked stale after a reset or failed refresh.
 
+## Notifications
+
+Enable notifications in Settings on each device that should hear when a task is ready for you. Permission is requested only when you choose Enable notifications. Use the HTTPS Tailscale Serve address; on iPhone and iPad, add Moxy to the Home Screen and open it there first.
+
+Subscriptions belong to the signed-in Tailscale login. Settings shows your registered device count, lets you disable this device, and can send a test to all your registered devices. Test results report how many notifications the push services accepted or rejected; they cannot confirm that a device displayed them. Expired subscriptions are removed automatically.
+
+Task-ready notifications contain the task title and a link to its inspector, never code, output, repo paths or testing notes. Opening a notification does not accept the task. Repeating an unchanged delivery, restarting Moxy, and stopping or finishing workers do not send notifications. Push services retain an undelivered notification for at most 24 hours. Keys and subscriptions persist in `push.json` in Moxy's data home; only the public key and your device count are exposed through the API.
+
+The fake preview and automated checks use fake push senders and browser subscriptions. Actual delivery to sleeping or closed devices still needs a deliberate live check through the HTTPS tailnet address.
+
 ## Credits
 
 - [Claw Orchestrator](https://github.com/Enderfga/claw-orchestrator) by Enderfga runs Moxy's workers.
 - [SQLite](https://sqlite.org), through Node's built-in [`node:sqlite`](https://nodejs.org/api/sqlite.html), stores Moxy's state.
 - [semver](https://github.com/npm/node-semver) by the npm team checks Claw versions.
+- [web-push](https://github.com/web-push-libs/web-push) encrypts notifications and signs requests with Moxy's VAPID keys.
 
 ## License
 

@@ -12,6 +12,8 @@ import { LeaderLoop } from './moxy/loop.js'
 import { ConversationStore, workerTurnEnded } from './moxy/store.js'
 import { moxyPaths } from './paths.js'
 import { tailscaleOwner } from './platform/tailscale.js'
+import { PushNotifier } from './platform/push.js'
+import type { PushSender } from './platform/push.js'
 import type { MoxyPaths } from './paths.js'
 import { ModelCatalog } from './providers/models.js'
 import { Quota } from './providers/quota.js'
@@ -54,6 +56,7 @@ export type MoxyOptions = {
   log?: Log
   quotaReaders?: QuotaReaders
   models?: Pick<ModelCatalog, 'get'>
+  pushSender?: PushSender
 }
 
 export type Moxy = {
@@ -64,6 +67,7 @@ export type Moxy = {
   conversation: ConversationStore
   loop: LeaderLoop
   quota: Quota
+  push: PushNotifier
   clawPort: number
   clawVersion: string
   mcpPort: number
@@ -81,6 +85,8 @@ export async function startMoxy(options: MoxyOptions = {}): Promise<Moxy> {
     for (const step of undo.splice(0).reverse()) await step()
   }
   try {
+    const push = await PushNotifier.open({ path: paths.push, allowedLogins: () => config.allowedLogins, sender: options.pushSender })
+    undo.push(() => push.close())
     const quota = await Quota.open({ path: paths.quota, readers: options.quotaReaders ?? new CliQuotaReaders() })
     undo.push(() => quota.close())
     const settings = new Settings(paths.config, { quotaRefreshMinutes: config.quotaRefreshMinutes })
@@ -119,7 +125,20 @@ export async function startMoxy(options: MoxyOptions = {}): Promise<Moxy> {
       },
     })
     undo.push(() => workers.idle())
-    const tasks = new Tasks({ store: new TaskStore(database), workers, worktrees, integrator: new Integrator() })
+    const tasks = new Tasks({
+      store: new TaskStore(database),
+      workers,
+      worktrees,
+      integrator: new Integrator(),
+      onReady: task => {
+        void push
+          .ready(task)
+          .then(report => {
+            if (report.failed) log(`push: ${report.failed} of ${report.attempted} notifications failed`)
+          })
+          .catch(error => log(`push failed: ${errorText(error)}`))
+      },
+    })
 
     const mcpToken = await loadOrCreateToken(paths.mcpToken)
     const mcp = await startMcpServer({
@@ -167,6 +186,7 @@ export async function startMoxy(options: MoxyOptions = {}): Promise<Moxy> {
       quota,
       models,
       settings,
+      push,
     })
     if (config.allowedLogins.length === 0) log(`no Tailscale login is allowed yet; add one to allowedLogins in ${paths.config}`)
     undo.push(() => web.close())
@@ -179,6 +199,7 @@ export async function startMoxy(options: MoxyOptions = {}): Promise<Moxy> {
       (stopping ??= (async () => {
         log('stopping')
         const quotaClosed = quota.close()
+        const pushClosed = push.close()
         await web.close()
         await activeLoop.close()
         workers.interruptAll()
@@ -186,6 +207,7 @@ export async function startMoxy(options: MoxyOptions = {}): Promise<Moxy> {
         await claw.stop()
         await workers.idle()
         await quotaClosed
+        await pushClosed
         database.close()
       })())
     return {
@@ -196,6 +218,7 @@ export async function startMoxy(options: MoxyOptions = {}): Promise<Moxy> {
       conversation,
       loop: activeLoop,
       quota,
+      push,
       clawPort,
       clawVersion: version,
       mcpPort: mcp.port,

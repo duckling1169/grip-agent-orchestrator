@@ -12,6 +12,7 @@ export const moxyPaths = (home = moxyHome()) => ({
   database: join(home, 'moxy.db'),
   config: join(home, 'config.json'),
   quota: join(home, 'quota.json'),
+  push: join(home, 'push.json'),
   clawToken: join(home, 'claw-token'),
   mcpToken: join(home, 'mcp-token'),
   webToken: join(home, 'web-token'),

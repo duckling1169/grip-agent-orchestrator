@@ -83,6 +83,7 @@ const moxy = await startMoxy({
   webPort: await freePort(),
   clawCli: FAKE_CLAW_CLI,
   leaders: () => leader,
+  pushSender: async () => ({ ok: true }),
   quotaReaders: {
     claude: async () => usage('claude', ++claudeReads === 1 ? 35 : 42, true),
     codex: async () => usage('codex', 22),

@@ -12,6 +12,7 @@ import type {
   WorkerDetail,
 } from '@contracts/api'
 import type { Engine } from '@contracts/engines'
+import type { PushReport, PushStatus, PushSubscriptionJson } from '@contracts/push'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, { cache: 'no-store', ...init })
@@ -30,6 +31,10 @@ const workerPath = (id: string) => `/api/workers/${encodeURIComponent(id)}`
 
 export const api = {
   state: () => request<Snapshot>('/api/state'),
+  pushInfo: (endpoint?: string) => request<PushStatus>(`/api/push${endpoint ? `?endpoint=${encodeURIComponent(endpoint)}` : ''}`),
+  pushSubscribe: (subscription: PushSubscriptionJson) => post<PushStatus>('/api/push/subscribe', { subscription }),
+  pushUnsubscribe: (endpoint: string) => post<PushStatus>('/api/push/unsubscribe', { endpoint }),
+  pushTest: () => post<PushReport>('/api/push/test'),
   models: (engine: Engine, signal?: AbortSignal) => request<EngineModels>(`/api/models/${engine}`, { signal }),
   refreshQuota: (engine: Engine) => post<EngineQuota[]>(`/api/quota/${engine}/refresh`),
   settings: (settings: MoxySettings) => post<MoxySettings>('/api/settings', settings),
