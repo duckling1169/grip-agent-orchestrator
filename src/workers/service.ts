@@ -3,12 +3,14 @@ import { realpath, stat } from 'node:fs/promises'
 import { resolve } from 'node:path'
 
 import { engineSpec } from '../contracts/engines.js'
+import { MOXY_MCP_TOOLS } from '../contracts/mcp.js'
 import type { Engine } from '../contracts/engines.js'
 import { errorText } from '../errors.js'
 import type { Log } from '../log.js'
 import { protectedFolderOf } from '../repos/folders.js'
 import type { WorktreeDiff, WorktreeFacts, Worktrees } from '../repos/worktrees.js'
-import type { ClawSendResult, ClawSessions } from '../runtime/claw/client.js'
+import { replyText } from '../runtime/claw/client.js'
+import type { ClawSessions } from '../runtime/claw/client.js'
 import type { Turn, TurnEnding, TurnRef, Worker, WorkerStore } from './store.js'
 
 export type DelegateInput = {
@@ -40,7 +42,6 @@ export type WorkersOptions = {
   onTurnEnded?: (worker: Worker, turn: Turn) => void
 }
 
-export const MOXY_MCP_TOOLS = 'mcp__moxy'
 export const SESSION_PREFIX = 'moxy-w-'
 const DEFAULT_TURN_TIMEOUT_MS = 3 * 24 * 60 * 60_000
 const TITLE_MAX_LENGTH = 80
@@ -127,6 +128,7 @@ export class Workers {
 
   async reconcile(): Promise<Reconciliation> {
     const interruptedTurns = this.store.interruptRunningTurns('Moxy restarted during this turn')
+    for (const turn of interruptedTurns) this.announce(turn)
     const interruptedWorkers = new Set(interruptedTurns.map(turn => turn.workerId))
     const leftover = (await this.options.claw.listSessions()).map(session => session.name).filter(name => name.startsWith(SESSION_PREFIX))
     await Promise.all(leftover.map(name => this.options.claw.stopSession(name).catch(() => undefined)))
@@ -186,7 +188,7 @@ export class Workers {
       })
       ending = {
         status: sent.error ? 'failed' : 'finished',
-        output: outputWithDenials(sent),
+        output: replyText(sent),
         error: sent.error ?? null,
         nativeSessionId: sent.sessionId ?? null,
       }
@@ -195,8 +197,12 @@ export class Workers {
     } finally {
       await claw.stopSession(name).catch(() => undefined)
     }
-    const ended = this.store.endTurn(turn, ending)
-    this.options.onTurnEnded?.(this.store.mustGet(worker.id), ended)
+    this.store.endTurn(turn, ending)
+    this.announce(turn)
+  }
+
+  private announce(turn: TurnRef): void {
+    this.options.onTurnEnded?.(this.store.mustGet(turn.workerId), this.store.turn(turn))
   }
 }
 
@@ -207,10 +213,4 @@ export function sessionName(workerId: string): string {
 function titleFrom(prompt: string): string {
   const firstLine = (prompt.split(/\r?\n/).find(line => line.trim()) ?? prompt).replace(/^#+\s*/, '').trim()
   return firstLine.length > TITLE_MAX_LENGTH ? `${firstLine.slice(0, TITLE_MAX_LENGTH - 1)}…` : firstLine
-}
-
-function outputWithDenials(sent: ClawSendResult): string {
-  const denied = sent.permissionDenials ?? []
-  if (denied.length === 0) return sent.output
-  return `${sent.output}\n\n[moxy] ${denied.length} tool call(s) were denied: ${denied.map(denial => denial.toolName).join(', ')}`
 }

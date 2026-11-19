@@ -18,6 +18,7 @@ async function setup(options: { installed?: boolean } = {}) {
   const claw = new FakeClaw()
   let database = Database.open(databasePath, MOXY_SCHEMA)
   onTestFinished(() => database.close())
+  const ended: string[] = []
   const workersOn = (db: Database) =>
     new Workers({
       store: new WorkerStore(db),
@@ -26,8 +27,10 @@ async function setup(options: { installed?: boolean } = {}) {
       protectedFolders: [protectedFolder],
       isInstalled: () => options.installed ?? true,
       log: silentLog,
+      onTurnEnded: (worker, turn) => ended.push(`${worker.id}:${turn.number}:${turn.status}`),
     })
   return {
+    ended,
     home,
     claw,
     protectedFolder,
@@ -135,7 +138,7 @@ describe('Workers', () => {
 
 describe('Workers.reconcile after a restart', () => {
   it('interrupts a turn recorded before its worktree or session existed', async () => {
-    const { store, restart } = await setup()
+    const { store, restart, ended } = await setup()
     store().create(
       { id: 'intent01', title: 'Planned', engine: 'claude', model: null, effort: null, folder: '/x', cwd: '/x', repo: null },
       'Do it',
@@ -144,6 +147,7 @@ describe('Workers.reconcile after a restart', () => {
     const workers = restart()
     expect((await workers.reconcile()).interruptedTurns).toEqual([{ workerId: 'intent01', number: 1 }])
     expect((await workers.result('intent01')).turns[0]).toMatchObject({ status: 'interrupted', error: 'Moxy restarted during this turn' })
+    expect(ended).toEqual(['intent01:1:interrupted'])
   })
 
   it('interrupts a turn that was running in Claw and stops its session', async () => {

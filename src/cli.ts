@@ -2,12 +2,16 @@
 import { startMoxy } from './app.js'
 import type { Moxy } from './app.js'
 import { errorText } from './errors.js'
+import { loadOrCreateToken } from './files.js'
 import { fileLog } from './log.js'
 import { moxyPaths } from './paths.js'
+import { MoxyClient } from './web/client.js'
+import { DEFAULT_WEB_PORT } from './web/server.js'
 
 const USAGE = `moxy <command>
 
-  serve    Run Moxy in this console
+  serve          Run Moxy in this console
+  say <text>     Send Moxy a message and print its reply
 
   --home <folder>   Moxy's data folder instead of ~/.moxy (or set MOXY_HOME)
 `
@@ -47,10 +51,23 @@ async function serve(home: string | undefined): Promise<void> {
   for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) process.once(signal, shutdown)
 }
 
+async function say(home: string | undefined, text: string): Promise<void> {
+  if (!text.trim()) throw new Error('say needs a message')
+  const client = new MoxyClient(`http://127.0.0.1:${DEFAULT_WEB_PORT}`, await loadOrCreateToken(moxyPaths(home).webToken))
+  const posted = await client.post(text)
+  const turn = await client.reply(posted.source)
+  if (turn.output) process.stdout.write(`${turn.output}\n`)
+  if (turn.error) {
+    process.stderr.write(`moxy: ${turn.error}\n`)
+    process.exitCode = 1
+  }
+}
+
 async function main(argv: string[]): Promise<void> {
   const [command, ...rest] = argv
   const home = takeOption(rest, '--home') ?? process.env.MOXY_HOME
   if (command === 'serve') return serve(home)
+  if (command === 'say') return say(home, rest.join(' '))
   process.stdout.write(USAGE)
   process.exitCode = command ? 1 : 0
 }

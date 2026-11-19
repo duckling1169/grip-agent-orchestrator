@@ -17,6 +17,8 @@ export type StartSessionOptions = {
   model?: string
   effort?: string
   resumeSessionId?: string
+  mcpConfig?: string
+  allowedTools?: string[]
   disallowedTools?: string[]
   permissionMode?: ClawPermissionMode
   appendSystemPrompt?: string
@@ -30,6 +32,12 @@ export type ClawSendResult = {
 }
 
 export type ClawSessions = Pick<ClawClient, 'startSession' | 'sendMessage' | 'stopSession' | 'listSessions'>
+
+export function replyText(sent: ClawSendResult): string {
+  const denied = sent.permissionDenials ?? []
+  if (denied.length === 0) return sent.output
+  return `${sent.output}\n\n[moxy] ${denied.length} tool call(s) were denied: ${denied.map(denial => denial.toolName).join(', ')}`
+}
 
 export class ClawError extends Error {
   constructor(

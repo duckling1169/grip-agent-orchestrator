@@ -18,7 +18,7 @@ export const MOXY_SCHEMA: Schema = {
       native_session_id TEXT,
       created_at TEXT NOT NULL
     ) STRICT`,
-    `CREATE TABLE turns (
+    `CREATE TABLE worker_turns (
       worker_id TEXT NOT NULL REFERENCES workers (id),
       number INTEGER NOT NULL,
       model TEXT,
@@ -31,6 +31,35 @@ export const MOXY_SCHEMA: Schema = {
       ended_at TEXT,
       PRIMARY KEY (worker_id, number)
     ) STRICT`,
-    `CREATE INDEX turns_running ON turns (status) WHERE status = 'running'`,
+    `CREATE INDEX worker_turns_running ON worker_turns (status) WHERE status = 'running'`,
+    `CREATE TABLE leader (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      engine TEXT NOT NULL,
+      model TEXT,
+      effort TEXT,
+      native_session_id TEXT
+    ) STRICT`,
+    `INSERT INTO leader (id, engine) VALUES (1, 'claude')`,
+    `CREATE TABLE leader_turns (
+      id INTEGER PRIMARY KEY,
+      engine TEXT NOT NULL,
+      model TEXT,
+      effort TEXT,
+      status TEXT NOT NULL CHECK (status IN ('running', 'finished', 'failed', 'interrupted')),
+      output TEXT,
+      error TEXT,
+      started_at TEXT NOT NULL,
+      ended_at TEXT
+    ) STRICT`,
+    `CREATE TABLE inbox (
+      id INTEGER PRIMARY KEY,
+      source TEXT NOT NULL UNIQUE,
+      kind TEXT NOT NULL CHECK (kind IN ('user_message', 'worker_turn_ended')),
+      body TEXT NOT NULL,
+      received_at TEXT NOT NULL,
+      leader_turn_id INTEGER REFERENCES leader_turns (id),
+      interrupted_deliveries INTEGER NOT NULL DEFAULT 0
+    ) STRICT`,
+    `CREATE INDEX inbox_pending ON inbox (id) WHERE leader_turn_id IS NULL`,
   ],
 }

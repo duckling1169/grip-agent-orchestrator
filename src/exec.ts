@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process'
+import type { ChildProcessWithoutNullStreams } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
@@ -44,6 +45,22 @@ export const exec: Exec = (command, args, options = {}) =>
       resolve({ code: code ?? 1, stdout, stderr })
     })
   })
+
+export type SpawnPiped = (
+  command: string,
+  args: readonly string[],
+  options?: { cwd?: string; env?: Record<string, string> },
+) => ChildProcessWithoutNullStreams
+
+export const spawnPiped: SpawnPiped = (command, args, options = {}) => {
+  const [file, argv] = resolveCommand(command, args)
+  return spawn(file, argv, {
+    windowsHide: true,
+    stdio: ['pipe', 'pipe', 'pipe'],
+    ...(options.cwd ? { cwd: options.cwd } : {}),
+    ...(options.env ? { env: { ...process.env, ...options.env } } : {}),
+  })
+}
 
 export async function execOk(run: Exec, command: string, args: readonly string[], timeoutMs?: number): Promise<string> {
   const result = await run(command, args, timeoutMs === undefined ? {} : { timeoutMs })

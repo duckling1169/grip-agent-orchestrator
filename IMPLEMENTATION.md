@@ -27,9 +27,9 @@
 
 ### The turn loop
 
-Everything the leader reacts to goes into a durable **inbox**: user messages, worker finished/failed, quota errors and integration results. The daemon runs one leader turn at a time and always takes user messages first. An item is marked done when its turn completes. After a crash, an item whose turn was interrupted is delivered again, with a note that the earlier turn was cut off.
+Everything the leader reacts to goes into a durable **inbox**: user messages, worker finished/failed, quota errors and integration results. The daemon runs one leader turn at a time, and a turn's message puts user messages before worker events. Starting a turn assigns every pending item to it in one transaction. A finished or failed turn keeps its items; a turn interrupted by a stop or crash releases them, and they are delivered again with a note that the earlier turn was cut off. The conversation is the user's inbox items plus the leader turns; there is no separate messages table.
 
-Each turn takes every pending item, so several quick user messages get one reply. Items carry a source ID, such as a worker turn, and a repeated ID is ignored, so the same completion cannot be recorded twice. Items that arrive during a turn wait for the next one.
+Each turn takes every pending item, so several quick user messages get one reply. Items carry a source ID (`user:<id>`, `worker:<id>:<turn>`), and a repeated ID is ignored, so the same completion cannot be recorded twice. Items that arrive during a turn wait for the next one.
 
 Long work never runs inside a leader turn. The leader delegates, then the turn ends. A worker's completion arrives later as a new inbox item. This keeps the conversation responsive without per-task leader sessions.
 
@@ -51,7 +51,7 @@ The leader keeps task detail out of its own context. It reads and writes task no
 
 `delegate` records the worker and its first turn in one transaction (engine, model, effort, task and the planned worktree), then creates the worktree, then starts the Claw session. A worker's status is its latest turn's status. Each turn's input, output, model and effort are stored with the turn in SQLite; diffs come from git when asked. A Claw session lives for one turn, and the next turn resumes the engine's native conversation.
 
-Claw returns a turn's output only to the request that sent it, so a turn cannot be reattached after Moxy restarts. On restart, every running turn is marked interrupted, every leftover `moxy-w-` session is stopped, and sessions with no running turn are reported as orphaned. Stopping Moxy marks running turns interrupted before Claw stops.
+Claw returns a turn's output only to the request that sent it, so a turn cannot be reattached after Moxy restarts. On restart, every running turn is marked interrupted and posted to the inbox like any other ended turn, every leftover `moxy-w-` session is stopped, and sessions with no running turn are reported as orphaned. The leader's `moxy-leader` session is stopped the same way. Stopping Moxy marks running turns interrupted before Claw stops.
 
 Worktrees follow [DESIGN.md](DESIGN.md): a sibling `<repo>-worktrees` checkout and a `moxy/` branch for every engine, preserved when changed, with no `.env` copying.
 
@@ -65,14 +65,14 @@ Engine, model or effort changes apply at the next turn boundary. A change, or a 
 
 ### Edges
 
-- **MCP** (loopback 18797): the leader's tools and external hosts' tools, with scoped tokens. External hosts attach their workers to tasks but cannot act on other owners' workers.
-- **Web API and SSE** (loopback 18798 behind Tailscale Serve): snapshot plus change events with a revision number, published after commit.
+- **MCP** (loopback 18797): stateless Streamable HTTP, POST only, behind a bearer token kept in `mcp-token`. It serves the leader's tools now and external hosts' tools later, with scoped tokens. External hosts attach their workers to tasks but cannot act on other owners' workers.
+- **Web API and SSE** (loopback 18798 behind Tailscale Serve): snapshot plus change events with a revision number, published after commit. The leader loop step adds the seed: `POST /api/messages` and `GET /api/conversation` behind a local bearer token kept in `web-token`, used by `moxy say`.
 - **Claw** (loopback 18796): private.
 - Tailscale identity checks, origin checks, the local CLI bearer and push rules follow the boundaries in [DESIGN.md](DESIGN.md).
 
 ## Leader tools
 
-`task_create`, `task_update` (notes and plan), `task_get`, `tasks`, `delegate`, `message`, `stop`, `result`, `models`, `quota`, `integrate`, `ready`, `accept`, `reopen`, `follow_up` (set or cancel a timer), `memory_read`, `memory_update`. `accept` is refused unless the current turn started from a user message. Completions arrive through the inbox, so there is no tool for waiting on workers.
+`task_create`, `task_update` (notes and plan), `task_get`, `tasks`, `delegate`, `message`, `stop`, `workers`, `result`, `models`, `quota`, `integrate`, `ready`, `accept`, `reopen`, `follow_up` (set or cancel a timer), `memory_read`, `memory_update`. `accept` is refused unless the current turn started from a user message. Completions arrive through the inbox, so there is no tool for waiting on workers. The leader loop step ships `delegate`, `message`, `stop`, `workers` and `result`; the others arrive with their build steps.
 
 ## Layout
 
@@ -91,7 +91,7 @@ src/
   repos/           repo resolution, worktrees, per-repo integration
   runtime/         Claw client and process, ACP and Claude leader runners
   mcp/             MCP transport and tool handlers
-  web/             server, identity, routes, SSE, static
+  web/             server, client, identity, routes, SSE, static
   providers/       model catalog, quota readers
   platform/        install, logon task, Tailscale, power, push
   testing/         fake Claw, fake ACP agent, temporary homes

@@ -1,5 +1,7 @@
 import type { Engine } from '../contracts/engines.js'
 import type { Database } from '../db/database.js'
+import { textOrNull } from '../db/rows.js'
+import type { Row } from '../db/rows.js'
 
 export type TurnStatus = 'running' | 'finished' | 'failed' | 'stopped' | 'interrupted'
 export type EndedTurnStatus = Exclude<TurnStatus, 'running'>
@@ -39,12 +41,10 @@ export type TurnEnding = { status: EndedTurnStatus; output: string | null; error
 
 export type TurnRef = { workerId: string; number: number }
 
-type Row = Record<string, string | number | null>
-
 const WORKER_SELECT = `
   SELECT w.*, t.status AS status, t.number AS turn_count
   FROM workers w
-  JOIN turns t ON t.worker_id = w.id AND t.number = (SELECT MAX(number) FROM turns WHERE worker_id = w.id)`
+  JOIN worker_turns t ON t.worker_id = w.id AND t.number = (SELECT MAX(number) FROM worker_turns WHERE worker_id = w.id)`
 
 const now = () => new Date().toISOString()
 
@@ -91,19 +91,19 @@ export class WorkerStore {
     this.database.transaction(() => {
       const ended = this.database
         .prepare(
-          `UPDATE turns SET status = ?, output = ?, error = ?, ended_at = ? WHERE worker_id = ? AND number = ? AND status = 'running'`,
+          `UPDATE worker_turns SET status = ?, output = ?, error = ?, ended_at = ? WHERE worker_id = ? AND number = ? AND status = 'running'`,
         )
         .run(ending.status, ending.output, ending.error, now(), ref.workerId, ref.number)
       if (ended.changes === 0 && ending.output !== null) {
         this.database
-          .prepare('UPDATE turns SET output = ? WHERE worker_id = ? AND number = ? AND output IS NULL')
+          .prepare('UPDATE worker_turns SET output = ? WHERE worker_id = ? AND number = ? AND output IS NULL')
           .run(ending.output, ref.workerId, ref.number)
       }
       if (ending.nativeSessionId) {
         this.database.prepare('UPDATE workers SET native_session_id = ? WHERE id = ?').run(ending.nativeSessionId, ref.workerId)
       }
     })
-    return this.mustGetTurn(ref)
+    return this.turn(ref)
   }
 
   stopRunningTurn(workerId: string): TurnRef | null {
@@ -130,15 +130,15 @@ export class WorkerStore {
   }
 
   turns(workerId: string): Turn[] {
-    return (this.database.prepare('SELECT * FROM turns WHERE worker_id = ? ORDER BY number').all(workerId) as Row[]).map(toTurn)
+    return (this.database.prepare('SELECT * FROM worker_turns WHERE worker_id = ? ORDER BY number').all(workerId) as Row[]).map(toTurn)
   }
 
   turnStatus(ref: TurnRef): TurnStatus {
-    return this.mustGetTurn(ref).status
+    return this.turn(ref).status
   }
 
-  private mustGetTurn(ref: TurnRef): Turn {
-    const row = this.database.prepare('SELECT * FROM turns WHERE worker_id = ? AND number = ?').get(ref.workerId, ref.number) as
+  turn(ref: TurnRef): Turn {
+    const row = this.database.prepare('SELECT * FROM worker_turns WHERE worker_id = ? AND number = ?').get(ref.workerId, ref.number) as
       Row | undefined
     if (!row) throw new Error(`unknown turn ${ref.number} of worker ${ref.workerId}`)
     return toTurn(row)
@@ -146,14 +146,16 @@ export class WorkerStore {
 
   private insertTurn(workerId: string, number: number, settings: Pick<Worker, 'model' | 'effort'>, input: string): void {
     this.database
-      .prepare(`INSERT INTO turns (worker_id, number, model, effort, input, status, started_at) VALUES (?, ?, ?, ?, ?, 'running', ?)`)
+      .prepare(
+        `INSERT INTO worker_turns (worker_id, number, model, effort, input, status, started_at) VALUES (?, ?, ?, ?, ?, 'running', ?)`,
+      )
       .run(workerId, number, settings.model, settings.effort, input, now())
   }
 
   private endRunning(status: EndedTurnStatus, error: string | null, condition: string, ...params: string[]): TurnRef[] {
     const rows = this.database
       .prepare(
-        `UPDATE turns SET status = ?, error = ?, ended_at = ?
+        `UPDATE worker_turns SET status = ?, error = ?, ended_at = ?
          WHERE status = 'running' ${condition}
          RETURNING worker_id, number`,
       )
@@ -161,8 +163,6 @@ export class WorkerStore {
     return rows.map(row => ({ workerId: String(row.worker_id), number: Number(row.number) }))
   }
 }
-
-const textOrNull = (row: Row, key: string) => (row[key] === null ? null : String(row[key]))
 
 function toWorker(row: Row): Worker {
   return {
