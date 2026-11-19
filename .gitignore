@@ -3,7 +3,7 @@ dist/
 *.log
 .DS_Store
 .taste-skill/
-web/shots/
 .agents/
 skills-lock.json
 .claude/settings.local.json
+.claude/worktrees/

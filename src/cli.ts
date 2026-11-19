@@ -1,31 +1,18 @@
 #!/usr/bin/env node
-import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { startMoxy } from './app.js'
+import type { Moxy } from './app.js'
+import { errorText } from './errors.js'
+import { fileLog } from './log.js'
+import { moxyPaths } from './paths.js'
 
-import type { ClawEngine } from './claw/index.js'
-import { startDaemon } from './daemon.js'
-import { loadOrCreateToken } from './fs-util.js'
-import { claudeMcpCommand, install, mcpConfigJson, restart, status, stop, stopAll, uninstall } from './install/commands.js'
-import type { CommandContext } from './install/commands.js'
-import { gripLogger } from './log.js'
-import { gripPaths } from './paths.js'
+const USAGE = `moxy <command>
 
-const USAGE = `grip <command>
+  serve    Run Moxy in this console
 
-  install                                  Set Grip up on this machine and start it at every logon (Windows)
-  status                                   Grip, its logon task, Tailscale and Claw, and what is working
-  stop-all                                 Stop every worker and chat, like the app's Stop all
-  stop [--force]                           Stop Grip and its Claw; refuses while anything works unless --force
-  restart [--force]                        Stop Grip, then start it again through its logon task (after a build)
-  uninstall                                Remove the logon task; Grip's data, Claw and tailscale serve stay
-  serve [--engines claude,codex-app,agy]   Run Grip: Claw supervisor, the orchestrator MCP and the web API
-  mcp-config [--json]                      Print the command that adds Grip to Claude Code, or JSON for other MCP hosts
-
-  --home <folder>   Grip's data folder instead of ~/.grip (or set GRIP_HOME)
+  --home <folder>   Moxy's data folder instead of ~/.moxy (or set MOXY_HOME)
 `
 
-/** Take `--name value` out of the arguments. */
-function option(args: string[], name: string): string | undefined {
+function takeOption(args: string[], name: string): string | undefined {
   const at = args.indexOf(name)
   if (at < 0) return undefined
   const value = args[at + 1]
@@ -34,68 +21,41 @@ function option(args: string[], name: string): string | undefined {
   return value
 }
 
-async function main(argv: string[]) {
-  const [command, ...rest] = argv
-  const home = option(rest, '--home')
-  if (home) process.env.GRIP_HOME = home
-  const paths = gripPaths()
-  const context: CommandContext = {
-    home: paths.home,
-    customHome: Boolean(process.env.GRIP_HOME),
-    cli: fileURLToPath(import.meta.url),
-  }
-
-  if (command === 'serve') {
-    const engines = option(rest, '--engines')?.split(',') as ClawEngine[] | undefined
-    const log = gripLogger(join(paths.logs, 'grip.log'))
-    process.on('uncaughtException', error => {
-      log(`crashed: ${error.stack ?? error.message}`)
-      process.exit(1)
-    })
-    let daemon: Awaited<ReturnType<typeof startDaemon>> | undefined
-    const shutdown = () => {
-      daemon?.stop().then(
-        () => process.exit(0),
-        () => process.exit(1),
-      )
-    }
-    daemon = await startDaemon({
-      log,
-      // grip stop and grip restart: ending the logon task closes no console Grip sees, so they ask.
-      onShutdownRequest: () => {
-        log('stop asked for by grip on this machine')
-        shutdown()
-      },
-      ...(engines ? { engines } : {}),
-    }).catch((error: Error) => {
-      log(`could not start: ${error.message}`)
-      // Claw or the servers may have started; leave nothing running.
-      process.exit(1)
-    })
-    process.once('SIGINT', shutdown)
-    process.once('SIGTERM', shutdown)
-    // The console Grip runs in closing, as when the logon task is ended.
-    process.once('SIGHUP', shutdown)
+async function serve(home: string | undefined): Promise<void> {
+  const log = fileLog(moxyPaths(home).moxyLog)
+  process.on('uncaughtException', error => {
+    log(`crashed: ${error.stack ?? error.message}`)
+    process.exit(1)
+  })
+  let moxy: Moxy
+  try {
+    moxy = await startMoxy({ ...(home ? { home } : {}), log })
+  } catch (error) {
+    log(`could not start: ${errorText(error)}`)
+    process.exitCode = 1
     return
   }
-
-  if (command === 'mcp-config') {
-    const token = await loadOrCreateToken(join(paths.home, 'mcp-token'))
-    return console.log(rest.includes('--json') ? mcpConfigJson(token) : claudeMcpCommand(token))
+  const shutdown = () => {
+    moxy.stop().then(
+      () => (process.exitCode = 0),
+      error => {
+        log(`stop failed: ${errorText(error)}`)
+        process.exitCode = 1
+      },
+    )
   }
-  if (command === 'install') return install(context)
-  if (command === 'uninstall') return uninstall(context)
-  if (command === 'status') return status(context)
-  if (command === 'stop-all') return stopAll(context)
-  if (command === 'stop') return stop(context, rest.includes('--force'))
-  if (command === 'restart') return restart(context, rest.includes('--force'))
+  for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) process.once(signal, shutdown)
+}
 
+async function main(argv: string[]): Promise<void> {
+  const [command, ...rest] = argv
+  const home = takeOption(rest, '--home') ?? process.env.MOXY_HOME
+  if (command === 'serve') return serve(home)
   process.stdout.write(USAGE)
   process.exitCode = command ? 1 : 0
 }
 
-// An exit code instead of process.exit: exiting while fetch closes its sockets aborts Node on Windows.
 main(process.argv.slice(2)).catch(error => {
-  console.error(`grip: ${(error as Error).message}`)
+  console.error(`moxy: ${errorText(error)}`)
   process.exitCode = 1
 })
