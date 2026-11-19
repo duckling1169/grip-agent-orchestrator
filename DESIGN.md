@@ -1,5 +1,7 @@
 # Grip — design
 
+**Moxy update (2026-11-18):** The [Moxy implementation plan](docs/moxy-redesign-plan.md) is the agreed next architecture and supersedes this document where it describes folder-bound chats and user review acknowledgement. The [plan index](docs/plans.md) retains the remaining roadmap, deferred work, and open checks. This document continues to describe the existing implementation and earlier design decisions.
+
 Grip lets you see and control the coding agents your orchestrator runs (Claude Code, Codex, Antigravity `agy`) from any device on your tailnet: iPhone, iPad, Mac, or a browser on any machine.
 
 It does not run agents itself. [Claw Orchestrator](https://github.com/Enderfga/claw-orchestrator) does that. Grip is a thin layer around one Claw server. It gives orchestrators a small MCP tool set, gives your devices a web app behind Tailscale identity, and adds the few pieces Claw lacks: worktrees for every engine, a review handoff, quota windows, push notifications and safety limits.
@@ -511,7 +513,7 @@ Wake-on-LAN is not planned. A sleeping principal shows as offline.
 12. Switch over: Grip runs from the logon task and is Claude Code's only orchestrator MCP. `clawo-mcp`, `codex-plugin-cc`, the agy connector and alethe are removed.
 13. Chats survive a Grip restart: a new MCP session rejoins its chat through `chat_id` (§5.1).
 
-**Next.** The aim is any model leading and any model working, local or in the cloud, with Grip as the daily driver. In this order:
+**Next.** Implement the [Moxy plan](docs/moxy-redesign-plan.md) first; the [plan index](docs/plans.md) records the disposition of the older roadmap below. The original aim and sequence follow for reference: any model leading and any model working, local or in the cloud, with Grip as the daily driver.
 
 1. **Any model leads, any model works.**
    - **Leaders through ACP** (§5.1), in this order:
@@ -550,7 +552,7 @@ Wake-on-LAN is not planned. A sleeping principal shows as offline.
 - dev-server preview links on runs
 - the admin-request flow (§9.2)
 - Claude channels pushing into the orchestrator session
-- a product name
+- a product name: decided as **Moxy**; naming changes are part of the redesign
 
 ## 18. Open questions to verify during the build
 

@@ -4,6 +4,8 @@ Grip lets any orchestrator model delegate to coding agents (Claude Code, Codex, 
 
 **Read [DESIGN.md](DESIGN.md) before changing anything.** It is the agreed design; §17 is the build order.
 
+For the next version, read the [plan index](docs/plans.md) and [Moxy implementation plan](docs/moxy-redesign-plan.md). The Moxy plan supersedes older chat architecture and review-state descriptions. Keep plans in this repository; the repository copy is authoritative.
+
 ## Layout
 
 - `src/claw/`: Claw supervisor. Install within `>=7.23.4 <8`, run `clawo serve` on loopback with Grip's token, health gate, idle-only updates, rollback, crash restart. Also the Claw HTTP client.

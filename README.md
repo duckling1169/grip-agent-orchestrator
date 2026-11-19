@@ -2,6 +2,8 @@
 
 Delegate from any orchestrator model to Claude Code, Codex and Antigravity workers, and watch and steer them from any device on your tailnet. Grip runs on [Claw Orchestrator](https://github.com/Enderfga/claw-orchestrator). [DESIGN.md](DESIGN.md) has the design and what's next.
 
+The next version is **Moxy**. The [plan index](docs/plans.md) covers the agreed [Moxy implementation plan](docs/moxy-redesign-plan.md), outstanding audit fixes, deferred work, and open checks. Plans are maintained in this repository.
+
 ## Set up (Windows)
 
 Needs Node 22.12+, Tailscale signed in, and Claude Code, Codex and agy each signed in once.
