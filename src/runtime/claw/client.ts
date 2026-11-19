@@ -22,6 +22,7 @@ export type StartSessionOptions = {
   disallowedTools?: string[]
   permissionMode?: ClawPermissionMode
   sandboxMode?: ClawSandboxMode
+  settings?: string
   appendSystemPrompt?: string
 }
 

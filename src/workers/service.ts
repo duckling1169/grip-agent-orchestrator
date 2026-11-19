@@ -13,6 +13,7 @@ import type { WorktreeFacts, Worktrees } from '../repos/worktrees.js'
 import { replyText } from '../runtime/claw/client.js'
 import type { ClawSessions } from '../runtime/claw/client.js'
 import { latestStep } from './activity.js'
+import { agySettings } from './agy-settings.js'
 import type { TurnEnding, TurnRef, WorkerStore } from './store.js'
 
 export type DelegateInput = {
@@ -211,6 +212,9 @@ export class Workers {
     const spec = engineSpec(worker.engine)
     let ending: TurnEnding
     try {
+      const settings =
+        worker.engine === 'agy' ? await agySettings(worker, this.options.worktrees, this.options.protectedFolders) : undefined
+      if (this.store.turnStatus(turn) !== 'running') throw new Error('stopped before the turn began')
       await claw.startSession({
         name,
         cwd: worker.cwd,
@@ -218,6 +222,7 @@ export class Workers {
         ...(spec.acpAgent ? { acpAgent: spec.acpAgent } : {}),
         ...(spec.permissionMode ? { permissionMode: spec.permissionMode } : {}),
         ...(spec.sandboxMode ? { sandboxMode: spec.sandboxMode } : {}),
+        ...(settings ? { settings } : {}),
         ...(worker.model ? { model: worker.model } : {}),
         ...(worker.effort ? { effort: worker.effort } : {}),
         ...(worker.nativeSessionId ? { resumeSessionId: worker.nativeSessionId } : {}),

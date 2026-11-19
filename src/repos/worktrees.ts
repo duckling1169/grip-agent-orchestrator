@@ -45,7 +45,7 @@ export class Worktrees {
     return {
       repoRoot: repo.root,
       path: join(`${repo.root}-worktrees`, folder),
-      branch: `${BRANCH_PREFIX}${folder}`,
+      branch: name.engine === 'agy' ? agyWorktreeBranch(folder) : `${BRANCH_PREFIX}${folder}`,
       base: repo.base,
       baseCommit: await this.git(repo.root, ['rev-parse', repo.base]),
     }
@@ -59,6 +59,24 @@ export class Worktrees {
 
   async add(planned: PlannedWorktree): Promise<void> {
     await this.git(planned.repoRoot, ['worktree', 'add', '-b', planned.branch, planned.path, planned.baseCommit])
+  }
+
+  async gitLayout(cwd: string) {
+    const [directory, common, objects, head, refFormat] = (
+      await this.git(cwd, [
+        'rev-parse',
+        '--path-format=absolute',
+        '--absolute-git-dir',
+        '--git-common-dir',
+        '--git-path',
+        'objects',
+        '--symbolic-full-name',
+        'HEAD',
+        '--show-ref-format',
+      ])
+    ).split(/\r?\n/)
+    if (!directory || !common || !objects || !head || !refFormat) throw new Error(`could not resolve Git layout for ${cwd}`)
+    return { directory, common, objects, head, refFormat }
   }
 
   async facts(path: string, baseCommit: string): Promise<WorktreeFacts> {
@@ -112,4 +130,8 @@ export class Worktrees {
   private git(cwd: string, args: string[]): Promise<string> {
     return gitOk(this.run, cwd, args)
   }
+}
+
+export function agyWorktreeBranch(folder: string): string {
+  return `${BRANCH_PREFIX}${folder}/work`
 }
