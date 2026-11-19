@@ -13,6 +13,7 @@ import type {
 } from '@contracts/api'
 import type { Engine } from '@contracts/engines'
 import type { PushReport, PushStatus, PushSubscriptionJson } from '@contracts/push'
+import type { MachineList } from '@contracts/machines'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, { cache: 'no-store', ...init })
@@ -31,6 +32,7 @@ const workerPath = (id: string) => `/api/workers/${encodeURIComponent(id)}`
 
 export const api = {
   state: () => request<Snapshot>('/api/state'),
+  machines: (refresh = false, signal?: AbortSignal) => request<MachineList>(`/api/machines${refresh ? '?refresh=true' : ''}`, { signal }),
   pushInfo: (endpoint?: string) => request<PushStatus>(`/api/push${endpoint ? `?endpoint=${encodeURIComponent(endpoint)}` : ''}`),
   pushSubscribe: (subscription: PushSubscriptionJson) => post<PushStatus>('/api/push/subscribe', { subscription }),
   pushUnsubscribe: (endpoint: string) => post<PushStatus>('/api/push/unsubscribe', { endpoint }),

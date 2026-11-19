@@ -39,6 +39,10 @@ export async function startTestMoxy(options: MoxyOptions = {}): Promise<Moxy> {
     },
     models: { get: async engine => ({ engine, models: [], error: null }) },
     pushSender: async () => ({ ok: true }),
+    machines: {
+      get: async () => ({ machines: [], checkedAt: new Date().toISOString(), error: null }),
+      refresh: async () => ({ machines: [], checkedAt: new Date().toISOString(), error: null }),
+    },
     ...options,
   })
   onTestFinished(() => moxy.stop())

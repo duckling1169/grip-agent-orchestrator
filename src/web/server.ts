@@ -18,6 +18,7 @@ import type { Quota } from '../providers/quota.js'
 import { QUOTA_ENGINES } from '../providers/quota-readers.js'
 import type { Settings } from '../settings.js'
 import type { PushNotifier } from '../platform/push.js'
+import type { MachineDiscovery } from '../platform/machines.js'
 import type { Tasks } from '../tasks/service.js'
 import type { Workers } from '../workers/service.js'
 import { crossSiteWrite, identify } from './identity.js'
@@ -42,6 +43,7 @@ export type WebServerOptions = {
   models: Pick<ModelCatalog, 'get'>
   settings: Settings
   push: PushNotifier
+  machines: Pick<MachineDiscovery, 'get' | 'refresh'>
 }
 
 class HttpError extends Error {
@@ -128,6 +130,10 @@ export async function startWebServer(options: WebServerOptions): Promise<Loopbac
     const method = req.method ?? 'GET'
     if (method === 'GET' && path === '/api/events') return openStream(res, login)
     if (method === 'GET' && path === '/api/state') return snapshot(login)
+    if (method === 'GET' && path === '/api/machines') {
+      const refresh = new URL(req.url ?? '/', 'http://127.0.0.1').searchParams.get('refresh') === 'true'
+      return refresh ? options.machines.refresh() : options.machines.get()
+    }
     if (path === '/api/push' || path.startsWith('/api/push/')) {
       if (!options.allowedLogins.some(allowed => allowed.toLowerCase() === login.toLowerCase()))
         throw new HttpError(403, 'Notifications require an allowed Tailscale login')

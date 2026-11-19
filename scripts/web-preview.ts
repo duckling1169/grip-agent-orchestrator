@@ -11,6 +11,7 @@ import { userMessage } from '../src/moxy/store.js'
 import type { LeaderReply, LeaderRunner } from '../src/runtime/leaders/leader.js'
 import { TaskStore } from '../src/tasks/store.js'
 import { WorkerStore } from '../src/workers/store.js'
+import type { MachineList } from '../src/contracts/machines.js'
 import type { NewWorker } from '../src/workers/store.js'
 
 const PREVIEW_PORT = 18799
@@ -62,6 +63,40 @@ function freePort(): Promise<number> {
 
 const home = await mkdtemp(join(tmpdir(), 'moxy-web-preview-'))
 const leader = new PreviewLeader()
+const previewMachines = async (): Promise<MachineList> => ({
+  checkedAt: new Date().toISOString(),
+  error: null,
+  machines: [
+    {
+      id: 'self',
+      name: 'Preview desktop',
+      dnsName: 'desktop.preview-tail.ts.net',
+      self: true,
+      online: true,
+      moxy: 'yes',
+      url: 'https://desktop.preview-tail.ts.net/',
+    },
+    {
+      id: 'laptop',
+      name: 'Preview laptop',
+      dnsName: 'laptop.preview-tail.ts.net',
+      self: false,
+      online: true,
+      moxy: 'yes',
+      url: 'https://laptop.preview-tail.ts.net/',
+    },
+    {
+      id: 'sleeping',
+      name: 'Sleeping workstation',
+      dnsName: 'sleeping.preview-tail.ts.net',
+      self: false,
+      online: false,
+      moxy: 'unknown',
+      url: null,
+    },
+    { id: 'other', name: 'Other workstation', dnsName: 'other.preview-tail.ts.net', self: false, online: true, moxy: 'no', url: null },
+  ],
+})
 let claudeReads = 0
 const usage = (engine: EngineUsage['engine'], usedPercent: number, stale = false): EngineUsage => ({
   engine,
@@ -84,6 +119,7 @@ const moxy = await startMoxy({
   clawCli: FAKE_CLAW_CLI,
   leaders: () => leader,
   pushSender: async () => ({ ok: true }),
+  machines: { get: previewMachines, refresh: previewMachines },
   quotaReaders: {
     claude: async () => usage('claude', ++claudeReads === 1 ? 35 : 42, true),
     codex: async () => usage('codex', 22),

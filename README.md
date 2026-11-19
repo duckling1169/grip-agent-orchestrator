@@ -36,6 +36,14 @@ Task-ready notifications contain the task title and a link to its inspector, nev
 
 The fake preview and automated checks use fake push senders and browser subscriptions. Actual delivery to sleeping or closed devices still needs a deliberate live check through the HTTPS tailnet address.
 
+## Machines
+
+Click the machine name in the header to open the machine switcher. It lists the current machine first and offers links to other tailnet computers whose public `/health` identifies Moxy. Tailnet connectivity and Moxy availability are shown separately; offline computers and unconfirmed apps cannot be selected.
+
+Discovery uses `tailscale status --json` and HTTPS names within this machine's tailnet DNS suffix. Reads are cached for 30 seconds; Refresh machines checks again. Health checks have bounded concurrency and timeouts and send no authentication credentials. Last-loaded links remain available while the page stays open if discovery fails.
+
+Choosing a machine navigates to that machine's own Moxy page. It starts with that machine's conversation and access rules; no task selection, API bearer or session state is forwarded. The fake preview supplies fixture machines, and browser journeys intercept destination navigation without contacting real tailnet peers.
+
 ## Credits
 
 - [Claw Orchestrator](https://github.com/Enderfga/claw-orchestrator) by Enderfga runs Moxy's workers.

@@ -16,6 +16,7 @@ import { useLiveState } from '@/lib/live'
 import type { Selection } from '@/lib/selection'
 import { useStoredFlag, useStoredState } from '@/lib/stored'
 import { useTheme } from '@/lib/theme'
+import { MachineSwitcher } from '@/components/machine-switcher'
 import { cn } from '@/lib/utils'
 
 export type Side = 'left' | 'right'
@@ -182,21 +183,12 @@ function Header({
       {side === 'left' ? <PanelRight /> : <PanelLeft />}
     </PanelToggle>
   )
-  const machineTip =
-    connection === 'offline'
-      ? `${snapshot.host} is offline`
-      : connection === 'reconnecting'
-        ? `Reconnecting to ${snapshot.host}`
-        : snapshot.host
   return (
     <header className="header">
       {side === 'left' && sidebarToggle}
       {side === 'right' && inspectorToggle}
       <span className="brand">Moxy</span>
-      <span className="ghost machine" title={machineTip} aria-label={machineTip}>
-        {(connection === 'reconnecting' || connection === 'offline') && <span className={cn('dot', connection)} aria-hidden="true" />}
-        <span>{snapshot.host}</span>
-      </span>
+      <MachineSwitcher host={snapshot.host} connection={connection} />
       <span className="header-spacer" />
       {side === 'left' && inspectorToggle}
       {side === 'right' && sidebarToggle}
