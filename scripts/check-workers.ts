@@ -27,9 +27,10 @@ const CHEAP_MODEL = /haiku|flash|mini|nano|lite|small|fast/i
 const PROMPT = [
   'This is a permission check. Do exactly these steps in the current folder, then stop:',
   '1. Create a file named check.txt that contains the single line: ok',
-  '2. Run: git add check.txt',
-  '3. Run: git commit -m "Permission check"',
-  '4. Run: node --version',
+  "2. Use the terminal to run: node -e \"require('fs').writeFileSync('terminal.txt','ok')\"",
+  '3. Run: git add check.txt terminal.txt',
+  '4. Run: git commit -m "Permission check"',
+  '5. Run: node --version',
   'Reply with the output of node --version on its own line.',
 ].join('\n')
 
@@ -104,11 +105,18 @@ async function check(engine: Engine, workers: Workers, models: ModelCatalog): Pr
     if (turn?.status !== 'finished') result.notes.push(`turn ${turn?.status ?? 'missing'}: ${turn?.error ?? 'no error given'}`)
     const committed = facts?.lastCommit?.subject === 'Permission check' && facts.commitsAhead > 0
     if (!committed) result.notes.push(`no "Permission check" commit on the worker's branch (last: ${facts?.lastCommit?.subject ?? 'none'})`)
+    const committedFiles = committed
+      ? (await execOk(exec, 'git', ['-C', worker.cwd, 'ls-tree', '--name-only', 'HEAD', '--', 'check.txt', 'terminal.txt'])).split(/\r?\n/)
+      : []
+    const wroteFiles = committedFiles.includes('check.txt') && committedFiles.includes('terminal.txt')
+    if (committed) {
+      result.notes.push(wroteFiles ? 'commit contains check.txt and terminal.txt' : 'commit is missing check.txt or terminal.txt')
+    }
     const ranNode = /v\d+\.\d+\.\d+/.test(output)
     if (!ranNode) result.notes.push('the reply has no node version, so the command may not have run')
     const denied = output.match(/\[moxy\] .*denied.*/)
     if (denied) result.notes.push(denied[0])
-    result.ok = turn?.status === 'finished' && committed && ranNode && !denied
+    result.ok = turn?.status === 'finished' && committed && wroteFiles && ranNode && !denied
   } catch (error) {
     result.notes.push(errorText(error))
   }

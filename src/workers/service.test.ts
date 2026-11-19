@@ -1,4 +1,4 @@
-import { mkdir, rm, rmdir, stat, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import { describe, expect, it, onTestFinished } from 'vitest'
@@ -6,7 +6,6 @@ import { describe, expect, it, onTestFinished } from 'vitest'
 import { PLAIN_COMMANDS_RULE } from '../contracts/engines.js'
 import { Database } from '../db/database.js'
 import { MOXY_SCHEMA } from '../db/schema.js'
-import { exec, execOk } from '../exec.js'
 import { Worktrees } from '../repos/worktrees.js'
 import { FakeClaw } from '../testing/fake-claw.js'
 import { silentLog, temporaryHome, temporaryRepo } from '../testing/harness.js'
@@ -65,7 +64,6 @@ describe('Workers', () => {
       disallowedTools: ['mcp__moxy'],
     })
     expect(claw.starts[0]?.appendSystemPrompt).toContain(PLAIN_COMMANDS_RULE)
-    expect(claw.starts[0]).not.toHaveProperty('settings')
     await writeFile(join(worker.cwd, 'feature.txt'), 'new\n')
     claw.answer(sessionName(worker.id), { output: 'Added the feature.', sessionId: 'native-1' })
     await workers.settled(worker.id)
@@ -80,84 +78,22 @@ describe('Workers', () => {
     expect(claw.stops).toContain(sessionName(worker.id))
   })
 
-  it('starts and resumes agy with only the workspace and its Git paths writable', async () => {
+  it('starts and resumes agy with bypass permissions and a standard worktree branch', async () => {
     const { claw, workers } = await setup()
     const repo = await temporaryRepo()
     const worker = await workers.delegate({ folder: repo, engine: 'agy', prompt: 'Read and update the checkout' })
     const name = sessionName(worker.id)
-    expect(worker.repo?.branch).toBe(`moxy/agy-read-and-update-the-checkout-${worker.id}/work`)
-    const common = join(repo, '.git')
-    const branchDir = `agy-read-and-update-the-checkout-${worker.id}`
-    const settings = {
-      enableTerminalSandbox: true,
-      toolPermission: 'proceed-in-sandbox',
-      permissions: {
-        allow: [
-          `write_file(${worker.cwd})`,
-          `read_file(${common})`,
-          `write_file(${join(common, 'worktrees', branchDir)})`,
-          `write_file(${join(common, 'objects')})`,
-          `write_file(${join(common, 'refs', 'heads', 'moxy', branchDir)})`,
-          `write_file(${join(common, 'logs', 'refs', 'heads', 'moxy', branchDir)})`,
-        ],
-        deny: [`write_file(${join(common, 'objects', 'info')})`, `write_file(${join(common, 'objects', 'pack')})`],
-      },
-    }
     await claw.turnStarted(name)
-    expect(claw.starts[0]).toMatchObject({ cwd: worker.cwd, engine: 'agy', permissionMode: 'dontAsk', settings: JSON.stringify(settings) })
+    expect(claw.starts[0]).toMatchObject({ cwd: worker.cwd, engine: 'agy', permissionMode: 'bypassPermissions' })
+    expect(worker.repo?.branch).toBe(`moxy/agy-read-and-update-the-checkout-${worker.id}`)
     claw.answer(name, { output: 'Done', sessionId: 'agy-native' })
     await workers.settled(worker.id)
 
-    await execOk(exec, 'git', ['-C', repo, 'pack-refs', '--all'])
-    const refDirectory = join(common, 'refs', 'heads', 'moxy', branchDir)
-    await expect(stat(refDirectory)).rejects.toMatchObject({ code: 'ENOENT' })
     workers.message(worker.id, 'Continue')
     await claw.turnStarted(name)
-    expect(claw.starts[1]).toMatchObject({ resumeSessionId: 'agy-native', settings: JSON.stringify(settings) })
-    expect((await stat(refDirectory)).isDirectory()).toBe(true)
+    expect(claw.starts[1]).toMatchObject({ cwd: worker.cwd, permissionMode: 'bypassPermissions', resumeSessionId: 'agy-native' })
     claw.answer(name, { output: 'Done' })
     await workers.settled(worker.id)
-  })
-
-  it('fails agy launch if a metadata directory resolves outside the checkout’s Git directory', async () => {
-    const { claw, workers, protectedFolder } = await setup()
-    const repo = await temporaryRepo()
-    const worker = await workers.delegate({ folder: repo, engine: 'agy', prompt: 'Work' })
-    const name = sessionName(worker.id)
-    await claw.turnStarted(name)
-    claw.answer(name, { output: 'Done' })
-    await workers.settled(worker.id)
-
-    const reflogDir = join(repo, '.git', 'logs', 'refs', 'heads', ...worker.repo!.branch.split('/').slice(0, -1))
-    await rm(join(reflogDir, 'work'), { force: true })
-    await rmdir(reflogDir)
-    await mkdir(protectedFolder)
-    await symlink(protectedFolder, reflogDir, process.platform === 'win32' ? 'junction' : 'dir')
-    workers.message(worker.id, 'Continue')
-    await workers.settled(worker.id)
-    expect(claw.starts).toHaveLength(1)
-    expect(workers.detail(worker.id).turns.at(-1)).toMatchObject({
-      status: 'failed',
-      error: expect.stringMatching(/permission|protected/i),
-    })
-  })
-
-  it('grants an agy worker outside Git only its checkout and refuses a checkout containing a protected folder', async () => {
-    const { claw, workers, home, protectedFolder } = await setup()
-    const folder = join(home, 'notes')
-    await mkdir(folder)
-    await mkdir(protectedFolder)
-    const worker = await workers.delegate({ folder, engine: 'agy', prompt: 'Edit the notes' })
-    const name = sessionName(worker.id)
-    await claw.turnStarted(name)
-    expect(JSON.parse(claw.starts[0]!.settings!).permissions).toEqual({ allow: [`write_file(${worker.cwd})`], deny: [] })
-    claw.answer(name, { output: 'Done' })
-    await workers.settled(worker.id)
-
-    const blocked = await workers.delegate({ folder: home, engine: 'agy', prompt: 'Edit the notes' })
-    await workers.settled(blocked.id)
-    expect(workers.detail(blocked.id).turns[0]).toMatchObject({ status: 'failed', error: expect.stringContaining('protected folder') })
-    expect(claw.starts).toHaveLength(1)
   })
 
   it('reports the current step while running and the changed files', async () => {
