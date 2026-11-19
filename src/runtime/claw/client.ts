@@ -2,7 +2,44 @@
 
 import { request as httpRequest } from 'node:http'
 
+import type { ClawEngine, ClawPermissionMode } from '../../contracts/engines.js'
+import { elapsedText, errorText } from '../../errors.js'
+
 export type ClawHealth = { version: string; sessions: number }
+
+export type ClawSession = { name: string; cwd: string; created: string }
+
+export type StartSessionOptions = {
+  name: string
+  cwd: string
+  engine: ClawEngine
+  acpAgent?: string
+  model?: string
+  effort?: string
+  resumeSessionId?: string
+  disallowedTools?: string[]
+  permissionMode?: ClawPermissionMode
+  appendSystemPrompt?: string
+}
+
+export type ClawSendResult = {
+  output: string
+  sessionId?: string
+  error?: string
+  permissionDenials?: { toolName: string }[]
+}
+
+export type ClawSessions = Pick<ClawClient, 'startSession' | 'sendMessage' | 'stopSession' | 'listSessions'>
+
+export class ClawError extends Error {
+  constructor(
+    message: string,
+    readonly status: number | null,
+  ) {
+    super(message)
+    this.name = 'ClawError'
+  }
+}
 
 type Reply = { status: number; text: string }
 
@@ -38,5 +75,50 @@ export class ClawClient {
     } catch {
       return null
     }
+  }
+
+  async listSessions(): Promise<ClawSession[]> {
+    const body = await this.post<{ sessions?: unknown }>('/session/list', {})
+    if (!Array.isArray(body.sessions)) throw new ClawError('/session/list: no sessions array', 200)
+    return body.sessions as ClawSession[]
+  }
+
+  async startSession(options: StartSessionOptions): Promise<ClawSession> {
+    return this.post<ClawSession>('/session/start', options, 120_000)
+  }
+
+  async sendMessage(name: string, message: string, options: { timeoutMs: number; effort?: string }): Promise<ClawSendResult> {
+    const body: Record<string, unknown> = { name, message, timeout: options.timeoutMs }
+    if (options.effort) body.effort = options.effort
+    return this.post<ClawSendResult>('/session/send', body, options.timeoutMs + 60_000)
+  }
+
+  async stopSession(name: string): Promise<void> {
+    await this.post('/session/stop', { name })
+  }
+
+  private async post<T>(path: string, body: Record<string, unknown>, timeoutMs = 60_000): Promise<T> {
+    const startedAt = Date.now()
+    let reply: Reply
+    try {
+      reply = await request(`${this.baseUrl}${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${this.token}` },
+        body: JSON.stringify(body),
+        timeoutMs,
+      })
+    } catch (error) {
+      throw new ClawError(`${path}: ${errorText(error)} ${elapsedText(startedAt)}`, null)
+    }
+    let parsed: { ok?: unknown; error?: unknown }
+    try {
+      parsed = JSON.parse(reply.text) as typeof parsed
+    } catch {
+      throw new ClawError(`${path}: HTTP ${reply.status} with a non-JSON body`, reply.status)
+    }
+    if (reply.status < 200 || reply.status >= 300 || parsed.ok !== true) {
+      throw new ClawError(`${path}: ${typeof parsed.error === 'string' ? parsed.error : `HTTP ${reply.status}`}`, reply.status)
+    }
+    return parsed as T
   }
 }

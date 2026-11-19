@@ -15,6 +15,11 @@ const server = createServer((req, res) => {
     )
     return
   }
+  if (req.url === '/session/list') {
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ ok: true, sessions: [] }))
+    return
+  }
   if (req.url === '/crash') {
     res.end()
     process.exit(3)

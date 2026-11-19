@@ -16,7 +16,7 @@
 ## Decisions
 
 - **Runtime:** Node 24 LTS; `engines` and CI move together. One package, one daemon.
-- **Storage:** SQLite through `node:sqlite`, one writer, short transactions. Large outputs and diffs stay on disk, referenced from rows; write the file before committing the reference. Config and secrets stay files. Day-one spike: transactions, restart and Windows packaging. If `node:sqlite` fails the spike, use `better-sqlite3`.
+- **Storage:** SQLite through `node:sqlite`, one writer, short transactions. Turn text lives in SQLite; diffs come from git. Anything large later kept on disk is written before the row that references it. Config and secrets stay files. Day-one spike: transactions, restart and Windows packaging. If `node:sqlite` fails the spike, use `better-sqlite3`.
 - **Claw:** depend on the `>=7.23.4 <8` range, with startup compatibility checks and crash restart. No automatic updates; upgrading is an explicit command.
 - **Leaders:** Claude leaders run through Claw; other leaders run through ACP directly so they receive session-scoped MCP tools. Keep the Codex ACP adapter.
 - **Web:** `node:http`, SSE and the existing React/Vite/Tailwind/shadcn stack. Shared Zod schemas live in a browser-safe `contracts/` folder. Add Hono, TanStack Query or a router only for a demonstrated need.
@@ -49,7 +49,9 @@ The leader keeps task detail out of its own context. It reads and writes task no
 
 ### Workers
 
-`delegate` writes a worker row first (engine, model, effort, task, worktree path), then creates the worktree, then starts the Claw session and records its name. Each turn's input, output, model and effort are stored per turn. On restart, the daemon lists Claw sessions and reconciles every worker that was running: it reattaches, marks it interrupted, or reports it as orphaned.
+`delegate` records the worker and its first turn in one transaction (engine, model, effort, task and the planned worktree), then creates the worktree, then starts the Claw session. A worker's status is its latest turn's status. Each turn's input, output, model and effort are stored with the turn in SQLite; diffs come from git when asked. A Claw session lives for one turn, and the next turn resumes the engine's native conversation.
+
+Claw returns a turn's output only to the request that sent it, so a turn cannot be reattached after Moxy restarts. On restart, every running turn is marked interrupted, every leftover `moxy-w-` session is stopped, and sessions with no running turn are reported as orphaned. Stopping Moxy marks running turns interrupted before Claw stops.
 
 Worktrees follow [DESIGN.md](DESIGN.md): a sibling `<repo>-worktrees` checkout and a `moxy/` branch for every engine, preserved when changed, with no `.env` copying.
 
