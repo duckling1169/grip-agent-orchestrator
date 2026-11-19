@@ -1,5 +1,6 @@
-import { homedir } from 'node:os'
+import { homedir, hostname } from 'node:os'
 
+import { loadConfig } from './config.js'
 import { Database } from './db/database.js'
 import { MOXY_SCHEMA } from './db/schema.js'
 import { errorText } from './errors.js'
@@ -10,6 +11,7 @@ import { DEFAULT_MCP_PORT, startMcpServer } from './mcp/server.js'
 import { LeaderLoop } from './moxy/loop.js'
 import { ConversationStore, workerTurnEnded } from './moxy/store.js'
 import { moxyPaths } from './paths.js'
+import { tailscaleOwner } from './platform/tailscale.js'
 import type { MoxyPaths } from './paths.js'
 import { protectedFolders } from './repos/folders.js'
 import { Integrator } from './repos/integration.js'
@@ -25,6 +27,7 @@ import { Tasks } from './tasks/service.js'
 import { TaskStore } from './tasks/store.js'
 import { MOXY_VERSION } from './version.js'
 import { DEFAULT_WEB_PORT, startWebServer } from './web/server.js'
+import { DEFAULT_STATIC_DIR } from './web/static.js'
 import { Workers } from './workers/service.js'
 import { WorkerStore } from './workers/store.js'
 
@@ -41,6 +44,8 @@ export type MoxyOptions = {
   workspace?: string
   leaders?: LeaderRunners
   leaderTimeoutMs?: number
+  tailscaleOwner?: () => Promise<string | null>
+  staticDir?: string
   log?: Log
 }
 
@@ -61,6 +66,7 @@ export type Moxy = {
 export async function startMoxy(options: MoxyOptions = {}): Promise<Moxy> {
   const paths = moxyPaths(options.home)
   const log = options.log ?? fileLog(paths.moxyLog)
+  const config = await loadConfig(paths.config, options.tailscaleOwner ?? (() => tailscaleOwner()))
   const database = Database.open(paths.database, MOXY_SCHEMA)
   const undo: (() => Promise<void> | void)[] = [() => database.close()]
   const unwind = async () => {
@@ -132,10 +138,17 @@ export async function startMoxy(options: MoxyOptions = {}): Promise<Moxy> {
 
     const web = await startWebServer({
       conversation,
-      wake: () => activeLoop.wake(),
+      loop: activeLoop,
+      tasks,
+      workers,
+      database,
+      allowedLogins: config.allowedLogins,
       token: await loadOrCreateToken(paths.webToken),
       port: options.webPort ?? DEFAULT_WEB_PORT,
+      host: hostname(),
+      staticDir: options.staticDir ?? DEFAULT_STATIC_DIR,
     })
+    if (config.allowedLogins.length === 0) log(`no Tailscale login is allowed yet; add one to allowedLogins in ${paths.config}`)
     undo.push(() => web.close())
     log(`Moxy on 127.0.0.1:${web.port}, MCP on 127.0.0.1:${mcp.port}`)
     activeLoop.wake()

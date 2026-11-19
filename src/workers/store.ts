@@ -1,40 +1,10 @@
+import type { Turn, TurnStatus, Worker } from '../contracts/api.js'
 import type { Engine } from '../contracts/engines.js'
 import type { Database } from '../db/database.js'
 import { textOrNull } from '../db/rows.js'
 import type { Row } from '../db/rows.js'
 
-export type TurnStatus = 'running' | 'finished' | 'failed' | 'stopped' | 'interrupted'
 export type EndedTurnStatus = Exclude<TurnStatus, 'running'>
-
-export type WorkerRepo = { root: string; branch: string; base: string; baseCommit: string }
-
-export type Worker = {
-  id: string
-  taskId: string | null
-  title: string
-  engine: Engine
-  model: string | null
-  effort: string | null
-  folder: string
-  cwd: string
-  repo: WorkerRepo | null
-  nativeSessionId: string | null
-  createdAt: string
-  status: TurnStatus
-  turnCount: number
-}
-
-export type Turn = {
-  number: number
-  model: string | null
-  effort: string | null
-  input: string
-  output: string | null
-  status: TurnStatus
-  error: string | null
-  startedAt: string
-  endedAt: string | null
-}
 
 export type NewWorker = Pick<Worker, 'id' | 'taskId' | 'title' | 'engine' | 'model' | 'effort' | 'folder' | 'cwd' | 'repo'>
 

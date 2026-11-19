@@ -1,40 +1,9 @@
+import type { Integration, IntegrationStatus, Task, TaskStatus } from '../contracts/api.js'
 import type { Database } from '../db/database.js'
 import { textOrNull } from '../db/rows.js'
 import type { Row } from '../db/rows.js'
 
-export type TaskStatus = 'working' | 'waiting' | 'done'
-
-export type Task = {
-  id: string
-  title: string
-  repoRoot: string | null
-  plan: string
-  notes: string
-  testing: string
-  status: TaskStatus
-  revision: string | null
-  howToTry: string | null
-  supersededBy: string | null
-  createdAt: string
-  updatedAt: string
-}
-
 export type TaskNotes = Partial<Pick<Task, 'title' | 'plan' | 'notes' | 'testing'>>
-
-export type IntegrationStatus = 'running' | 'merged' | 'refused' | 'interrupted'
-
-export type Integration = {
-  id: number
-  taskId: string
-  workerId: string
-  repoRoot: string
-  branch: string
-  status: IntegrationStatus
-  revision: string | null
-  error: string | null
-  startedAt: string
-  endedAt: string | null
-}
 
 const NOTE_COLUMNS = { title: 'title', plan: 'plan', notes: 'notes', testing: 'testing' } as const
 

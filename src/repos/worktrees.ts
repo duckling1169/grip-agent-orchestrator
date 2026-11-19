@@ -1,6 +1,7 @@
 import { realpath, stat } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 
+import type { WorktreeDiff } from '../contracts/api.js'
 import { exec as defaultExec } from '../exec.js'
 import type { Exec } from '../exec.js'
 import { gitOk } from './git.js'
@@ -14,14 +15,6 @@ export type WorktreeFacts = {
   commitsAhead: number
   changedFiles: string[]
   lastCommit: { subject: string; at: string } | null
-}
-
-export type WorktreeDiff = {
-  stat: string
-  patch: string
-  truncated: boolean
-  untrackedFiles: string[]
-  skippedFiles: { file: string; reason: string }[]
 }
 
 export const BRANCH_PREFIX = 'moxy/'

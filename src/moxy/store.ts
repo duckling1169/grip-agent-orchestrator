@@ -1,24 +1,10 @@
+import type { ConversationEntry, LeaderSettings, LeaderTurn, LeaderTurnStatus, Turn, Worker } from '../contracts/api.js'
 import type { Engine } from '../contracts/engines.js'
 import type { Database } from '../db/database.js'
 import { numberOrNull, textOrNull } from '../db/rows.js'
 import type { Row } from '../db/rows.js'
-import type { Turn, Worker } from '../workers/store.js'
 
-export type LeaderSettings = { engine: Engine; model: string | null; effort: string | null; nativeSessionId: string | null }
-
-export type LeaderTurnStatus = 'running' | 'finished' | 'failed' | 'interrupted'
-
-export type LeaderTurn = {
-  id: number
-  engine: Engine
-  model: string | null
-  effort: string | null
-  status: LeaderTurnStatus
-  output: string | null
-  error: string | null
-  startedAt: string
-  endedAt: string | null
-}
+export type LeaderState = LeaderSettings & { nativeSessionId: string | null }
 
 export type WorkerTurnEnded = {
   workerId: string
@@ -41,10 +27,6 @@ export type LeaderTurnEnding = {
   error: string | null
   nativeSessionId: string | null
 }
-
-export type ConversationEntry =
-  | { type: 'user'; inboxId: number; source: string; text: string; at: string; leaderTurnId: number | null }
-  | { type: 'moxy'; turn: LeaderTurn }
 
 export function workerTurnEnded(worker: Worker, turn: Turn): InboxItem {
   return {
@@ -78,7 +60,7 @@ export class ConversationStore {
     return inserted.changes > 0
   }
 
-  leader(): LeaderSettings {
+  leader(): LeaderState {
     const row = this.database.prepare('SELECT * FROM leader WHERE id = 1').get() as Row
     return {
       engine: String(row.engine) as Engine,
@@ -113,6 +95,34 @@ export class ConversationStore {
       }
     })
     return this.mustGetTurn(turnId)
+  }
+
+  configure(settings: Pick<LeaderSettings, 'model' | 'effort'>): LeaderState {
+    this.database.prepare('UPDATE leader SET model = ?, effort = ? WHERE id = 1').run(settings.model, settings.effort)
+    return this.leader()
+  }
+
+  stopRunningTurn(reason: string): LeaderTurn | null {
+    const row = this.database
+      .prepare(`UPDATE leader_turns SET status = 'stopped', error = ?, ended_at = ? WHERE status = 'running' RETURNING id`)
+      .get(reason, now()) as Row | undefined
+    return row ? this.mustGetTurn(Number(row.id)) : null
+  }
+
+  retryTurn(turnId: number): LeaderTurn {
+    return this.database.transaction(() => {
+      const turn = this.mustGetTurn(turnId)
+      if (turn.status !== 'failed' || turn.retried)
+        throw new Error(`leader turn ${turnId} is ${turn.retried ? 'already retried' : turn.status}; only a failed turn can be retried`)
+      this.database.prepare('UPDATE leader_turns SET retried_at = ? WHERE id = ?').run(now(), turnId)
+      this.database.prepare('UPDATE inbox SET leader_turn_id = NULL WHERE leader_turn_id = ?').run(turnId)
+      return this.mustGetTurn(turnId)
+    })
+  }
+
+  runningTurn(): LeaderTurn | null {
+    const row = this.database.prepare(`SELECT * FROM leader_turns WHERE status = 'running'`).get() as Row | undefined
+    return row ? toTurn(row) : null
   }
 
   interruptRunningTurn(reason: string): LeaderTurn | null {
@@ -194,5 +204,6 @@ function toTurn(row: Row): LeaderTurn {
     error: textOrNull(row, 'error'),
     startedAt: String(row.started_at),
     endedAt: textOrNull(row, 'ended_at'),
+    retried: row.retried_at !== null,
   }
 }

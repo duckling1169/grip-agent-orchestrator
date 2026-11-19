@@ -72,11 +72,12 @@ export const MOXY_SCHEMA: Schema = {
       engine TEXT NOT NULL,
       model TEXT,
       effort TEXT,
-      status TEXT NOT NULL CHECK (status IN ('running', 'finished', 'failed', 'interrupted')),
+      status TEXT NOT NULL CHECK (status IN ('running', 'finished', 'failed', 'stopped', 'interrupted')),
       output TEXT,
       error TEXT,
       started_at TEXT NOT NULL,
-      ended_at TEXT
+      ended_at TEXT,
+      retried_at TEXT
     ) STRICT`,
     `CREATE TABLE inbox (
       id INTEGER PRIMARY KEY,

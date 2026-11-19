@@ -8,10 +8,11 @@ import type { Engine } from '../contracts/engines.js'
 import { errorText } from '../errors.js'
 import type { Log } from '../log.js'
 import { protectedFolderOf } from '../repos/folders.js'
-import type { WorktreeDiff, WorktreeFacts, Worktrees } from '../repos/worktrees.js'
+import type { Turn, Worker, WorkerChanges, WorkerDetail, WorktreeDiff } from '../contracts/api.js'
+import type { WorktreeFacts, Worktrees } from '../repos/worktrees.js'
 import { replyText } from '../runtime/claw/client.js'
 import type { ClawSessions } from '../runtime/claw/client.js'
-import type { Turn, TurnEnding, TurnRef, Worker, WorkerStore } from './store.js'
+import type { TurnEnding, TurnRef, WorkerStore } from './store.js'
 
 export type DelegateInput = {
   taskId?: string
@@ -122,6 +123,16 @@ export class Workers {
     const facts = repo ? await this.options.worktrees.facts(worker.cwd, repo.baseCommit) : null
     const diff = repo && options.diff ? await this.options.worktrees.diff(worker.cwd, repo.baseCommit) : null
     return { worker, turns: this.store.turns(id), facts, diff }
+  }
+
+  detail(id: string): WorkerDetail {
+    return { worker: this.store.mustGet(id), turns: this.store.turns(id) }
+  }
+
+  async changes(id: string): Promise<WorkerChanges> {
+    const worker = this.store.mustGet(id)
+    const diff = worker.repo ? await this.options.worktrees.diff(worker.cwd, worker.repo.baseCommit) : null
+    return { diff, fetchedAt: new Date().toISOString() }
   }
 
   list(): Worker[] {

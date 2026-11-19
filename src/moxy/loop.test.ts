@@ -2,6 +2,7 @@ import { join } from 'node:path'
 
 import { describe, expect, it, onTestFinished } from 'vitest'
 
+import type { LeaderTurn } from '../contracts/api.js'
 import { Database } from '../db/database.js'
 import { MOXY_SCHEMA } from '../db/schema.js'
 import type { LeaderReply, LeaderRunner, LeaderTurnRequest } from '../runtime/leaders/leader.js'
@@ -9,7 +10,7 @@ import { silentLog, temporaryHome } from '../testing/harness.js'
 import { LeaderLoop } from './loop.js'
 import { renderInbox } from './prompt.js'
 import { ConversationStore, userMessage } from './store.js'
-import type { LeaderTurn, WorkerTurnEnded } from './store.js'
+import type { WorkerTurnEnded } from './store.js'
 
 class ScriptedLeader implements LeaderRunner {
   readonly requests: LeaderTurnRequest[] = []
@@ -200,5 +201,60 @@ describe('LeaderLoop', () => {
     expect(leader.stopped).toBe(1)
     expect(ended).toMatchObject([{ status: 'interrupted', error: 'Moxy stopped during this turn' }])
     expect(conversation.beginTurn()?.items).toMatchObject([{ source: 'user:a', interruptedDeliveries: 1 }])
+  })
+
+  it('stops the running turn without running its messages again, then answers what was queued', async () => {
+    const { leader, loop, conversation, ended } = await setup()
+    conversation.receive(userMessage('Hello', 'a'))
+    loop.wake()
+    await leader.started(1)
+    conversation.receive(userMessage('Later', 'b'))
+    expect(await loop.stop()).toBe(true)
+    await leader.started(2)
+
+    expect(ended[0]).toMatchObject({ status: 'stopped', error: 'Stopped by the user' })
+    expect(leader.requests[1]?.message).toBe('Later')
+    leader.reply({ output: 'ok', error: null, nativeSessionId: null })
+    await loop.idle()
+    expect(await loop.stop()).toBe(false)
+  })
+
+  it('sends queued messages now by interrupting the turn and answering everything together', async () => {
+    const { leader, loop, conversation, ended } = await setup()
+    conversation.receive(userMessage('Hello', 'a'))
+    loop.wake()
+    await leader.started(1)
+    conversation.receive(userMessage('Actually, this first', 'b'))
+    expect(await loop.sendNow()).toBe(true)
+    await leader.started(2)
+
+    expect(ended[0]).toMatchObject({ status: 'interrupted' })
+    expect(leader.requests[1]?.message).toContain('Hello\n\nActually, this first')
+    leader.reply({ output: 'ok', error: null, nativeSessionId: null })
+    await loop.idle()
+  })
+
+  it('retries a failed turn once and hides it from then on', async () => {
+    const { leader, loop, conversation, ended } = await setup()
+    conversation.receive(userMessage('Hello', 'a'))
+    loop.wake()
+    await leader.started(1)
+    leader.reply({ output: '', error: 'usage limit reached', nativeSessionId: null })
+    await loop.idle()
+    const failed = ended[0]!
+    expect(failed).toMatchObject({ status: 'failed', retried: false })
+
+    expect(conversation.retryTurn(failed.id)).toMatchObject({ retried: true })
+    expect(() => conversation.retryTurn(failed.id)).toThrow('already retried')
+    loop.wake()
+    await leader.started(2)
+    expect(leader.requests[1]?.message).toBe('Hello')
+    leader.reply({ output: 'Hi!', error: null, nativeSessionId: null })
+    await loop.idle()
+    expect(conversation.conversation()).toMatchObject([
+      { type: 'user', text: 'Hello', leaderTurnId: ended[1]?.id },
+      { type: 'moxy', turn: { id: failed.id, retried: true } },
+      { type: 'moxy', turn: { output: 'Hi!' } },
+    ])
   })
 })

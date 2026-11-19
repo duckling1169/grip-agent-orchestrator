@@ -20,6 +20,25 @@ const bodies = (database: Database) =>
     .map(row => row.body)
 
 describe('Database', () => {
+  it('bumps the revision once after a batch of writes and not after reads', async () => {
+    const { database } = await openNotes()
+    const revisions: number[] = []
+    database.onChange(revision => revisions.push(revision))
+    database.transaction(() => {
+      database.prepare('INSERT INTO notes (body) VALUES (?)').run('one')
+      database.prepare('INSERT INTO notes (body) VALUES (?)').run('two')
+    })
+    await new Promise(resolve => setImmediate(resolve))
+    bodies(database)
+    await new Promise(resolve => setImmediate(resolve))
+    database.prepare('DELETE FROM notes WHERE body = ?').run('one')
+    await new Promise(resolve => setImmediate(resolve))
+
+    expect(revisions).toEqual([1, 2])
+    expect(database.revision).toBe(2)
+    database.close()
+  })
+
   it('commits a transaction and keeps it after reopening', async () => {
     const { path, database } = await openNotes()
     database.transaction(() => database.prepare('INSERT INTO notes (body) VALUES (?)').run('kept'))

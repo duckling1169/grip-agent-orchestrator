@@ -1,36 +1,158 @@
 import { randomUUID } from 'node:crypto'
+import type { IncomingMessage, ServerResponse } from 'node:http'
 
-import { listenOnLoopback, readJsonBody, refuseUnlessLocal, sendJson } from '../http.js'
+import { z } from 'zod'
+
+import type { PostedMessage, Snapshot } from '../contracts/api.js'
+import type { Database } from '../db/database.js'
+import { errorText } from '../errors.js'
+import { listenOnLoopback, readJsonBody, sendJson } from '../http.js'
 import type { LoopbackServer } from '../http.js'
+import type { LeaderLoop } from '../moxy/loop.js'
 import { userMessage } from '../moxy/store.js'
 import type { ConversationStore } from '../moxy/store.js'
+import type { Tasks } from '../tasks/service.js'
+import type { Workers } from '../workers/service.js'
+import { crossSiteWrite, identify } from './identity.js'
+import { serveStatic } from './static.js'
 
 export const DEFAULT_WEB_PORT = 18798
+const HEARTBEAT_MS = 25_000
+const SNAPSHOT_DELAY_MS = 50
 
-export type WebServerOptions = { conversation: ConversationStore; wake: () => void; token: string; port: number }
+export type WebServerOptions = {
+  conversation: ConversationStore
+  loop: Pick<LeaderLoop, 'wake' | 'stop' | 'sendNow'>
+  tasks: Pick<Tasks, 'list' | 'get'>
+  workers: Pick<Workers, 'list' | 'detail' | 'changes' | 'message' | 'stop'>
+  database: Pick<Database, 'revision' | 'onChange'>
+  allowedLogins: readonly string[]
+  token: string
+  port: number
+  host: string
+  staticDir: string
+}
 
-export type PostedMessage = { source: string; received: boolean }
+class HttpError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message)
+  }
+}
 
-export function startWebServer(options: WebServerOptions): Promise<LoopbackServer> {
-  return listenOnLoopback(options.port, async (req, res) => {
-    if (refuseUnlessLocal(req, res, options.token)) return
-    const route = `${req.method} ${new URL(req.url ?? '/', 'http://127.0.0.1').pathname}`
-    if (route === 'GET /api/conversation') return sendJson(res, 200, { entries: options.conversation.conversation() })
-    if (route !== 'POST /api/messages') return sendJson(res, 404, { error: 'not found' })
+const MessageBody = z.object({ text: z.string().trim().min(1, 'text is required'), id: z.string().min(1).optional() })
+const RetryBody = z.object({ turnId: z.number().int() })
+const SettingsBody = z.object({ model: z.string().min(1).nullable(), effort: z.string().min(1).nullable() })
+const WorkerMessageBody = z.object({ text: z.string().trim().min(1, 'text is required') })
 
-    let body: unknown
-    try {
-      body = await readJsonBody(req)
-    } catch (error) {
-      return sendJson(res, 400, { error: (error as Error).message })
+async function body<T>(req: IncomingMessage, schema: z.ZodType<T>): Promise<T> {
+  const parsed = schema.safeParse((await readJsonBody(req)) ?? {})
+  if (!parsed.success)
+    throw new HttpError(400, parsed.error.issues.map(issue => `${issue.path.join('.') || 'body'}: ${issue.message}`).join('; '))
+  return parsed.data
+}
+
+export async function startWebServer(options: WebServerOptions): Promise<LoopbackServer> {
+  const { conversation, loop, tasks, workers, database } = options
+  const streams = new Map<ServerResponse, string>()
+
+  const snapshot = (login: string): Snapshot => {
+    const leader = conversation.leader()
+    return {
+      revision: database.revision,
+      login,
+      host: options.host,
+      leader: { engine: leader.engine, model: leader.model, effort: leader.effort },
+      conversation: conversation.conversation(),
+      tasks: tasks.list(),
+      workers: workers.list(),
     }
-    const { text, id } = (body ?? {}) as { text?: unknown; id?: unknown }
-    if (typeof text !== 'string' || !text.trim()) return sendJson(res, 400, { error: 'text is required' })
-    if (id !== undefined && (typeof id !== 'string' || !id)) return sendJson(res, 400, { error: 'id must be a non-empty string' })
-    const item = userMessage(text.trim(), id ?? randomUUID())
-    const received = options.conversation.receive(item)
-    if (received) options.wake()
-    const posted: PostedMessage = { source: item.source, received }
-    return sendJson(res, received ? 202 : 200, posted)
+  }
+
+  let pending: NodeJS.Timeout | null = null
+  const unsubscribe = database.onChange(() => {
+    if (pending || streams.size === 0) return
+    pending = setTimeout(() => {
+      pending = null
+      for (const [res, login] of streams) res.write(`event: state\ndata: ${JSON.stringify(snapshot(login))}\n\n`)
+    }, SNAPSHOT_DELAY_MS)
   })
+
+  const openStream = (res: ServerResponse, login: string): void => {
+    res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive' })
+    res.write(`retry: 1000\n\nevent: state\ndata: ${JSON.stringify(snapshot(login))}\n\n`)
+    const heartbeat = setInterval(() => res.write(': ping\n\n'), HEARTBEAT_MS)
+    streams.set(res, login)
+    res.on('close', () => {
+      clearInterval(heartbeat)
+      streams.delete(res)
+    })
+  }
+
+  const postMessage = async (req: IncomingMessage): Promise<PostedMessage> => {
+    const { text, id } = await body(req, MessageBody)
+    const item = userMessage(text, id ?? randomUUID())
+    const received = conversation.receive(item)
+    if (received) loop.wake()
+    return { source: item.source, received }
+  }
+
+  const route = async (req: IncomingMessage, res: ServerResponse, login: string, path: string): Promise<unknown> => {
+    const method = req.method ?? 'GET'
+    if (method === 'GET' && path === '/api/events') return openStream(res, login)
+    if (method === 'GET' && path === '/api/state') return snapshot(login)
+    if (method === 'POST' && path === '/api/messages') return postMessage(req)
+    if (method === 'POST' && path === '/api/leader/stop') return { stopped: await loop.stop() }
+    if (method === 'POST' && path === '/api/leader/send-now') return { stopped: await loop.sendNow() }
+    if (method === 'POST' && path === '/api/leader/retry') {
+      const turn = conversation.retryTurn((await body(req, RetryBody)).turnId)
+      loop.wake()
+      return turn
+    }
+    if (method === 'POST' && path === '/api/leader/settings') return conversation.configure(await body(req, SettingsBody))
+
+    const task = /^\/api\/tasks\/([\w-]+)$/.exec(path)
+    if (task && method === 'GET') return tasks.get(task[1] as string)
+    const worker = /^\/api\/workers\/([\w-]+)(?:\/(changes|message|stop))?$/.exec(path)
+    if (worker) {
+      const [, id = '', action] = worker
+      if (method === 'GET' && !action) return workers.detail(id)
+      if (method === 'GET' && action === 'changes') return workers.changes(id)
+      if (method === 'POST' && action === 'message') return workers.message(id, (await body(req, WorkerMessageBody)).text)
+      if (method === 'POST' && action === 'stop') return workers.stop(id)
+    }
+    throw new HttpError(404, `no route ${method} ${path}`)
+  }
+
+  const server = await listenOnLoopback(options.port, async (req, res) => {
+    const path = new URL(req.url ?? '/', 'http://127.0.0.1').pathname
+    if (req.method === 'GET' && path === '/health') return sendJson(res, 200, { ok: true, app: 'moxy' })
+    const who = identify(req.headers, options.allowedLogins, options.token)
+    if (!who.ok) return sendJson(res, who.status, { error: who.error })
+    const refused = crossSiteWrite(req.method ?? 'GET', req.headers)
+    if (refused) return sendJson(res, 403, { error: refused })
+    if (!path.startsWith('/api/')) {
+      if (req.method === 'GET' || req.method === 'HEAD') return serveStatic(req, res, options.staticDir)
+      return sendJson(res, 404, { error: 'not found' })
+    }
+    try {
+      const result = await route(req, res, who.login, path)
+      if (!res.headersSent) sendJson(res, 200, result ?? null)
+    } catch (error) {
+      if (res.headersSent) return void res.destroy()
+      sendJson(res, error instanceof HttpError ? error.status : 400, { error: errorText(error) })
+    }
+  })
+  server.server.requestTimeout = 0
+  return {
+    port: server.port,
+    close: async () => {
+      unsubscribe()
+      if (pending) clearTimeout(pending)
+      for (const res of streams.keys()) res.end()
+      await server.close()
+    },
+  }
 }

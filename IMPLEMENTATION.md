@@ -115,7 +115,12 @@ Each step ends with its tests green and `format:check`, `typecheck`, `test` and 
 2. **Workers.** Delegate, message, stop and result through Claw with worktrees and per-turn records. Restart reconciliation tests at intent, started and finished points.
 3. **Leader loop.** Inbox with batching and source-ID deduplication, turn runner for Claude and ACP leaders, leader MCP tools, user-first ordering, and interrupted-turn redelivery.
 4. **Tasks and delivery.** Task rows, integrate with the per-repo lock, ready, accept and reopen. Fake-backed journey: two tasks in one repo, a desktop edit, feedback, restart midway.
-5. **Web.** API, SSE snapshot and changes, conversation-first UI, task sidebar, worker inspector, quota, and push for tasks that are ready, since push needs device subscriptions and allowed Tailscale logins. Playwright on desktop and mobile.
+5. **Web.** Built in slices, following the reviewed mockup:
+   1. Server: Tailscale identity and allowed logins, write checks, the local bearer for the CLI, a database revision bumped after each committed write, an SSE snapshot per revision, detail reads for tasks and workers, and actions to message, stop, send now, retry a failed turn, set the Orchestrator's model and effort, and message or stop a worker. Switching the Orchestrator's engine waits for step 6.
+   2. Web app: React, Vite, Tailwind and shadcn with the mockup's layout, the fake-backed `web:preview`, and Playwright on desktop and mobile.
+   3. Quota and model lists.
+   4. Push for tasks waiting on the user.
+   5. The machine switcher.
 6. **Handoff and recovery.** Next-turn engine changes, context rotation, quota-failure switch-and-retry, timers and follow-ups, and user memory.
 7. **Install.** Install and uninstall, logon task, Tailscale Serve on the standard ports, explicit Claw upgrade command, and README.
 

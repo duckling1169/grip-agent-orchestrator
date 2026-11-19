@@ -5,8 +5,8 @@ import { samePath } from '../repos/folders.js'
 import type { Integrator } from '../repos/integration.js'
 import type { Worktrees } from '../repos/worktrees.js'
 import type { DelegateInput, Workers } from '../workers/service.js'
-import type { Worker } from '../workers/store.js'
-import type { Integration, Task, TaskNotes, TaskStore } from './store.js'
+import type { Integration, Task, Worker } from '../contracts/api.js'
+import type { TaskNotes, TaskStore } from './store.js'
 
 export type NewTask = { title: string; folder?: string; plan?: string; testing?: string }
 

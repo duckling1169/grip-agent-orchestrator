@@ -1,7 +1,6 @@
 import { setTimeout as sleep } from 'node:timers/promises'
 
-import type { ConversationEntry, LeaderTurn } from '../moxy/store.js'
-import type { PostedMessage } from './server.js'
+import type { ConversationEntry, LeaderTurn, PostedMessage, Snapshot } from '../contracts/api.js'
 
 export class MoxyClient {
   constructor(
@@ -14,7 +13,7 @@ export class MoxyClient {
   }
 
   async conversation(): Promise<ConversationEntry[]> {
-    return (await this.request<{ entries: ConversationEntry[] }>('GET', '/api/conversation')).entries
+    return (await this.request<Snapshot>('GET', '/api/state')).conversation
   }
 
   async reply(source: string, pollMs = 1000): Promise<LeaderTurn> {
@@ -23,7 +22,7 @@ export class MoxyClient {
       const message = entries.find(entry => entry.type === 'user' && entry.source === source)
       const turnId = message?.type === 'user' ? message.leaderTurnId : null
       const answer = entries.find(entry => entry.type === 'moxy' && entry.turn.id === turnId)
-      if (answer?.type === 'moxy' && (answer.turn.status === 'finished' || answer.turn.status === 'failed')) return answer.turn
+      if (answer?.type === 'moxy' && answer.turn.status !== 'running') return answer.turn
       await sleep(pollMs)
     }
   }

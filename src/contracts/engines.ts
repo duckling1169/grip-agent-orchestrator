@@ -1,5 +1,5 @@
-export type ClawEngine = 'claude' | 'codex-app' | 'agy' | 'gemini' | 'cursor' | 'grok' | 'opencode' | 'acp'
-export type ClawPermissionMode = 'auto' | 'bypassPermissions'
+export type ClawEngine = 'claude' | 'codex-app' | 'agy' | 'cursor' | 'grok' | 'opencode' | 'acp'
+export type ClawPermissionMode = 'auto'
 
 export type EngineSpec = {
   name: string
@@ -11,9 +11,8 @@ export type EngineSpec = {
 
 export const ENGINE_SPECS = {
   claude: { name: 'Claude', claw: 'claude', bin: 'claude', permissionMode: 'auto' },
-  codex: { name: 'GPT', claw: 'codex-app', bin: 'codex' },
+  codex: { name: 'Codex', claw: 'codex-app', bin: 'codex' },
   agy: { name: 'Gemini', claw: 'agy', bin: 'agy', permissionMode: 'auto' },
-  gemini: { name: 'Gemini CLI', claw: 'gemini', bin: 'gemini', permissionMode: 'bypassPermissions' },
   cursor: { name: 'Cursor', claw: 'cursor', bin: 'cursor-agent' },
   grok: { name: 'Grok', claw: 'grok', bin: 'grok', permissionMode: 'auto' },
   opencode: { name: 'OpenCode', claw: 'opencode', bin: 'opencode' },

@@ -1,9 +1,10 @@
+import type { LeaderTurn } from '../contracts/api.js'
 import { errorText } from '../errors.js'
 import type { Log } from '../log.js'
 import type { LeaderRunner, McpEndpoint } from '../runtime/leaders/leader.js'
 import type { LeaderRunners } from '../runtime/leaders/runners.js'
 import { renderInbox } from './prompt.js'
-import type { ConversationStore, LeaderTurn, LeaderTurnEnding, ReceivedItem } from './store.js'
+import type { ConversationStore, LeaderTurnEnding, ReceivedItem } from './store.js'
 
 export type LeaderLoopOptions = {
   conversation: ConversationStore
@@ -40,6 +41,14 @@ export class LeaderLoop {
       })
   }
 
+  stop(): Promise<boolean> {
+    return this.halt(this.options.conversation.stopRunningTurn('Stopped by the user'))
+  }
+
+  sendNow(): Promise<boolean> {
+    return this.halt(this.options.conversation.interruptRunningTurn('Stopped so Moxy could read the newer messages'))
+  }
+
   async idle(): Promise<void> {
     while (this.draining) await this.draining
   }
@@ -50,6 +59,12 @@ export class LeaderLoop {
     if (interrupted) this.options.log(`interrupted leader turn ${interrupted.id}`)
     await this.runner?.stop()
     await this.idle()
+  }
+
+  private async halt(turn: LeaderTurn | null): Promise<boolean> {
+    if (!turn) return false
+    await this.runner?.stop()
+    return true
   }
 
   private async drain(): Promise<void> {

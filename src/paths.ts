@@ -10,6 +10,7 @@ export type MoxyPaths = ReturnType<typeof moxyPaths>
 export const moxyPaths = (home = moxyHome()) => ({
   home,
   database: join(home, 'moxy.db'),
+  config: join(home, 'config.json'),
   clawToken: join(home, 'claw-token'),
   mcpToken: join(home, 'mcp-token'),
   webToken: join(home, 'web-token'),

@@ -2,46 +2,17 @@ import { readFile } from 'node:fs/promises'
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
-import { afterEach, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
-import { startMoxy } from './app.js'
-import type { Moxy, MoxyOptions } from './app.js'
+import type { MoxyOptions } from './app.js'
 import { DatabaseInUseError } from './db/database.js'
 import { ClawClient } from './runtime/claw/client.js'
-import type { LeaderRunner, LeaderTurnRequest } from './runtime/leaders/leader.js'
-import { FAKE_CLAW_CLI, freePort, silentLog, temporaryHome } from './testing/harness.js'
+import { freePort } from './testing/harness.js'
+import { echoLeader, startTestMoxy } from './testing/test-moxy.js'
 import { MoxyClient } from './web/client.js'
 
-const running: Moxy[] = []
-
-const echoLeader: LeaderRunner & { requests: LeaderTurnRequest[] } = {
-  requests: [],
-  async run(request) {
-    this.requests.push(request)
-    return { output: `You said: ${request.message}`, error: null, nativeSessionId: 'native-1' }
-  },
-  async stop() {},
-}
-
-afterEach(async () => {
-  await Promise.all(running.splice(0).map(moxy => moxy.stop()))
-})
-
-async function start(options: MoxyOptions = {}) {
-  const moxy = await startMoxy({
-    home: await temporaryHome(),
-    clawPort: await freePort(),
-    mcpPort: await freePort(),
-    webPort: await freePort(),
-    clawCli: FAKE_CLAW_CLI,
-    leaders: () => echoLeader,
-    workspace: '/work',
-    log: silentLog,
-    ...options,
-  })
-  running.push(moxy)
-  return moxy
-}
+const leader = echoLeader()
+const start = (options: MoxyOptions = {}) => startTestMoxy({ leaders: () => leader, ...options })
 
 describe('startMoxy', () => {
   it('starts Claw with a token kept in the data home', async () => {
@@ -86,7 +57,7 @@ describe('startMoxy', () => {
     expect(await client.post('Hello', 'first')).toEqual({ source: 'user:first', received: false })
     expect(await client.reply(posted.source, 10)).toMatchObject({ status: 'finished', output: 'You said: Hello' })
 
-    const request = echoLeader.requests.at(-1)
+    const request = leader.requests.at(-1)
     expect(request).toMatchObject({ cwd: '/work', mcp: { url: `http://127.0.0.1:${moxy.mcpPort}/mcp` } })
     const mcp = new Client({ name: 'test', version: '1' })
     await mcp.connect(
@@ -122,6 +93,6 @@ describe('startMoxy', () => {
 
   it('refuses the local API without its token', async () => {
     const moxy = await start()
-    await expect(new MoxyClient(`http://127.0.0.1:${moxy.webPort}`, 'wrong').conversation()).rejects.toThrow('Unauthorized')
+    await expect(new MoxyClient(`http://127.0.0.1:${moxy.webPort}`, 'wrong').conversation()).rejects.toThrow('No Tailscale identity')
   })
 })

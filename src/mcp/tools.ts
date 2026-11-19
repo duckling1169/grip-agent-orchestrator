@@ -9,7 +9,7 @@ import { errorText } from '../errors.js'
 import type { ConversationStore } from '../moxy/store.js'
 import type { Tasks } from '../tasks/service.js'
 import type { Workers } from '../workers/service.js'
-import type { Worker } from '../workers/store.js'
+import type { Worker } from '../contracts/api.js'
 
 export type LeaderToolsDeps = { workers: Workers; tasks: Tasks; conversation: ConversationStore }
 

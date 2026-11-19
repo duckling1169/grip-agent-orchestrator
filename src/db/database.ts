@@ -15,6 +15,12 @@ export class DatabaseInUseError extends Error {
 const SQLITE_BUSY = 5
 
 export class Database {
+  private readonly listeners = new Set<(revision: number) => void>()
+  private changesSeen = 0
+  private checkScheduled = false
+  private closed = false
+  private currentRevision = 0
+
   private constructor(private readonly connection: DatabaseSync) {}
 
   static open(path: string, schema: Schema): Database {
@@ -29,11 +35,22 @@ export class Database {
     connection.exec('PRAGMA foreign_keys = ON')
     const database = new Database(connection)
     database.applySchema(schema)
+    database.changesSeen = database.totalChanges()
     return database
   }
 
+  get revision(): number {
+    return this.currentRevision
+  }
+
   prepare(sql: string): StatementSync {
+    this.scheduleChangeCheck()
     return this.connection.prepare(sql)
+  }
+
+  onChange(listener: (revision: number) => void): () => void {
+    this.listeners.add(listener)
+    return () => this.listeners.delete(listener)
   }
 
   transaction<T>(work: () => T): T {
@@ -50,7 +67,26 @@ export class Database {
   }
 
   close(): void {
+    this.closed = true
     this.connection.close()
+  }
+
+  private scheduleChangeCheck(): void {
+    if (this.checkScheduled) return
+    this.checkScheduled = true
+    setImmediate(() => {
+      this.checkScheduled = false
+      if (this.closed || this.connection.isTransaction) return
+      const total = this.totalChanges()
+      if (total === this.changesSeen) return
+      this.changesSeen = total
+      this.currentRevision++
+      for (const listener of this.listeners) listener(this.currentRevision)
+    })
+  }
+
+  private totalChanges(): number {
+    return Number(this.connection.prepare('SELECT total_changes() AS total').get()?.total)
   }
 
   private applySchema(schema: Schema): void {
