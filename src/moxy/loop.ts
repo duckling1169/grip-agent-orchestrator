@@ -3,10 +3,13 @@ import type { Engine } from '../contracts/engines.js'
 import { recoveryFor } from '../providers/recovery.js'
 import { errorText } from '../errors.js'
 import type { Log } from '../log.js'
+import { settlesWithin } from '../runtime/deadline.js'
 import type { LeaderRunner, McpEndpoint } from '../runtime/leaders/leader.js'
 import type { LeaderRunners } from '../runtime/leaders/runners.js'
 import { renderInbox, withContext } from './prompt.js'
 import type { ConversationStore, LeaderTurnEnding, ReceivedItem } from './store.js'
+
+const CLOSE_TIMEOUT_MS = 5000
 
 export type LeaderLoopOptions = {
   conversation: ConversationStore
@@ -63,9 +66,11 @@ export class LeaderLoop {
   async close(): Promise<void> {
     this.closed = true
     const interrupted = this.options.conversation.interruptRunningTurn('Moxy stopped during this turn')
-    if (interrupted) this.options.log(`interrupted leader turn ${interrupted.id}`)
-    await this.runner?.stop()
-    await this.idle()
+    if (interrupted) this.options.onTurnEnded?.(interrupted)
+    const settling = Promise.resolve()
+      .then(() => this.runner?.stop())
+      .then(() => this.idle())
+    if (!(await settlesWithin(settling, CLOSE_TIMEOUT_MS))) this.options.log(`leader loop did not stop within ${CLOSE_TIMEOUT_MS} ms`)
   }
 
   private async halt(turn: LeaderTurn | null): Promise<boolean> {
@@ -104,6 +109,8 @@ export class LeaderLoop {
       const instructions = this.options.instructions?.() ?? ''
       const prefix = [instructions, nativeSessionId ? '' : freshContext].filter(Boolean).join('\n\n')
       message = withContext(prefix, renderInbox(items))
+      const systemPrompt = await this.options.systemPrompt(turn.engine)
+      if (this.closed || this.options.conversation.runningTurn()?.id !== turn.id) return
       this.runner = this.options.runners(turn.engine)
       const reply = await this.runner.run({
         engine: turn.engine,
@@ -112,7 +119,7 @@ export class LeaderLoop {
         nativeSessionId,
         sessionKey: String(turn.id),
         cwd: this.options.cwd,
-        systemPrompt: await this.options.systemPrompt(turn.engine),
+        systemPrompt,
         message,
         freshContext,
         mcp: this.options.mcp,
@@ -128,6 +135,7 @@ export class LeaderLoop {
         inputChars: message.length,
       }
     } catch (error) {
+      if (this.closed) return
       ending = {
         status: 'failed',
         output: null,
@@ -139,6 +147,7 @@ export class LeaderLoop {
     } finally {
       this.runner = null
     }
+    if (this.closed) return
     const ended = this.options.conversation.endTurn(turn.id, ending)
     this.options.onTurnEnded?.(ended)
   }

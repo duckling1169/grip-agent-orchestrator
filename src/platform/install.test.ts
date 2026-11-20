@@ -1,14 +1,12 @@
-import { existsSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import type { Snapshot } from '../contracts/api.js'
 import type { Exec } from '../exec.js'
 import { CLAW_PACKAGE } from '../runtime/claw/install.js'
 import { temporaryHome } from '../testing/harness.js'
-import { DEFAULT_STATIC_DIR } from '../web/static.js'
 import { install, restart, status, stop, uninstall, upgradeClaw, workingText } from './install.js'
 import type { CommandContext, LocalMoxy } from './install.js'
 import { LogonTask, taskXml } from './logon-task.js'
@@ -22,10 +20,23 @@ const busy = {
   conversation: [{ type: 'moxy', turn: { status: 'running' } }],
 } as unknown as Snapshot
 
-type MachineOptions = { claw?: string | null; serve?: string; elevated?: boolean; running?: boolean; state?: Snapshot; task?: boolean }
+type MachineOptions = {
+  claw?: string | null
+  serve?: string
+  elevated?: boolean
+  running?: boolean
+  state?: Snapshot
+  task?: boolean
+  built?: boolean
+}
 
 async function machine(options: MachineOptions = {}) {
   const home = await temporaryHome()
+  const staticDir = join(home, 'web')
+  if (options.built !== false) {
+    await mkdir(staticDir)
+    await writeFile(join(staticDir, 'index.html'), '<!doctype html>')
+  }
   const globalRoot = join(home, 'npm-global')
   const clawFolder = join(globalRoot, ...CLAW_PACKAGE.split('/'))
   const writeClaw = async (version: string) => {
@@ -72,6 +83,7 @@ async function machine(options: MachineOptions = {}) {
     home: join(home, '.moxy'),
     customHome: true,
     cli: 'C:\\moxy\\dist\\cli.js',
+    staticDir,
     out: line => lines.push(line),
     run,
     platform: 'win32',
@@ -94,7 +106,6 @@ describe('moxy install', () => {
     expect(m.calls.at(-1)).toBe('wait running')
     expect(JSON.parse(await readFile(join(m.context.home, 'config.json'), 'utf8'))).toMatchObject({ allowedLogins: ['you@example.com'] })
     expect(m.lines).toEqual([
-      ...(existsSync(join(DEFAULT_STATIC_DIR, 'index.html')) ? [] : [expect.stringContaining('the web app is not built') as unknown]),
       'installing Claw…',
       'installed Claw 7.30.0',
       'devices signed in as you@example.com can use Moxy',
@@ -103,6 +114,13 @@ describe('moxy install', () => {
       'starting Moxy…',
       'Moxy is running',
     ])
+  })
+
+  it('warns and continues when the web app has not been built', async () => {
+    const m = await machine({ built: false })
+    await install(m.context)
+    expect(m.lines[0]).toBe(`! the web app is not built (${m.context.staticDir}); run npm run build`)
+    expect(m.lines.at(-1)).toBe('Moxy is running')
   })
 
   it('keeps a supported Claw and never replaces another tailscale serve mapping', async () => {
@@ -119,11 +137,16 @@ describe('moxy install', () => {
   })
 
   it('refuses to install elevated or outside Windows', async () => {
-    const elevated = await machine({ elevated: true })
-    await expect(install(elevated.context)).rejects.toThrow('running elevated')
-    expect(elevated.calls).toEqual([])
-    const mac = await machine()
-    await expect(install({ ...mac.context, platform: 'darwin' })).rejects.toThrow('Windows only')
+    vi.stubGlobal('process', { ...process, platform: 'linux', getuid: () => 1000 })
+    try {
+      const elevated = await machine({ elevated: true })
+      await expect(install(elevated.context)).rejects.toThrow('running elevated')
+      expect(elevated.calls).toEqual([])
+      const linux = await machine()
+      await expect(install({ ...linux.context, platform: undefined })).rejects.toThrow('Windows only')
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it('removes only the logon task on uninstall', async () => {

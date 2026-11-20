@@ -1,3 +1,4 @@
+import { unlink } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
@@ -83,5 +84,14 @@ describe('Database', () => {
     const { path, database } = await openNotes()
     database.close()
     expect(() => Database.open(path, { version: 2, statements: [] })).toThrow('schema version 1 is not the expected 2')
+    Database.open(path, NOTES).close()
+    await unlink(path)
+  })
+
+  it('releases the database when creating the schema fails', async () => {
+    const path = join(await temporaryHome(), 'moxy.db')
+    expect(() => Database.open(path, { version: 1, statements: ['CREATE TABLE broken'] })).toThrow()
+    Database.open(path, NOTES).close()
+    await unlink(path)
   })
 })

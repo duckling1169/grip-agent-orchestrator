@@ -1,4 +1,4 @@
-import type { ConversationEntry, LeaderSettings, LeaderTurn, LeaderTurnStatus, Recovery, Turn, Worker } from '../contracts/api.js'
+import type { ConversationEntry, LeaderSettings, LeaderTurn, Recovery, Turn, TurnStatus, Worker } from '../contracts/api.js'
 import type { MessageAttachment } from '../contracts/attachments.js'
 import type { Engine } from '../contracts/engines.js'
 import { LEADER_ENGINES } from '../contracts/engines.js'
@@ -264,7 +264,7 @@ function toTurn(row: Row): LeaderTurn {
     engine: String(row.engine) as Engine,
     model: textOrNull(row, 'model'),
     effort: textOrNull(row, 'effort'),
-    status: String(row.status) as LeaderTurnStatus,
+    status: String(row.status) as TurnStatus,
     output: textOrNull(row, 'output'),
     error: textOrNull(row, 'error'),
     startedAt: String(row.started_at),

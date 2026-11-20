@@ -9,6 +9,7 @@ import { lastLine } from '../errors.js'
 import { exec as defaultExec, spawnPiped } from '../exec.js'
 import type { Exec, SpawnPiped } from '../exec.js'
 import type { Engine } from '../contracts/engines.js'
+import { requireDirectBinary } from './engines.js'
 
 const require = createRequire(import.meta.url)
 
@@ -18,9 +19,9 @@ export const ACP_COMMANDS = {
     args: [require.resolve('@agentclientprotocol/codex-acp/dist/index.js')],
     env: { NO_BROWSER: '1' },
   }),
-  agy: (): AcpCommand => ({ command: 'agy', args: ['acp'] }),
-  kimi: (): AcpCommand => ({ command: 'kimi', args: ['acp'] }),
-  deepseek: (): AcpCommand => ({ command: 'dsh', args: ['--profile', 'acp'] }),
+  agy: (): AcpCommand => ({ command: requireDirectBinary('agy'), args: ['acp'] }),
+  kimi: (): AcpCommand => ({ command: requireDirectBinary('kimi'), args: ['acp'] }),
+  deepseek: (): AcpCommand => ({ command: requireDirectBinary('deepseek'), args: ['--profile', 'acp'] }),
 } satisfies Partial<Record<Engine, () => AcpCommand>>
 
 export type AcpEngine = keyof typeof ACP_COMMANDS

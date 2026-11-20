@@ -1,18 +1,20 @@
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
-import { describe, expect, it, onTestFinished } from 'vitest'
+import { describe, expect, it, onTestFinished, vi } from 'vitest'
 
 import { engineSpec, ENGINES, PLAIN_COMMANDS_RULE } from '../contracts/engines.js'
 import { Database } from '../db/database.js'
 import { MOXY_SCHEMA } from '../db/schema.js'
+import { ConversationStore } from '../moxy/store.js'
 import { Worktrees } from '../repos/worktrees.js'
 import { FakeClaw } from '../testing/fake-claw.js'
 import { silentLog, temporaryHome, temporaryRepo } from '../testing/harness.js'
 import { FOREGROUND_COMMANDS_RULE, sessionName, WORKER_SESSION_OPTIONS, Workers } from './service.js'
+import type { WorkersOptions } from './service.js'
 import { WorkerStore } from './store.js'
 
-async function setup(options: { installed?: boolean } = {}) {
+async function setup(options: { isInstalled?: WorkersOptions['isInstalled']; worktrees?: Worktrees } = {}) {
   const home = await temporaryHome()
   const databasePath = join(home, 'moxy.db')
   const protectedFolder = join(home, 'protected')
@@ -22,11 +24,11 @@ async function setup(options: { installed?: boolean } = {}) {
   const ended: string[] = []
   const workersOn = (db: Database) =>
     new Workers({
-      store: new WorkerStore(db),
+      store: new WorkerStore(db, new ConversationStore(db)),
       claw,
-      worktrees: new Worktrees(),
+      worktrees: options.worktrees ?? new Worktrees(),
       protectedFolders: [protectedFolder],
-      isInstalled: () => options.installed ?? true,
+      isInstalled: options.isInstalled ?? (() => true),
       log: silentLog,
       onTurnEnded: (worker, turn) => ended.push(`${worker.id}:${turn.number}:${turn.status}`),
     })
@@ -36,6 +38,7 @@ async function setup(options: { installed?: boolean } = {}) {
     claw,
     protectedFolder,
     workers: workersOn(database),
+    conversation: () => new ConversationStore(database),
     store: () => new WorkerStore(database),
     restart: () => {
       database.close()
@@ -77,6 +80,55 @@ describe('Workers', () => {
     expect(result.facts?.changedFiles).toEqual(['feature.txt'])
     expect(result.diff?.patch).toContain('feature.txt')
     expect(claw.stops).toContain(sessionName(worker.id))
+  })
+
+  it('records a worktree creation failure in the result and the inbox', async () => {
+    const worktrees = new Worktrees()
+    worktrees.add = async () => {
+      throw new Error('test checkout failed')
+    }
+    const { workers, conversation } = await setup({ worktrees })
+    const folder = await temporaryRepo()
+    await expect(workers.delegate({ folder, engine: 'claude', prompt: 'Change' })).rejects.toThrow('test checkout failed')
+    const [worker] = workers.list()
+    expect(await workers.result(worker!.id, { diff: true })).toMatchObject({
+      facts: null,
+      diff: null,
+      turns: [{ status: 'failed', error: 'could not create the worktree: test checkout failed' }],
+    })
+    expect(conversation().beginTurn()?.items).toMatchObject([
+      { source: `worker:${worker!.id}:1`, body: { status: 'failed', error: 'could not create the worktree: test checkout failed' } },
+    ])
+  })
+
+  it('keeps the completion in the inbox even without a notification callback writing it', async () => {
+    const { claw, workers, home, conversation, restart } = await setup()
+    const worker = await workers.delegate({ folder: home, engine: 'claude', prompt: 'Change' })
+    await claw.turnStarted(sessionName(worker.id))
+    claw.answer(sessionName(worker.id), { output: 'Done' })
+    await workers.settled(worker.id)
+    restart()
+    expect(conversation().beginTurn()?.items).toMatchObject([
+      { source: `worker:${worker.id}:1`, body: { status: 'finished', output: 'Done' } },
+    ])
+  })
+
+  it('keeps a turn running if its inbox insert fails', async () => {
+    const database = Database.open(join(await temporaryHome(), 'moxy.db'), MOXY_SCHEMA)
+    onTestFinished(() => database.close())
+    const store = new WorkerStore(database, {
+      receive: () => {
+        throw new Error('inbox insert failed')
+      },
+    })
+    const folder = await temporaryHome()
+    store.create(
+      { id: 'atomic', taskId: null, title: 'Change', engine: 'claude', model: null, effort: null, folder, cwd: folder, repo: null },
+      'Change',
+    )
+    const ref = { workerId: 'atomic', number: 1 }
+    expect(() => store.endTurn(ref, { status: 'finished', output: 'Done', error: null })).toThrow('inbox insert failed')
+    expect(store.turn(ref)).toMatchObject({ status: 'running', output: null, endedAt: null })
   })
 
   it.each(ENGINES)('gives a %s worker the same rules and tool limits', async engine => {
@@ -186,8 +238,11 @@ describe('Workers', () => {
     await expect(workers.delegate({ folder: join(home, 'missing'), engine: 'claude', prompt: 'x' })).rejects.toThrow('folder not found')
     await expect(workers.delegate({ folder: home, engine: 'claude', prompt: '  ' })).rejects.toThrow('prompt is required')
 
-    const { workers: withoutEngines } = await setup({ installed: false })
+    const isInstalled = vi.fn(() => false)
+    const { workers: withoutEngines, claw } = await setup({ isInstalled })
     await expect(withoutEngines.delegate({ folder: home, engine: 'grok', prompt: 'x' })).rejects.toThrow('Grok is not installed')
+    expect(isInstalled).toHaveBeenCalledExactlyOnceWith('grok')
+    expect(claw.starts).toEqual([])
   })
 })
 

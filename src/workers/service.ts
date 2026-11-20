@@ -12,6 +12,7 @@ import type { Turn, Worker, WorkerActivity, WorkerChanges, WorkerDetail, Worktre
 import type { WorktreeFacts, Worktrees } from '../repos/worktrees.js'
 import { replyText } from '../runtime/claw/client.js'
 import type { ClawSessions } from '../runtime/claw/client.js'
+import { engineUnavailable } from '../runtime/engines.js'
 import { latestStep } from './activity.js'
 import type { TurnEnding, TurnRef, WorkerStore } from './store.js'
 
@@ -48,6 +49,7 @@ export type WorkersOptions = {
 export const SESSION_PREFIX = 'moxy-w-'
 const DEFAULT_TURN_TIMEOUT_MS = 3 * 24 * 60 * 60_000
 const TITLE_MAX_LENGTH = 80
+const WORKTREE_SETUP_ERROR = 'could not create the worktree: '
 
 export const FOREGROUND_COMMANDS_RULE =
   'Run every command in the foreground and wait for it to finish, even when it takes many minutes. Never start a ' +
@@ -78,9 +80,7 @@ export class Workers {
   async delegate(input: DelegateInput): Promise<Worker> {
     const prompt = input.prompt.trim()
     if (!prompt) throw new Error('a prompt is required')
-    if (!this.options.isInstalled(input.engine)) {
-      throw new Error(`${engineSpec(input.engine).name} is not installed on this machine (no ${engineSpec(input.engine).bin} on PATH)`)
-    }
+    if (!this.options.isInstalled(input.engine)) throw new Error(engineUnavailable(input.engine))
     const folder = await this.workableFolder(input.folder)
     const id = randomBytes(4).toString('hex')
     const title = input.title?.trim() || titleFrom(prompt)
@@ -105,10 +105,9 @@ export class Workers {
       try {
         await this.options.worktrees.add(planned)
       } catch (error) {
-        this.store.endTurn(
-          { workerId: id, number: 1 },
-          { status: 'failed', output: null, error: `could not create the worktree: ${errorText(error)}` },
-        )
+        const turn = { workerId: id, number: 1 }
+        this.store.endTurn(turn, { status: 'failed', output: null, error: WORKTREE_SETUP_ERROR + errorText(error) })
+        this.announce(turn)
         throw error
       }
     }
@@ -126,16 +125,20 @@ export class Workers {
   }
 
   async stop(id: string): Promise<Worker> {
-    if (this.store.stopRunningTurn(id)) await this.options.claw.stopSession(sessionName(id)).catch(() => undefined)
+    const stopped = this.store.stopRunningTurn(id)
+    if (stopped) {
+      this.announce(stopped)
+      await this.options.claw.stopSession(sessionName(id)).catch(() => undefined)
+    }
     return this.store.mustGet(id)
   }
 
   async result(id: string, options: { diff?: boolean } = {}): Promise<WorkerResult> {
-    const worker = this.store.mustGet(id)
-    const repo = worker.repo
+    const { worker, turns } = this.detail(id)
+    const repo = hasWorktreeFailure(turns) ? null : worker.repo
     const facts = repo ? await this.options.worktrees.facts(worker.cwd, repo.baseCommit) : null
     const diff = repo && options.diff ? await this.options.worktrees.diff(worker.cwd, repo.baseCommit) : null
-    return { worker, turns: this.store.turns(id), facts, diff }
+    return { worker, turns, facts, diff }
   }
 
   detail(id: string): WorkerDetail {
@@ -143,8 +146,8 @@ export class Workers {
   }
 
   async changes(id: string): Promise<WorkerChanges> {
-    const worker = this.store.mustGet(id)
-    const diff = worker.repo ? await this.options.worktrees.diff(worker.cwd, worker.repo.baseCommit) : null
+    const { worker, turns } = this.detail(id)
+    const diff = worker.repo && !hasWorktreeFailure(turns) ? await this.options.worktrees.diff(worker.cwd, worker.repo.baseCommit) : null
     return { diff, fetchedAt: new Date().toISOString() }
   }
 
@@ -252,13 +255,17 @@ export class Workers {
     } finally {
       await claw.stopSession(name).catch(() => undefined)
     }
-    this.store.endTurn(turn, ending)
-    this.announce(turn)
+    const ended = this.store.endTurn(turn, ending)
+    if (ended.status === 'failed' || ended.status === 'finished') this.announce(turn)
   }
 
   private announce(turn: TurnRef): void {
     this.options.onTurnEnded?.(this.store.mustGet(turn.workerId), this.store.turn(turn))
   }
+}
+
+function hasWorktreeFailure(turns: Turn[]): boolean {
+  return turns[0]?.status === 'failed' && (turns[0].error?.startsWith(WORKTREE_SETUP_ERROR) ?? false)
 }
 
 export function sessionName(workerId: string): string {

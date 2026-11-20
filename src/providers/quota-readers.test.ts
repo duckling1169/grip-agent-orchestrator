@@ -1,10 +1,13 @@
 import { readFileSync } from 'node:fs'
+import { mkdir, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { spawnPiped } from '../exec.js'
 import type { Exec } from '../exec.js'
+import { temporaryHome } from '../testing/harness.js'
 import { CliQuotaReaders, codexRpc } from './quota-readers.js'
 
 const fakeServer = fileURLToPath(new URL('./fixtures/fake-codex-app-server.mjs', import.meta.url))
@@ -39,11 +42,12 @@ describe('codexRpc', () => {
 })
 
 describe('CliQuotaReaders', () => {
-  it('reads Codex through the npm CLI when npm has it, else codex on PATH', async () => {
+  it('reads Codex through the native binary when the npm entry point is unavailable', async () => {
     const { run } = fakeExec({ npm: { stdout: 'C:\\nowhere\\node_modules\n' } })
     const spawned: string[][] = []
     const readers = new CliQuotaReaders({
       exec: run,
+      directBinary: engine => engine,
       now: () => NOW,
       spawn: (command, args) => {
         spawned.push([command, ...args])
@@ -55,9 +59,48 @@ describe('CliQuotaReaders', () => {
     expect(usage?.windows.map(w => w.name)).toEqual(['5h', 'week'])
   })
 
+  it('runs the npm Codex entry point without looking for a native Codex binary', async () => {
+    const npmRoot = await temporaryHome()
+    const bin = join(npmRoot, '@openai', 'codex', 'bin')
+    await mkdir(bin, { recursive: true })
+    const cli = join(bin, 'codex.js')
+    await writeFile(cli, '')
+    const { run } = fakeExec({ npm: { stdout: npmRoot } })
+    const spawn = vi.fn(() => spawnPiped(process.execPath, [fakeServer]))
+    const readers = new CliQuotaReaders({
+      exec: run,
+      spawn,
+      directBinary: () => {
+        throw new Error('unexpected direct lookup')
+      },
+    })
+    await readers.codex()
+    expect(spawn).toHaveBeenCalledWith(process.execPath, [cli, 'app-server'], expect.anything())
+  })
+
+  it.skipIf(process.platform !== 'win32')('reports shim-only quota engines before attempting their commands', async () => {
+    const home = await temporaryHome()
+    for (const engine of ['agy', 'claude', 'codex']) await writeFile(join(home, `${engine}.cmd`), '@echo off')
+    const { run, calls } = fakeExec({ npm: { stdout: home } })
+    const spawn = vi.fn(() => {
+      throw new Error('unexpected spawn')
+    })
+    vi.stubEnv('PATH', home)
+    try {
+      const readers = new CliQuotaReaders({ exec: run, spawn })
+      for (const engine of ['agy', 'claude', 'codex'] as const) {
+        await expect(readers[engine]()).rejects.toThrow(`put ${engine}.exe or ${engine}.com on PATH`)
+      }
+      expect(calls.map(call => call.command)).toEqual(['npm'])
+      expect(spawn).not.toHaveBeenCalled()
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
   it('runs agy /usage in an empty temporary folder', async () => {
     const { run, calls } = fakeExec({ agy: { stdout: fixture('agy-usage.json') } })
-    const usage = await new CliQuotaReaders({ exec: run, now: () => NOW }).agy()
+    const usage = await new CliQuotaReaders({ exec: run, now: () => NOW, directBinary: engine => engine }).agy()
     expect(usage?.windows).toHaveLength(5)
     expect(calls[0]?.args).toEqual(['-p', '/usage', '--output-format', 'json', '--print-timeout', '90s'])
     expect(calls[0]?.cwd).toMatch(/moxy-probe-/)
@@ -65,13 +108,13 @@ describe('CliQuotaReaders', () => {
 
   it('probes Claude on the cheapest model with no tools and no saved session', async () => {
     const { run, calls } = fakeExec({ claude: { stdout: fixture('claude-stream.jsonl') } })
-    const usage = await new CliQuotaReaders({ exec: run, now: () => NOW }).claude()
+    const usage = await new CliQuotaReaders({ exec: run, now: () => NOW, directBinary: engine => engine }).claude()
     expect(usage?.windows.map(w => w.name)).toEqual(['5h', 'week', 'opus'])
     expect(calls[0]?.args).toEqual(expect.arrayContaining(['--model', 'haiku', '--tools', '', '--no-session-persistence']))
   })
 
   it('reports a failed command with its last stderr line', async () => {
     const { run } = fakeExec({ agy: { code: 1, stderr: 'starting\nnot signed in\n' } })
-    await expect(new CliQuotaReaders({ exec: run }).agy()).rejects.toThrow('agy /usage: not signed in')
+    await expect(new CliQuotaReaders({ exec: run, directBinary: engine => engine }).agy()).rejects.toThrow('agy /usage: not signed in')
   })
 })

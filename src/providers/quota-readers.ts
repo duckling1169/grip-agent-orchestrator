@@ -7,6 +7,7 @@ import { parseAgyUsage, parseClaudeRateLimit, parseCodexRateLimits } from './quo
 import type { EngineUsage } from '../contracts/api.js'
 import { inTempFolder } from '../files.js'
 import { lastLine } from '../errors.js'
+import { requireDirectBinary } from '../runtime/engines.js'
 
 export const QUOTA_ENGINES = ['codex', 'agy', 'claude'] as const
 export type QuotaEngine = (typeof QUOTA_ENGINES)[number]
@@ -23,18 +24,20 @@ const CLAUDE_TIMEOUT_MS = 120_000
 const CLAUDE_PROBE_MODEL = 'haiku'
 const CLAUDE_PROBE_PROMPT = 'Reply with OK.'
 
-export type CliQuotaReadersOptions = { exec?: Exec; spawn?: SpawnPiped; now?: () => Date }
+export type CliQuotaReadersOptions = { exec?: Exec; spawn?: SpawnPiped; now?: () => Date; directBinary?: (engine: QuotaEngine) => string }
 
 export class CliQuotaReaders implements QuotaReaders {
   private readonly run: Exec
   private readonly spawn: SpawnPiped
   private readonly now: () => Date
+  private readonly directBinary: (engine: QuotaEngine) => string
   private codexCommand: Promise<[string, string[]]> | null = null
 
   constructor(options: CliQuotaReadersOptions = {}) {
     this.run = options.exec ?? defaultExec
     this.spawn = options.spawn ?? defaultSpawn
     this.now = options.now ?? (() => new Date())
+    this.directBinary = options.directBinary ?? requireDirectBinary
   }
 
   private resolveCodex(): Promise<[string, string[]]> {
@@ -44,10 +47,11 @@ export class CliQuotaReaders implements QuotaReaders {
 
   async codex(): Promise<EngineUsage | null> {
     const [command, prefix] = await this.resolveCodex()
+    const binary = command === 'codex' ? this.directBinary('codex') : command
     const result = await inTempFolder(cwd =>
       codexRpc(
         this.spawn,
-        command,
+        binary,
         [...prefix, 'app-server'],
         'account/rateLimits/read',
         {
@@ -60,8 +64,9 @@ export class CliQuotaReaders implements QuotaReaders {
   }
 
   async agy(): Promise<EngineUsage | null> {
+    const binary = this.directBinary('agy')
     const out = await inTempFolder(cwd =>
-      this.run('agy', ['-p', '/usage', '--output-format', 'json', '--print-timeout', '90s'], { timeoutMs: AGY_TIMEOUT_MS, cwd }),
+      this.run(binary, ['-p', '/usage', '--output-format', 'json', '--print-timeout', '90s'], { timeoutMs: AGY_TIMEOUT_MS, cwd }),
     )
     const usage = parseAgyUsage(out.stdout, this.now().toISOString())
     if (!usage && out.code !== 0) throw new Error(`agy /usage: ${lastLine(out.stderr) || `exit ${out.code}`}`)
@@ -69,6 +74,7 @@ export class CliQuotaReaders implements QuotaReaders {
   }
 
   async claude(): Promise<EngineUsage | null> {
+    const binary = this.directBinary('claude')
     const args = [
       '-p',
       CLAUDE_PROBE_PROMPT,
@@ -82,7 +88,7 @@ export class CliQuotaReaders implements QuotaReaders {
       '--strict-mcp-config',
       '--no-session-persistence',
     ]
-    const out = await inTempFolder(cwd => this.run('claude', args, { timeoutMs: CLAUDE_TIMEOUT_MS, cwd }))
+    const out = await inTempFolder(cwd => this.run(binary, args, { timeoutMs: CLAUDE_TIMEOUT_MS, cwd }))
     const usage = parseClaudeRateLimit(out.stdout, this.now().toISOString())
     if (!usage && out.code !== 0) throw new Error(`claude probe: ${lastLine(out.stderr) || `exit ${out.code}`}`)
     return usage

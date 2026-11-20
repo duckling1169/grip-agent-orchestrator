@@ -1,9 +1,11 @@
 import { readFile } from 'node:fs/promises'
+import { ChildProcess } from 'node:child_process'
 import { join } from 'node:path'
 
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { freePort } from '../../ports.js'
+import { listenOnLoopback, sendJson } from '../../http.js'
 import { FAKE_CLAW_CLI, temporaryHome } from '../../testing/harness.js'
 import { ClawClient } from './client.js'
 import { ClawProcess } from './process.js'
@@ -58,6 +60,23 @@ describe('ClawProcess', () => {
     await expect(second.start()).rejects.toThrow('already answers')
   })
 
+  it('verifies that the surviving server requires and recognizes the home token', async () => {
+    let authRequired = true
+    const server = await listenOnLoopback(0, async (req, res) => {
+      const authorized = !authRequired || req.headers.authorization === `Bearer ${TOKEN}`
+      sendJson(res, authorized ? 200 : 401, { ok: authorized, sessions: [] })
+    })
+    try {
+      const url = `http://127.0.0.1:${server.port}`
+      expect(await new ClawClient(url, TOKEN).verifyRecoveryToken()).toBe(true)
+      await expect(new ClawClient(url, 'wrong').verifyRecoveryToken()).rejects.toThrow('HTTP 401')
+      authRequired = false
+      expect(await new ClawClient(url, TOKEN).verifyRecoveryToken()).toBe(false)
+    } finally {
+      await server.close()
+    }
+  })
+
   it('does not restart after a deliberate stop', async () => {
     const { claw } = await clawProcess()
     await claw.start()
@@ -67,5 +86,28 @@ describe('ClawProcess', () => {
     await new Promise(resolve => setTimeout(resolve, 300))
     expect(crashes).toBe(0)
     expect(claw.running).toBe(false)
+  })
+
+  it('reaches a deadline even when a child never exits after both signals', async () => {
+    const logFile = join(await temporaryHome(), 'claw.log')
+    const client = new ClawClient('http://127.0.0.1:1', TOKEN)
+    vi.spyOn(client, 'health').mockResolvedValueOnce(null).mockResolvedValue({ version: '7.23.4', sessions: 0 })
+    const child = Object.assign(new ChildProcess(), { pid: 12345 })
+    const exec = vi.fn(async () => ({ code: 0, stdout: '', stderr: '' }))
+    const kill = vi.spyOn(process, 'kill').mockReturnValue(true)
+    const claw = new ClawProcess({ client, cliPath: FAKE_CLAW_CLI, port: 1, logFile, spawn: () => child, exec, stopTimeoutMs: 40 })
+    try {
+      await claw.start()
+      await expect(claw.stop()).rejects.toThrow('Claw did not exit within 40 ms')
+      if (process.platform === 'win32') expect(exec).toHaveBeenCalledTimes(2)
+      else
+        expect(kill.mock.calls).toEqual([
+          [-12345, 'SIGTERM'],
+          [-12345, 'SIGKILL'],
+        ])
+    } finally {
+      kill.mockRestore()
+      child.emit('exit', null, 'SIGKILL')
+    }
   })
 })

@@ -56,9 +56,12 @@ export class ClawError extends Error {
 
 type Reply = { status: number; text: string }
 
-function request(url: string, options: { method: string; headers?: Record<string, string>; body?: string; timeoutMs: number }) {
+function request(
+  url: string,
+  options: { method: string; headers?: Record<string, string>; body?: string; timeoutMs: number; signal?: AbortSignal },
+) {
   return new Promise<Reply>((resolve, reject) => {
-    const req = httpRequest(url, { method: options.method, headers: options.headers, agent: false }, res => {
+    const req = httpRequest(url, { method: options.method, headers: options.headers, signal: options.signal, agent: false }, res => {
       let text = ''
       res.setEncoding('utf8')
       res.on('data', (chunk: string) => (text += chunk))
@@ -73,6 +76,8 @@ function request(url: string, options: { method: string; headers?: Record<string
 }
 
 export class ClawClient {
+  private readonly requests = new AbortController()
+
   constructor(
     readonly baseUrl: string,
     readonly token: string,
@@ -90,8 +95,20 @@ export class ClawClient {
     }
   }
 
-  async listSessions(): Promise<ClawSession[]> {
-    const body = await this.post<{ sessions?: unknown }>('/session/list', {})
+  close(): void {
+    this.requests.abort()
+  }
+
+  async verifyRecoveryToken(): Promise<boolean> {
+    const options = { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', timeoutMs: 1000 }
+    const anonymous = await request(`${this.baseUrl}/session/list`, options)
+    if (anonymous.status !== 401) return false
+    await this.listSessions(1000)
+    return true
+  }
+
+  async listSessions(timeoutMs?: number): Promise<ClawSession[]> {
+    const body = await this.post<{ sessions?: unknown }>('/session/list', {}, timeoutMs)
     if (!Array.isArray(body.sessions)) throw new ClawError('/session/list: no sessions array', 200)
     return body.sessions as ClawSession[]
   }
@@ -125,6 +142,7 @@ export class ClawClient {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${this.token}` },
         body: JSON.stringify(body),
         timeoutMs,
+        signal: this.requests.signal,
       })
     } catch (error) {
       throw new ClawError(`${path}: ${errorText(error)} ${elapsedText(startedAt)}`, null)

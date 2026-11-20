@@ -9,6 +9,7 @@ import { MOXY_MCP_NAME } from '../../contracts/mcp.js'
 import { errorText } from '../../errors.js'
 import { startAcpProcess } from '../acp-process.js'
 import type { AcpCommand, AcpProcessOptions } from '../acp-process.js'
+import { settlesWithin } from '../deadline.js'
 import type { LeaderReply, LeaderRunner, LeaderTurnRequest, McpEndpoint } from './leader.js'
 
 const require = createRequire(import.meta.url)
@@ -128,16 +129,14 @@ export class AcpLeader implements LeaderRunner {
   async stop(): Promise<void> {
     const running = this.running
     if (!running) return
-    await running.cancel()
-    let timer: ReturnType<typeof setTimeout> | undefined
-    await Promise.race([
-      running.done,
-      new Promise<void>(resolve => {
-        timer = setTimeout(resolve, this.options.stopGraceMs ?? STOP_GRACE_MS)
-      }),
-    ])
-    if (timer) clearTimeout(timer)
-    running.kill()
+    try {
+      await settlesWithin(
+        running.cancel().then(() => running.done),
+        this.options.stopGraceMs ?? STOP_GRACE_MS,
+      )
+    } finally {
+      running.kill()
+    }
   }
 }
 

@@ -10,7 +10,7 @@ import { errorText } from '../errors.js'
 import { inTempFolder } from '../files.js'
 import { ACP_COMMANDS, isAcpEngine, startAcpProcess } from '../runtime/acp-process.js'
 import type { AcpCommand, AcpEngine, AcpProcessOptions } from '../runtime/acp-process.js'
-import { isEngineInstalled } from '../runtime/engines.js'
+import { engineUnavailable, isEngineInstalled } from '../runtime/engines.js'
 
 const CLAUDE_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']
 
@@ -18,7 +18,7 @@ const CLAUDE_MODELS: ModelOption[] = [
   { id: 'opus', efforts: CLAUDE_EFFORTS },
   { id: 'sonnet', efforts: CLAUDE_EFFORTS },
   { id: 'haiku', efforts: [] },
-].map(({ id, efforts }) => ({ id, label: id[0]!.toUpperCase() + id.slice(1), efforts, defaultEffort: null, isDefault: false }))
+].map(({ id, efforts }) => ({ id, label: id[0]!.toUpperCase() + id.slice(1), efforts, isDefault: false }))
 
 export type ModelCatalogOptions = {
   installed?: (engine: Engine) => boolean
@@ -57,14 +57,9 @@ export class ModelCatalog {
     return Promise.all(ENGINES.filter(engine => this.installed(engine)).map(engine => this.get(engine)))
   }
 
-  refresh(engine: Engine): Promise<EngineModels> {
-    this.cached.delete(engine)
-    return this.get(engine)
-  }
-
   private async read(engine: Engine): Promise<EngineModels> {
     try {
-      if (!this.installed(engine)) throw new Error(`${engineSpec(engine).name} is not installed`)
+      if (!this.installed(engine)) throw new Error(engineUnavailable(engine))
       const models = isAcpEngine(engine) ? await this.probe(engine) : engine === 'claude' ? CLAUDE_MODELS : []
       return { engine, models, error: null }
     } catch (error) {
@@ -115,7 +110,6 @@ export async function probeAcpModels(
               id: model.value,
               label: model.name,
               efforts: effort ? choices(effort).map(choice => choice.value) : [],
-              defaultEffort: effort?.currentValue ?? null,
               isDefault: model.value === config.currentValue,
             })
           }
