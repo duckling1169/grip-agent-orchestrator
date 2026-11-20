@@ -1,3 +1,4 @@
+import { realpathSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 
@@ -40,5 +41,14 @@ export function protectedFolders(moxyHome: string, env: NodeJS.ProcessEnv = proc
 }
 
 export function protectedFolderOf(path: string, folders: readonly string[]): string | null {
-  return folders.find(folder => isWithin(path, folder)) ?? null
+  return (
+    folders.find(folder => {
+      if (isWithin(path, folder)) return true
+      try {
+        return isWithin(path, realpathSync.native(folder))
+      } catch {
+        return false
+      }
+    }) ?? null
+  )
 }

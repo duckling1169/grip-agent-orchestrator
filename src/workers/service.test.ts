@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
-import { describe, expect, it, onTestFinished } from 'vitest'
+import { describe, expect, it, onTestFinished, vi } from 'vitest'
 
 import { engineSpec, ENGINES, PLAIN_COMMANDS_RULE } from '../contracts/engines.js'
 import { Database } from '../db/database.js'
@@ -11,9 +11,10 @@ import { Worktrees } from '../repos/worktrees.js'
 import { FakeClaw } from '../testing/fake-claw.js'
 import { silentLog, temporaryHome, temporaryRepo } from '../testing/harness.js'
 import { FOREGROUND_COMMANDS_RULE, sessionName, WORKER_SESSION_OPTIONS, Workers } from './service.js'
+import type { WorkersOptions } from './service.js'
 import { WorkerStore } from './store.js'
 
-async function setup(options: { installed?: boolean; worktrees?: Worktrees } = {}) {
+async function setup(options: { isInstalled?: WorkersOptions['isInstalled']; worktrees?: Worktrees } = {}) {
   const home = await temporaryHome()
   const databasePath = join(home, 'moxy.db')
   const protectedFolder = join(home, 'protected')
@@ -27,7 +28,7 @@ async function setup(options: { installed?: boolean; worktrees?: Worktrees } = {
       claw,
       worktrees: options.worktrees ?? new Worktrees(),
       protectedFolders: [protectedFolder],
-      isInstalled: () => options.installed ?? true,
+      isInstalled: options.isInstalled ?? (() => true),
       log: silentLog,
       onTurnEnded: (worker, turn) => ended.push(`${worker.id}:${turn.number}:${turn.status}`),
     })
@@ -237,8 +238,11 @@ describe('Workers', () => {
     await expect(workers.delegate({ folder: join(home, 'missing'), engine: 'claude', prompt: 'x' })).rejects.toThrow('folder not found')
     await expect(workers.delegate({ folder: home, engine: 'claude', prompt: '  ' })).rejects.toThrow('prompt is required')
 
-    const { workers: withoutEngines } = await setup({ installed: false })
+    const isInstalled = vi.fn(() => false)
+    const { workers: withoutEngines, claw } = await setup({ isInstalled })
     await expect(withoutEngines.delegate({ folder: home, engine: 'grok', prompt: 'x' })).rejects.toThrow('Grok is not installed')
+    expect(isInstalled).toHaveBeenCalledExactlyOnceWith('grok')
+    expect(claw.starts).toEqual([])
   })
 })
 
