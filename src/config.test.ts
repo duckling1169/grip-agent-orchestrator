@@ -34,6 +34,14 @@ describe('loadConfig', () => {
     expect(await loadConfig(join(await temporaryHome(), 'config.json'), async () => null)).toMatchObject({ allowedLogins: [] })
   })
 
+  it('honors an explicitly empty allowlist', async () => {
+    const path = join(await temporaryHome(), 'config.json')
+    const saved = JSON.stringify({ allowedLogins: [] })
+    await writeFile(path, saved)
+    expect(await loadConfig(path, async () => 'owner@example.com')).toMatchObject({ allowedLogins: [] })
+    expect(await readFile(path, 'utf8')).toBe(saved)
+  })
+
   it('rejects refresh intervals that could turn into a one millisecond paid-probe loop', async () => {
     const path = join(await temporaryHome(), 'config.json')
     for (const quotaRefreshMinutes of [0.000001, 1e20]) {

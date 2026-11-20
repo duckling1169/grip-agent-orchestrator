@@ -1,42 +1,58 @@
-import { timingSafeEqual } from 'node:crypto'
-import type { IncomingHttpHeaders } from 'node:http'
+import type { IncomingHttpHeaders, IncomingMessage } from 'node:http'
 
-export type Identity = { ok: true; login: string } | { ok: false; status: 401 | 403; error: string }
+import { exec } from '../exec.js'
+import { hasBearer, isLoopbackHost } from '../http.js'
+
+export type Identity = { ok: true; login: string; local: boolean } | { ok: false; status: 401 | 403; error: string }
 
 export const LOCAL_LOGIN = 'local'
 
 export function identify(headers: IncomingHttpHeaders, allowedLogins: readonly string[], localToken: string): Identity {
+  // Any process that reaches loopback can supply the Tailscale identity header.
   const raw = headers['tailscale-user-login']
   const login = (Array.isArray(raw) ? raw[0] : raw)?.trim()
   if (!login) {
-    if (hasBearer(headers.authorization, localToken)) return { ok: true, login: LOCAL_LOGIN }
-    return { ok: false, status: 401, error: 'No Tailscale identity. Open Moxy through its tailscale serve address.' }
+    if (isLoopbackHost(headers.host) && hasBearer(headers.authorization, localToken)) return { ok: true, login: LOCAL_LOGIN, local: true }
+    return { ok: false, status: 401, error: 'No Tailscale identity. Open Moxy through its Tailscale Serve address.' }
   }
   if (!allowedLogins.some(allowed => allowed.toLowerCase() === login.toLowerCase())) {
-    return { ok: false, status: 403, error: `${login} is not allowed. Add it to allowedLogins in Moxy's config.json.` }
+    const error =
+      allowedLogins.length === 0
+        ? `No Tailscale logins are allowed. Add ${login} to allowedLogins in Moxy's config.json.`
+        : `${login} is not allowed. Add it to allowedLogins in Moxy's config.json.`
+    return { ok: false, status: 403, error }
   }
-  return { ok: true, login }
+  return { ok: true, login, local: false }
 }
 
-export function crossSiteWrite(method: string, headers: IncomingHttpHeaders, contentType = 'application/json'): string | null {
-  if (method === 'GET' || method === 'HEAD') return null
-  const type = headers['content-type']?.split(';')[0]?.trim().toLowerCase()
-  if (type !== contentType) return `Writes must send Content-Type: ${contentType}`
-  const origin = headers.origin
-  if (origin === undefined) return null
-  let host: string
+export function writeCheck(lookup = tailscaleHost) {
+  let cached: { until: number; host: Promise<string | null> } | undefined
+  return async (req: IncomingMessage, contentType = 'application/json'): Promise<string | null> => {
+    if (req.method === 'GET' || req.method === 'HEAD') return null
+    const type = req.headers['content-type']?.split(';')[0]?.trim().toLowerCase()
+    if (type !== contentType) return `Writes must send Content-Type: ${contentType}`
+    const host = req.headers.host?.toLowerCase()
+    let expected: string | undefined
+    if (host && isLoopbackHost(host)) {
+      expected = new URL(`http://${host}`).origin
+    } else if (host && /^[a-z0-9-]+\.[a-z0-9-]+\.ts\.net(?::443)?$/.test(host)) {
+      if (!cached || cached.until <= Date.now()) cached = { until: Date.now() + 30_000, host: lookup() }
+      const name = host.replace(/:443$/, '')
+      if (name === (await cached.host)) expected = `https://${name}`
+    }
+    if (!expected) return 'Host is not a Moxy address'
+    const origin = req.headers.origin
+    return origin === undefined || origin === expected ? null : 'Origin must match the Moxy address'
+  }
+}
+
+async function tailscaleHost(): Promise<string | null> {
   try {
-    host = new URL(origin).host.toLowerCase()
+    const result = await exec('tailscale', ['status', '--json'], { timeoutMs: 3000 })
+    if (result.code !== 0) return null
+    const status = JSON.parse(result.stdout) as { Self?: { DNSName?: string } }
+    return status.Self?.DNSName?.toLowerCase().replace(/\.$/, '') ?? null
   } catch {
-    return `Origin ${origin} may not write to Moxy`
+    return null
   }
-  const forwarded = headers['x-forwarded-host']
-  const ours = [headers.host, ...(Array.isArray(forwarded) ? forwarded : [forwarded])].flatMap(name => (name ? [name.toLowerCase()] : []))
-  return ours.includes(host) ? null : `Origin ${origin} may not write to Moxy`
-}
-
-function hasBearer(header: string | undefined, token: string): boolean {
-  const given = Buffer.from(header ?? '')
-  const expected = Buffer.from(`Bearer ${token}`)
-  return given.length === expected.length && timingSafeEqual(given, expected)
 }

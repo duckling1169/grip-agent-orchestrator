@@ -10,7 +10,7 @@ const DEFAULT_QUOTA_REFRESH_MINUTES = 5
 
 export async function loadConfig(path: string, owner: () => Promise<string | null>): Promise<MoxyConfig> {
   const raw = await readConfigFile(path)
-  const logins = raw.allowedLogins ?? []
+  const logins = raw.allowedLogins === undefined ? [] : raw.allowedLogins
   if (!Array.isArray(logins) || !logins.every(login => typeof login === 'string')) {
     throw new Error(`${path}: allowedLogins must be a list of Tailscale logins`)
   }
@@ -23,7 +23,7 @@ export async function loadConfig(path: string, owner: () => Promise<string | nul
     throw new Error(`${path}: repoFolders must be a list of absolute folder paths`)
   }
   const allowedLogins = logins.map(login => login.trim()).filter(Boolean)
-  if (allowedLogins.length === 0) {
+  if (raw.allowedLogins === undefined) {
     const login = await owner()
     if (login) {
       allowedLogins.push(login)
