@@ -39,8 +39,8 @@ describe('ACP model probe', () => {
       permissionOnOpen: true,
     })
     expect(await probeAcpModels({ command: 'fake', args: [] }, { spawn: fake.spawn })).toEqual([
-      { id: 'a', label: 'A', efforts: ['low', 'high'], defaultEffort: 'high', isDefault: true },
-      { id: 'b', label: 'B', efforts: ['medium'], defaultEffort: 'medium', isDefault: false },
+      { id: 'a', label: 'A', efforts: ['low', 'high'], isDefault: true },
+      { id: 'b', label: 'B', efforts: ['medium'], isDefault: false },
     ])
     expect(fake.log.prompts).toEqual([])
     expect(fake.log.configs).toEqual([{ configId: 'model', value: 'b' }])
@@ -65,7 +65,7 @@ describe('ACP model probe', () => {
 })
 
 describe('model catalog', () => {
-  it('loads only the requested engine, coalesces requests, expires and refreshes its cache', async () => {
+  it('loads only the requested engine, coalesces requests, and expires its cache', async () => {
     let calls = 0
     let now = 0
     const catalog = new ModelCatalog({
@@ -84,8 +84,6 @@ describe('model catalog', () => {
     now = 101
     await catalog.get('codex')
     expect(calls).toBe(3)
-    await catalog.refresh('codex')
-    expect(calls).toBe(4)
   })
 
   it('reports failed discovery and retries on the next request', async () => {

@@ -18,7 +18,7 @@ const CLAUDE_MODELS: ModelOption[] = [
   { id: 'opus', efforts: CLAUDE_EFFORTS },
   { id: 'sonnet', efforts: CLAUDE_EFFORTS },
   { id: 'haiku', efforts: [] },
-].map(({ id, efforts }) => ({ id, label: id[0]!.toUpperCase() + id.slice(1), efforts, defaultEffort: null, isDefault: false }))
+].map(({ id, efforts }) => ({ id, label: id[0]!.toUpperCase() + id.slice(1), efforts, isDefault: false }))
 
 export type ModelCatalogOptions = {
   installed?: (engine: Engine) => boolean
@@ -55,11 +55,6 @@ export class ModelCatalog {
 
   list(): Promise<EngineModels[]> {
     return Promise.all(ENGINES.filter(engine => this.installed(engine)).map(engine => this.get(engine)))
-  }
-
-  refresh(engine: Engine): Promise<EngineModels> {
-    this.cached.delete(engine)
-    return this.get(engine)
   }
 
   private async read(engine: Engine): Promise<EngineModels> {
@@ -115,7 +110,6 @@ export async function probeAcpModels(
               id: model.value,
               label: model.name,
               efforts: effort ? choices(effort).map(choice => choice.value) : [],
-              defaultEffort: effort?.currentValue ?? null,
               isDefault: model.value === config.currentValue,
             })
           }

@@ -81,8 +81,6 @@ export type FileChange = {
 
 export type WorktreeDiff = { files: FileChange[]; patch: string; truncated: boolean }
 
-export type LeaderTurnStatus = 'running' | 'finished' | 'failed' | 'stopped' | 'interrupted'
-
 export type Recovery = { provider: Engine; resetsAt: string | null; suggested: LeaderSettings | null; reason: string }
 
 export type LeaderTurn = {
@@ -90,7 +88,7 @@ export type LeaderTurn = {
   engine: Engine
   model: string | null
   effort: string | null
-  status: LeaderTurnStatus
+  status: TurnStatus
   output: string | null
   error: string | null
   startedAt: string
@@ -119,7 +117,7 @@ export type EngineUsage = { engine: Engine; windows: UsageWindow[] }
 
 export type EngineQuota = EngineUsage & { checkedAt: string | null; error: string | null; busy: boolean }
 
-export type ModelOption = { id: string; label: string; efforts: string[]; defaultEffort: string | null; isDefault: boolean }
+export type ModelOption = { id: string; label: string; efforts: string[]; isDefault: boolean }
 
 export type EngineModels = { engine: Engine; models: ModelOption[]; error: string | null }
 
