@@ -2,7 +2,7 @@ import { lastLine } from '../errors.js'
 import { exec as defaultExec } from '../exec.js'
 import type { Exec } from '../exec.js'
 import { git, gitOk } from './git.js'
-import { parseStatusFiles } from './git-parse.js'
+import { gitPaths, parseStatusFiles } from './git-parse.js'
 
 export type IntegrationRequest = { repoRoot: string; base: string; branch: string; worktree: string; title: string }
 
@@ -26,7 +26,7 @@ export class Integrator {
     const branch = await git(this.run, root, ['symbolic-ref', '-q', '--short', 'HEAD'])
     if (branch.code !== 0) throw new Error(`${root} is not on a branch; check out ${request.base} first`)
     if (branch.stdout !== request.base) throw new Error(`${root} is on ${branch.stdout}, not ${request.base}`)
-    const dirty = parseStatusFiles(await gitOk(this.run, root, ['status', '--porcelain', '--untracked-files=no']))
+    const dirty = parseStatusFiles(await gitOk(this.run, root, ['status', '--porcelain', '-z', '--untracked-files=no']))
     if (dirty.length) throw new Error(`${root} has uncommitted changes: ${dirty.join(', ')}`)
     if ((await git(this.run, root, ['merge-base', '--is-ancestor', request.branch, 'HEAD'])).code !== 0) {
       await this.mergeBranch(request)
@@ -45,7 +45,7 @@ export class Integrator {
       request.branch,
     ])
     if (merged.code === 0) return
-    const conflicts = (await gitOk(this.run, root, ['diff', '--name-only', '--diff-filter=U'])).split(/\r?\n/).filter(Boolean)
+    const conflicts = gitPaths(await gitOk(this.run, root, ['diff', '--name-only', '-z', '--diff-filter=U']))
     await git(this.run, root, ['merge', '--abort'])
     throw new Error(
       conflicts.length

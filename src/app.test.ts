@@ -1,13 +1,15 @@
-import { readFile } from 'node:fs/promises'
+import { readFile, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 
 import type { MoxyOptions } from './app.js'
-import { DatabaseInUseError } from './db/database.js'
-import { Database } from './db/database.js'
+import type { WorkerChanges } from './contracts/api.js'
+import { Database, DatabaseInUseError } from './db/database.js'
 import { MOXY_SCHEMA } from './db/schema.js'
+import { exec, execOk } from './exec.js'
 import { loadOrCreateToken } from './files.js'
 import { ConversationStore, userMessage } from './moxy/store.js'
 import { moxyPaths } from './paths.js'
@@ -15,9 +17,10 @@ import type { LeaderReply } from './runtime/leaders/leader.js'
 import { ClawClient } from './runtime/claw/client.js'
 import { ClawProcess } from './runtime/claw/process.js'
 import { freePort } from './ports.js'
-import { FAKE_CLAW_CLI, temporaryHome } from './testing/harness.js'
+import { FAKE_CLAW_CLI, temporaryHome, temporaryRepo } from './testing/harness.js'
 import { echoLeader, startTestMoxy } from './testing/test-moxy.js'
 import { MoxyClient } from './web/client.js'
+import { WorkerStore } from './workers/store.js'
 
 const leader = echoLeader()
 const start = (options: MoxyOptions = {}) => startTestMoxy({ leaders: () => leader, ...options })
@@ -200,5 +203,34 @@ describe('startMoxy', () => {
   it('refuses the local API without its token', async () => {
     const moxy = await start()
     await expect(new MoxyClient(`http://127.0.0.1:${moxy.webPort}`, 'wrong').conversation()).rejects.toThrow('No Tailscale identity')
+  })
+
+  it('returns structured worktree summaries through the worker changes route', async () => {
+    const moxy = await start()
+    const root = await temporaryRepo()
+    const baseCommit = (await execOk(exec, 'git', ['-C', root, 'rev-parse', 'HEAD'])).trim()
+    const id = 'diff-test'
+    new WorkerStore(moxy.database).create(
+      {
+        id,
+        taskId: null,
+        title: 'Inspect changes',
+        engine: 'claude',
+        folder: root,
+        cwd: root,
+        model: null,
+        effort: null,
+        repo: { root, branch: 'main', base: 'main', baseCommit },
+      },
+      'Inspect changes',
+    )
+    await writeFile(join(root, 'résumé.txt'), 'first\nsecond\n')
+    const token = await readFile(moxy.paths.webToken, 'utf8')
+    const response = await fetch(`http://127.0.0.1:${moxy.webPort}/api/workers/${id}/changes`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    expect(response.ok).toBe(true)
+    const changes = (await response.json()) as WorkerChanges
+    expect(changes.diff?.files).toEqual([{ path: 'résumé.txt', status: 'added', added: 2, removed: 0, binary: false, skipped: null }])
   })
 })

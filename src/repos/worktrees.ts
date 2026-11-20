@@ -1,11 +1,11 @@
-import { realpath, stat } from 'node:fs/promises'
+import { lstat, realpath } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 
-import type { WorktreeDiff } from '../contracts/api.js'
+import type { FileChange, WorktreeDiff } from '../contracts/api.js'
 import { exec as defaultExec } from '../exec.js'
 import type { Exec } from '../exec.js'
 import { git, gitOk } from './git.js'
-import { basename, parseStatusFiles, slugify } from './git-parse.js'
+import { basename, gitPaths, parseDiff, parseStatusFiles, slugify, UNKNOWN_COUNTS } from './git-parse.js'
 
 export type Repo = { root: string; base: string }
 
@@ -21,6 +21,7 @@ export const BRANCH_PREFIX = 'moxy/'
 const MAX_PATCH_CHARS = 200_000
 const MAX_NEW_FILES = 50
 const MAX_NEW_FILE_BYTES = 256 * 1024
+const DIFF = ['-c', 'core.quotePath=false', 'diff', '--no-color', '--no-ext-diff', '--no-textconv', '--numstat', '-z', '--patch']
 
 export class Worktrees {
   constructor(private readonly run: Exec = defaultExec) {}
@@ -78,11 +79,11 @@ export class Worktrees {
   async facts(path: string, baseCommit: string): Promise<WorktreeFacts> {
     const [ahead, status, committed] = await Promise.all([
       this.git(path, ['rev-list', '--count', `${baseCommit}..HEAD`]),
-      this.git(path, ['status', '--porcelain', '--untracked-files=all']),
-      this.git(path, ['diff', '--name-only', baseCommit, 'HEAD']),
+      this.git(path, ['status', '--porcelain', '-z', '--untracked-files=all']),
+      this.git(path, ['diff', '--name-only', '-z', baseCommit, 'HEAD']),
     ])
     const commitsAhead = Number(ahead) || 0
-    const changedFiles = [...new Set([...committed.split(/\r?\n/).filter(Boolean), ...parseStatusFiles(status)])].sort()
+    const changedFiles = [...new Set([...gitPaths(committed), ...parseStatusFiles(status)])].sort()
     let lastCommit: WorktreeFacts['lastCommit'] = null
     if (commitsAhead > 0) {
       const [subject = '', at = ''] = (await this.git(path, ['log', '-1', '--format=%s%x00%cI'])).split('\u0000')
@@ -92,38 +93,42 @@ export class Worktrees {
   }
 
   async diff(path: string, baseCommit: string): Promise<WorktreeDiff> {
-    const [statText, trackedPatch, untracked] = await Promise.all([
-      this.git(path, ['diff', '--stat', baseCommit]),
-      this.git(path, ['diff', baseCommit]),
-      this.git(path, ['ls-files', '--others', '--exclude-standard']),
+    const [tracked, untracked] = await Promise.all([
+      this.git(path, [...DIFF, '--raw', '--find-renames', baseCommit, '--']),
+      this.git(path, ['ls-files', '-z', '--others', '--exclude-standard']),
     ])
-    const untrackedFiles = untracked.split(/\r?\n/).filter(Boolean)
-    const newFilePatches: string[] = []
-    const skippedFiles: WorktreeDiff['skippedFiles'] = untrackedFiles
-      .slice(MAX_NEW_FILES)
-      .map(file => ({ file, reason: `more than ${MAX_NEW_FILES} new files` }))
-    for (const file of untrackedFiles.slice(0, MAX_NEW_FILES)) {
-      const size = await stat(join(path, file)).then(
-        info => (info.isFile() ? info.size : null),
-        () => null,
-      )
-      if (size === null) skippedFiles.push({ file, reason: 'not a readable file' })
-      else if (size > MAX_NEW_FILE_BYTES) skippedFiles.push({ file, reason: `larger than ${MAX_NEW_FILE_BYTES / 1024} KiB` })
-      else newFilePatches.push(await this.newFilePatch(path, file))
+    const changes = parseDiff(tracked)
+    const patches = [changes.patch]
+    for (const [index, file] of gitPaths(untracked).entries()) {
+      if (index >= MAX_NEW_FILES) {
+        changes.files.push(skippedFile(file, `more than ${MAX_NEW_FILES} new files`))
+        continue
+      }
+      const added = await this.newFileDiff(path, file)
+      changes.files.push(added.file)
+      patches.push(added.patch)
     }
-    const patch = [trackedPatch, ...newFilePatches].filter(Boolean).join('\n')
+    const patch = patches.filter(Boolean).join('\n')
     const truncated = patch.length > MAX_PATCH_CHARS
-    return { stat: statText, patch: truncated ? patch.slice(0, MAX_PATCH_CHARS) : patch, truncated, untrackedFiles, skippedFiles }
+    return { files: changes.files, patch: patch.slice(0, MAX_PATCH_CHARS), truncated }
   }
 
-  private async newFilePatch(path: string, file: string): Promise<string> {
-    const result = await this.run('git', ['-C', path, 'diff', '--no-index', '--', '/dev/null', file], { timeoutMs: 60_000 })
-    const differs = result.code === 1
-    if (!differs && result.code !== 0) throw new Error(`git diff --no-index ${file}: ${result.stderr.trim()}`)
-    return result.stdout.replace(/\r?\n$/, '')
+  private async newFileDiff(path: string, file: string): Promise<{ file: FileChange; patch: string }> {
+    const info = await lstat(join(path, file)).catch(() => null)
+    if (!info || !(info.isFile() || info.isSymbolicLink())) return { file: skippedFile(file, 'not a readable file'), patch: '' }
+    if (info.size > MAX_NEW_FILE_BYTES) return { file: skippedFile(file, `larger than ${MAX_NEW_FILE_BYTES / 1024} KiB`), patch: '' }
+    const result = await git(this.run, path, [...DIFF, '--no-index', '--', '/dev/null', file])
+    if (result.code !== 0 && result.code !== 1) throw new Error(`git diff --no-index ${file}: ${result.stderr.trim()}`)
+    const { files, patch } = parseDiff(result.stdout)
+    const summary = files[0] ?? skippedFile(file, 'no file summary returned by git')
+    return { file: { ...summary, path: file }, patch }
   }
 
   private git(cwd: string, args: string[]): Promise<string> {
     return gitOk(this.run, cwd, args)
   }
+}
+
+function skippedFile(path: string, skipped: string): FileChange {
+  return { path, status: 'added', ...UNKNOWN_COUNTS, skipped }
 }

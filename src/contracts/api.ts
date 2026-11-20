@@ -70,13 +70,16 @@ export type Turn = {
   endedAt: string | null
 }
 
-export type WorktreeDiff = {
-  stat: string
-  patch: string
-  truncated: boolean
-  untrackedFiles: string[]
-  skippedFiles: { file: string; reason: string }[]
+export type FileChange = {
+  path: string
+  status: 'added' | 'modified' | 'deleted' | 'renamed' | 'copied' | 'type-changed' | 'unmerged' | 'unknown'
+  added: number | null
+  removed: number | null
+  binary: boolean | null
+  skipped: string | null
 }
+
+export type WorktreeDiff = { files: FileChange[]; patch: string; truncated: boolean }
 
 export type LeaderTurnStatus = 'running' | 'finished' | 'failed' | 'stopped' | 'interrupted'
 
