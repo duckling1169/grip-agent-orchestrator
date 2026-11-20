@@ -132,7 +132,7 @@ export class PushNotifier {
     const devices = this.file.devices.filter(device => (login === undefined || device.login === login) && this.allowed(device.login))
     const work = Promise.all(devices.map(device => this.enqueue(() => this.deliver(device, message)))).then(results => {
       const attempted = results.filter(result => result !== null)
-      const errors = attempted.flatMap(result => (result!.ok ? [] : [(result as { error: string }).error]))
+      const errors = attempted.flatMap(result => (result.ok ? [] : [(result as { error: string }).error]))
       return { attempted: attempted.length, sent: attempted.length - errors.length, failed: errors.length, errors }
     })
     this.pending.add(work)

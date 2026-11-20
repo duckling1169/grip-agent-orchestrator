@@ -43,7 +43,7 @@ export async function installClaw(run: Exec = exec): Promise<string> {
   return version
 }
 
-export function isSupportedClaw(version: string | null): version is string {
+export function isSupportedClaw(version: string | null): boolean {
   return version !== null && semver.valid(version) !== null && semver.satisfies(version, CLAW_RANGE)
 }
 

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 
 function read(key: string): string | null {
   try {
@@ -19,10 +19,13 @@ function write(key: string, value: string): void {
 export function useStoredState<T>(key: string, parse: (stored: string | null) => T, format: (value: T) => string = String) {
   const storageKey = `moxy:${key}`
   const [value, setValue] = useState(() => parse(read(storageKey)))
-  const set = (next: T) => {
-    setValue(next)
-    write(storageKey, format(next))
-  }
+  const set = useCallback(
+    (next: T) => {
+      setValue(next)
+      write(storageKey, format(next))
+    },
+    [storageKey, format],
+  )
   return [value, set] as const
 }
 

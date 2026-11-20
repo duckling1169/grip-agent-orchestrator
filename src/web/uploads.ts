@@ -23,6 +23,7 @@ function fileName(header: string | string[] | undefined): string {
   const name = decoded
     .split(/[/\\]/)
     .at(-1)
+    // eslint-disable-next-line no-control-regex -- Strip ASCII control characters from filenames.
     ?.replace(/[\x00-\x1f\x7f]/g, '')
     .trim()
   if (!name || name === '.' || name === '..' || Buffer.byteLength(name) > 255) throw new HttpError(400, 'Invalid file name')

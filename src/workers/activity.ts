@@ -24,7 +24,7 @@ function claudeStep(event: Json, cwd: string): string | null {
   if (event.type !== 'assistant') return null
   const content = (event.message as Json | undefined)?.content
   if (!Array.isArray(content)) return null
-  const use = [...content].reverse().find((block: Json) => block?.type === 'tool_use') as Json | undefined
+  const use = [...(content as Json[])].reverse().find(block => block?.type === 'tool_use')
   if (!use) return null
   const input = (use.input ?? {}) as Json
   const file = typeof input.file_path === 'string' ? shown(input.file_path, cwd) : null

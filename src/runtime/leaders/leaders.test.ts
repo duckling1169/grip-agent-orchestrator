@@ -92,7 +92,7 @@ describe('ClawLeader', () => {
 
     expect(await reply).toEqual({ output: 'Hi.\n\n[moxy] 1 tool call(s) were denied: Bash', error: null, nativeSessionId: 'native-1' })
     expect(claw.starts[0]).toMatchObject({
-      name: expect.stringMatching(new RegExp(`^${LEADER_SESSION_PREFIX}`)),
+      name: expect.stringMatching(new RegExp(`^${LEADER_SESSION_PREFIX}`)) as unknown,
       model: 'opus',
       resumeSessionId: 'native-0',
       mcpConfig: configPath,

@@ -60,7 +60,8 @@ describe('PushNotifier', () => {
     expect(again.publicKey).toBe(push.publicKey)
     expect(again.status('ALICE', subscription('a').endpoint)).toEqual({ publicKey: push.publicKey, devices: 1, subscribed: true })
     expect(again.status('bob', subscription('a').endpoint).subscribed).toBe(false)
-    expect(JSON.parse(await readFile(path, 'utf8')).vapid.privateKey).toBeTruthy()
+    const saved = JSON.parse(await readFile(path, 'utf8')) as { vapid: { privateKey: string } }
+    expect(saved.vapid.privateKey).toBeTruthy()
   })
 
   it('rejects unsafe endpoints and invalid keys without taking another login device', async () => {

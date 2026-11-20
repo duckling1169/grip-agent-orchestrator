@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
@@ -7,6 +8,7 @@ import type { Snapshot } from '../contracts/api.js'
 import type { Exec } from '../exec.js'
 import { CLAW_PACKAGE } from '../runtime/claw/install.js'
 import { temporaryHome } from '../testing/harness.js'
+import { DEFAULT_STATIC_DIR } from '../web/static.js'
 import { install, restart, status, stop, uninstall, upgradeClaw, workingText } from './install.js'
 import type { CommandContext, LocalMoxy } from './install.js'
 import { LogonTask, taskXml } from './logon-task.js'
@@ -92,6 +94,7 @@ describe('moxy install', () => {
     expect(m.calls.at(-1)).toBe('wait running')
     expect(JSON.parse(await readFile(join(m.context.home, 'config.json'), 'utf8'))).toMatchObject({ allowedLogins: ['you@example.com'] })
     expect(m.lines).toEqual([
+      ...(existsSync(join(DEFAULT_STATIC_DIR, 'index.html')) ? [] : [expect.stringContaining('the web app is not built') as unknown]),
       'installing Claw…',
       'installed Claw 7.30.0',
       'devices signed in as you@example.com can use Moxy',

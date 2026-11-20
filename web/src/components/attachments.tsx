@@ -35,6 +35,7 @@ export function DraftAttachment({ file, disabled, onRemove }: { file: File; disa
   useEffect(() => {
     if (!file.type.startsWith('image/')) return
     const url = URL.createObjectURL(file)
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- The effect owns the lifetime of the object URL.
     setPreview(url)
     return () => URL.revokeObjectURL(url)
   }, [file])

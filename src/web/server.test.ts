@@ -133,7 +133,7 @@ describe('web server', () => {
             { id: file.id, name: 'notes.html', type: 'text/html', size: 5, path: filePath },
           ],
         }),
-      ]),
+      ]) as unknown,
     })
     const withText = await call(moxy, '/api/messages', { method: 'POST', body: { text: 'Read this', attachments: [file.id] } })
     expect(withText.status).toBe(200)
@@ -145,7 +145,7 @@ describe('web server', () => {
     const moxy = await startTestMoxy()
     const oversized = await upload(moxy, 'large.bin', '', new Uint8Array(25 * 1024 * 1024 + 1))
     expect(oversized.status).toBe(413)
-    expect(await oversized.json()).toMatchObject({ error: expect.stringContaining('25 MB') })
+    expect(await oversized.json()).toMatchObject({ error: expect.stringContaining('25 MB') as unknown })
     const streamed = await new Promise<number | undefined>((resolve, reject) => {
       const req = request(
         `http://127.0.0.1:${moxy.webPort}/api/uploads`,
@@ -173,7 +173,7 @@ describe('web server', () => {
     const id = '12345678-1234-1234-1234-123456789abc'
     const tooMany = await call(moxy, '/api/messages', { method: 'POST', body: { text: 'hi', attachments: Array(11).fill(id) } })
     expect(tooMany.status).toBe(400)
-    expect(await tooMany.json()).toMatchObject({ error: expect.stringContaining('10 files') })
+    expect(await tooMany.json()).toMatchObject({ error: expect.stringContaining('10 files') as unknown })
     for (const attachment of ['../web-token', id]) {
       expect((await call(moxy, '/api/messages', { method: 'POST', body: { text: 'hi', attachments: [attachment] } })).status).toBe(400)
     }
@@ -218,7 +218,7 @@ describe('web server', () => {
     const moxy = await startTestMoxy({ home, pushSender: sender })
     const phone = pushSubscription('phone')
     const response = await json<PushStatus>(call(moxy, '/api/push/subscribe', { method: 'POST', body: { subscription: phone } }))
-    expect(response).toMatchObject({ devices: 1, subscribed: true, publicKey: expect.any(String) })
+    expect(response).toMatchObject({ devices: 1, subscribed: true, publicKey: expect.any(String) as unknown })
     expect(Object.keys(response).sort()).toEqual(['devices', 'publicKey', 'subscribed'])
     expect(await json(call(moxy, `/api/push?endpoint=${encodeURIComponent(phone.endpoint)}`))).toMatchObject({
       devices: 1,
