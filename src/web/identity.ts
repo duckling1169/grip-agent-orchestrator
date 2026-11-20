@@ -33,16 +33,19 @@ export function writeCheck(lookup = tailscaleHost) {
     if (type !== contentType) return `Writes must send Content-Type: ${contentType}`
     const host = req.headers.host?.toLowerCase()
     let expected: string | undefined
+    let originRequired = false
     if (host && isLoopbackHost(host)) {
       expected = new URL(`http://${host}`).origin
     } else if (host && /^[a-z0-9-]+\.[a-z0-9-]+\.ts\.net(?::443)?$/.test(host)) {
       if (!cached || cached.until <= Date.now()) cached = { until: Date.now() + 30_000, host: lookup() }
       const name = host.replace(/:443$/, '')
-      if (name === (await cached.host)) expected = `https://${name}`
+      const knownHost = await cached.host
+      originRequired = knownHost === null
+      if (originRequired || name === knownHost) expected = `https://${name}`
     }
     if (!expected) return 'Host is not a Moxy address'
     const origin = req.headers.origin
-    return origin === undefined || origin === expected ? null : 'Origin must match the Moxy address'
+    return origin === expected || (!originRequired && origin === undefined) ? null : 'Origin must match the Moxy address'
   }
 }
 
@@ -51,7 +54,7 @@ async function tailscaleHost(): Promise<string | null> {
     const result = await exec('tailscale', ['status', '--json'], { timeoutMs: 3000 })
     if (result.code !== 0) return null
     const status = JSON.parse(result.stdout) as { Self?: { DNSName?: string } }
-    return status.Self?.DNSName?.toLowerCase().replace(/\.$/, '') ?? null
+    return status.Self?.DNSName?.toLowerCase().replace(/\.$/, '') || null
   } catch {
     return null
   }

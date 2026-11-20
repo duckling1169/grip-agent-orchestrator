@@ -1,10 +1,12 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { request } from 'node:http'
 import { join } from 'node:path'
 
 import { describe, expect, it, vi } from 'vitest'
 
 import type { Moxy } from '../app.js'
 import type { Snapshot } from '../contracts/api.js'
+import * as commands from '../exec.js'
 import type { LeaderReply, LeaderRunner } from '../runtime/leaders/leader.js'
 import { temporaryHome } from '../testing/harness.js'
 import { ALLOWED_LOGIN, startTestMoxy, webCall as call, webJson as json } from '../testing/test-moxy.js'
@@ -171,6 +173,53 @@ describe('web server', () => {
     expect(form.status).toBe(403)
     expect(await json(call(moxy, '/api/messages', { method: 'POST', body: { text: '  ' } }))).toEqual({ error: 'text: text is required' })
   })
+
+  it.each(['fails', 'is missing'])(
+    'accepts same-origin HTTPS tailnet writes from an allowed login when the Tailscale CLI %s',
+    async failure => {
+      const moxy = await startTestMoxy()
+      const lookup = vi.spyOn(commands, 'exec')
+      if (failure === 'fails') lookup.mockResolvedValueOnce({ code: 1, stdout: '', stderr: 'status unavailable' })
+      else lookup.mockRejectedValueOnce(Object.assign(new Error('spawn tailscale ENOENT'), { code: 'ENOENT' }))
+      const host = 'moxy.tail-example.ts.net'
+      const origin = `https://${host}`
+      const post = (headers: Record<string, string>) =>
+        new Promise<number | undefined>((resolve, reject) => {
+          const req = request(
+            `http://127.0.0.1:${moxy.webPort}/api/messages`,
+            { method: 'POST', headers: { 'Content-Type': 'application/json', 'Tailscale-User-Login': ALLOWED_LOGIN, ...headers } },
+            res => {
+              res.resume()
+              res.on('end', () => resolve(res.statusCode))
+              res.on('error', reject)
+            },
+          )
+          req.on('error', reject)
+          req.end('{"text":"Hello"}')
+        })
+      try {
+        expect(await post({ Host: host, Origin: origin, 'Tailscale-User-Login': '' })).toBe(401)
+        expect(await post({ Host: host, Origin: origin, 'Tailscale-User-Login': 'outsider@example.com' })).toBe(403)
+        expect(lookup).not.toHaveBeenCalled()
+
+        expect(await post({ Host: host, Origin: origin })).toBe(200)
+        expect(lookup).toHaveBeenCalledWith('tailscale', ['status', '--json'], { timeoutMs: 3000 })
+        const blocked: Record<string, string>[] = [
+          { Host: host },
+          { Host: host, Origin: `http://${host}` },
+          { Host: host, Origin: `${origin}:444` },
+          { Host: host, Origin: 'https://other.tail-example.ts.net', 'X-Forwarded-Host': 'other.tail-example.ts.net' },
+          { Host: 'evil.example', Origin: 'https://evil.example' },
+        ]
+        for (const headers of blocked) {
+          expect(await post(headers)).toBe(403)
+        }
+        expect(lookup).toHaveBeenCalledTimes(1)
+      } finally {
+        lookup.mockRestore()
+      }
+    },
+  )
 
   it('streams a snapshot, then a new one after each change', async () => {
     const moxy = await startTestMoxy()
