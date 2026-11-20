@@ -1,3 +1,4 @@
+import type { MessageAttachment } from './attachments.js'
 import type { Engine } from './engines.js'
 
 export type TaskStatus = 'working' | 'done'
@@ -98,7 +99,15 @@ export type LeaderTurn = {
 export type LeaderSettings = { engine: Engine; model: string | null; effort: string | null }
 
 export type ConversationEntry =
-  | { type: 'user'; inboxId: number; source: string; text: string; at: string; leaderTurnId: number | null }
+  | {
+      type: 'user'
+      inboxId: number
+      source: string
+      text: string
+      attachments?: MessageAttachment[]
+      at: string
+      leaderTurnId: number | null
+    }
   | { type: 'moxy'; turn: LeaderTurn }
 
 export type UsageWindow = { name: string; usedPercent: number; resetsAt: string | null; stale: boolean; observedAt: string | null }

@@ -31,6 +31,8 @@ Everything the leader reacts to goes into a durable **inbox**: user messages, wo
 
 Each turn takes every pending item, so several quick user messages get one reply. Items carry a source ID (`user:<id>`, `worker:<id>:<turn>`), and a repeated ID is ignored, so the same completion cannot be recorded twice. Items that arrive during a turn wait for the next one.
 
+Chat attachments are uploaded to the local Moxy home under `uploads/<id>/<sanitized name>`. The user message's inbox body stores the attachment metadata, and the leader receives absolute paths, media types and byte sizes. Upload writes follow the message route's identity and origin rules with a binary content type. Downloads and inline images require the same identity checks.
+
 Long work never runs inside a leader turn. The leader delegates, then the turn ends. A worker's completion arrives later as a new inbox item. This keeps the conversation responsive without per-task leader sessions.
 
 ### Timers

@@ -1,3 +1,4 @@
+import type { MessageAttachment } from '../contracts/attachments.js'
 import type { ReceivedItem, WorkerTurnEnded } from './store.js'
 
 export const WORKER_OUTPUT_EXCERPT = 1500
@@ -17,7 +18,7 @@ export function renderInbox(items: readonly ReceivedItem[]): string {
   const events = items.filter(item => item.kind === 'worker_turn_ended')
   const followUps = items.filter(item => item.kind === 'follow_up')
   const sections = [
-    ...users.map(item => item.body.text),
+    ...users.map(item => renderUserMessage(item.body)),
     ...events.map(item => workerEvent(item.body)),
     ...followUps.map(item => `[moxy follow-up ${item.body.id}, due ${item.body.dueAt}]\n${item.body.prompt}`),
   ]
@@ -28,6 +29,12 @@ export function renderInbox(items: readonly ReceivedItem[]): string {
     )
   }
   return sections.join('\n\n')
+}
+
+export function renderUserMessage({ text, attachments }: { text: string; attachments?: readonly MessageAttachment[] }): string {
+  if (!attachments?.length) return text
+  const files = attachments.map(file => `- ${file.path} (${file.type}, ${file.size} bytes)`)
+  return `${text ? `${text}\n\n` : ''}Attachments:\n${files.join('\n')}`
 }
 
 function workerEvent(event: WorkerTurnEnded): string {

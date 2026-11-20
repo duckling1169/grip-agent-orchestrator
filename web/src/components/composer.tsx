@@ -1,9 +1,11 @@
-import { ArrowUp } from 'lucide-react'
+import { ArrowUp, Plus } from 'lucide-react'
 import { useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 
 import type { LeaderSettings } from '@contracts/api'
+import { MAX_ATTACHMENT_BYTES, MAX_ATTACHMENT_MB, MAX_ATTACHMENTS } from '@contracts/attachments'
 import { LEADER_ENGINES } from '@contracts/engines'
+import { DraftAttachment } from '@/components/attachments'
 import { EngineIcon, engineName } from '@/components/engine-icon'
 import {
   DropdownMenu,
@@ -32,24 +34,57 @@ export function Composer({
   onError: (message: string) => void
 }) {
   const [text, setText] = useState('')
+  const [files, setFiles] = useState<{ id: number; file: File }[]>([])
   const [sending, setSending] = useState(false)
   const textarea = useRef<HTMLTextAreaElement>(null)
+  const picker = useRef<HTMLInputElement>(null)
+  const nextFileId = useRef(0)
+  const uploaded = useRef(new WeakMap<File, string>())
+  const lastSubmission = useRef<{ text: string; files: typeof files; id: string }>(null)
   const catalog = useFetched(signal => (offline ? Promise.resolve(null) : api.models(leader.engine, signal)), [leader.engine, offline])
   const models = catalog.data?.engine === leader.engine ? catalog.data.models : []
   const selectedModel =
     models.find(model => model.id === leader.model) ?? (leader.model === null ? models.find(model => model.isDefault) : undefined)
   const modelLabel = selectedModel?.label ?? leader.model ?? 'Default model'
-  const empty = text.trim() === ''
+  const empty = text.trim() === '' && files.length === 0
   const stopping = running && empty
   const act = (action: () => Promise<unknown>) => action().catch(error => onError(error instanceof Error ? error.message : String(error)))
 
+  const addFiles = (selected: FileList) => {
+    if (offline || sending) return
+    if (files.length + selected.length > MAX_ATTACHMENTS) {
+      onError(`Attach up to ${MAX_ATTACHMENTS} files per message`)
+      return
+    }
+    const selectedFiles = Array.from(selected)
+    const oversized = selectedFiles.find(file => file.size > MAX_ATTACHMENT_BYTES)
+    if (oversized) {
+      onError(`${oversized.name} is too large. Each file must be ${MAX_ATTACHMENT_MB} MB or smaller.`)
+      return
+    }
+    const added = selectedFiles.map(file => ({ file, id: nextFileId.current++ }))
+    setFiles(current => [...current, ...added])
+  }
+
   const submit = async () => {
     if (stopping) return void act(() => api.stop())
-    if (empty || sending) return
+    if (empty || offline || sending) return
     setSending(true)
     await act(async () => {
-      await api.send(text.trim(), crypto.randomUUID())
+      const message = text.trim()
+      const previous = lastSubmission.current
+      const id = previous?.text === message && previous.files === files ? previous.id : crypto.randomUUID()
+      lastSubmission.current = { text: message, files, id }
+      const attachments: string[] = []
+      for (const { file } of files) {
+        const uploadId = uploaded.current.get(file) ?? (await api.upload(file)).id
+        uploaded.current.set(file, uploadId)
+        attachments.push(uploadId)
+      }
+      await api.send(message, id, attachments)
       setText('')
+      setFiles([])
+      lastSubmission.current = null
     })
     setSending(false)
   }
@@ -59,42 +94,90 @@ export function Composer({
     <div className={cn(composerGutter, 'pt-1.5 pb-4 max-md:pb-2.5')}>
       <div className={readingColumn}>
         <div
-          className="relative cursor-text rounded-[10px] border bg-popover py-2.5 pr-11 pl-3"
+          className="cursor-text rounded-[10px] border bg-popover p-1"
           data-testid="message-box"
           onClick={event => {
             if (!(event.target as Element).closest('button')) textarea.current?.focus()
           }}
+          onDragOver={event => {
+            if (event.dataTransfer.types.includes('Files')) event.preventDefault()
+          }}
+          onDrop={event => {
+            if (!event.dataTransfer.files.length) return
+            event.preventDefault()
+            addFiles(event.dataTransfer.files)
+          }}
         >
-          <label className="sr-only" htmlFor="message">
-            Message Moxy
-          </label>
-          <textarea
-            ref={textarea}
-            id="message"
-            rows={1}
-            className="block max-h-50 min-h-5.5 w-full resize-none bg-transparent text-foreground outline-none field-sizing-content max-md:text-base"
-            value={text}
-            disabled={offline}
-            onChange={event => setText(event.target.value)}
-            onKeyDown={event => {
-              if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
-              event.preventDefault()
-              if (!empty) void submit()
+          {files.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 p-1.5 text-xs">
+              {files.map(({ file, id }) => (
+                <DraftAttachment
+                  key={id}
+                  file={file}
+                  disabled={offline || sending}
+                  onRemove={() => setFiles(current => current.filter(item => item.id !== id))}
+                />
+              ))}
+            </div>
+          )}
+          <input
+            ref={picker}
+            type="file"
+            hidden
+            multiple
+            onChange={event => {
+              if (event.target.files) addFiles(event.target.files)
+              event.target.value = ''
             }}
           />
-          <button
-            className={cn(
-              ghost,
-              'absolute right-2 bottom-1.75 size-7 min-h-0 justify-center rounded-full bg-foreground p-0 text-background hover:bg-foreground hover:opacity-85 [&_svg]:size-4',
-            )}
-            type="button"
-            aria-label={label}
-            title={label}
-            disabled={offline || sending || (empty && !running)}
-            onClick={() => void submit()}
-          >
-            {stopping ? <StopIcon /> : <ArrowUp />}
-          </button>
+          <div className="flex items-end gap-1">
+            <button
+              className={cn(ghost, 'size-10 shrink-0 justify-center rounded-md p-0 text-muted-foreground [&_svg]:size-5')}
+              type="button"
+              aria-label="Attach files"
+              title="Attach files"
+              disabled={offline || sending}
+              onClick={() => picker.current?.click()}
+            >
+              <Plus />
+            </button>
+            <label className="sr-only" htmlFor="message">
+              Message Moxy
+            </label>
+            <textarea
+              ref={textarea}
+              id="message"
+              rows={1}
+              className="block max-h-50 min-h-10 w-full min-w-0 resize-none bg-transparent py-2 text-foreground outline-none field-sizing-content placeholder:text-muted-foreground max-md:text-base"
+              value={text}
+              placeholder="What's up?"
+              disabled={offline}
+              readOnly={sending}
+              onChange={event => setText(event.target.value)}
+              onPaste={event => {
+                if (!event.clipboardData.files.length) return
+                if (!event.clipboardData.getData('text/plain')) event.preventDefault()
+                addFiles(event.clipboardData.files)
+              }}
+              onKeyDown={event => {
+                if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
+                event.preventDefault()
+                if (!empty) void submit()
+              }}
+            />
+            <button
+              className={cn(ghost, 'size-10 shrink-0 justify-center rounded-full p-0 hover:bg-transparent hover:opacity-85')}
+              type="button"
+              aria-label={label}
+              title={label}
+              disabled={offline || sending || (empty && !running)}
+              onClick={() => void submit()}
+            >
+              <span className="flex size-7 items-center justify-center rounded-full bg-foreground text-background [&_svg]:size-4">
+                {stopping ? <StopIcon /> : <ArrowUp />}
+              </span>
+            </button>
+          </div>
         </div>
         <div className="mt-1.5 flex items-center justify-end gap-0.5 text-xs">
           <Picker
