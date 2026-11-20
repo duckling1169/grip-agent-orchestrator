@@ -6,7 +6,7 @@ import { useStoredFlag } from '@/lib/stored'
 import { latestWorker, rowTone, STAGE_LABELS, STATUS_LABELS, taskStage, workersByTask } from '@/lib/status'
 import type { RowTone, TaskStage } from '@/lib/status'
 import type { Selection } from '@/lib/selection'
-import { ghost, row, rowAside, rowLabel, rows } from '@/lib/styles'
+import { ghost, row, rowLabel, rows } from '@/lib/styles'
 import { cn } from '@/lib/utils'
 
 const STAGES: TaskStage[] = ['working', 'reviewing', 'done']
@@ -23,7 +23,7 @@ export function Sidebar({
   onSelect: (selection: Selection) => void
 }) {
   const byTask = workersByTask(workers)
-  const orphans = workers.filter(worker => !worker.taskId)
+  const standaloneWorkers = workers.filter(worker => !worker.taskId)
   return (
     <nav className="flex-1 overflow-auto p-2 max-md:px-2.5" aria-label="Tasks">
       {STAGES.map(stage => {
@@ -47,9 +47,9 @@ export function Sidebar({
           </Section>
         )
       })}
-      {orphans.length > 0 && (
-        <Section id="orphans" label="Orphans" count={orphans.length}>
-          {orphans.map(worker => (
+      {standaloneWorkers.length > 0 && (
+        <Section id="standalone-workers" label="Standalone workers" count={standaloneWorkers.length}>
+          {standaloneWorkers.map(worker => (
             <Row
               key={worker.id}
               label={worker.title}
@@ -89,7 +89,6 @@ function Row({
   tip,
   icon,
   tone,
-  aside,
   selected,
   onOpen,
 }: {
@@ -97,7 +96,6 @@ function Row({
   tip: string
   icon: ReactNode
   tone: RowTone | null
-  aside?: string
   selected?: boolean
   onOpen: () => void
 }) {
@@ -105,7 +103,6 @@ function Row({
     <button className={row(tone, selected)} type="button" title={tip} aria-current={selected || undefined} onClick={onOpen}>
       {icon}
       <span className={rowLabel}>{label}</span>
-      {aside && <span className={rowAside}>{aside}</span>}
     </button>
   )
 }

@@ -3,7 +3,7 @@ import type { Snapshot } from '@contracts/api'
 import type { Side } from '@/App'
 import { THEMES } from '@/lib/theme'
 import type { Theme } from '@/lib/theme'
-import { errorText, field, ghost, mono, note, outlineButton, settingHeading, settingRow } from '@/lib/styles'
+import { errorText, field, ghost, note, outlineButton, settingHeading, settingRow } from '@/lib/styles'
 import { cn } from '@/lib/utils'
 import { api } from '@/lib/api'
 import { NotificationSettings } from '@/components/notifications'
@@ -97,10 +97,6 @@ export function Settings({
         </div>
         <div>
           <h2 className={settingHeading}>About</h2>
-          <div className={settingRow}>
-            <span className="flex-1">Machine</span>
-            <span className={cn(mono, 'text-faint')}>{snapshot.host}</span>
-          </div>
           <div className={settingRow}>
             <span className="flex-1">Signed in as</span>
             <span className="text-faint">{snapshot.login}</span>

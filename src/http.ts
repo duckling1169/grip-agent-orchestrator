@@ -21,31 +21,22 @@ export function sendJson(res: ServerResponse, status: number, body: unknown): vo
   res.end(JSON.stringify(body))
 }
 
-export function readJsonBody(req: IncomingMessage): Promise<unknown> {
-  return new Promise((resolve, reject) => {
-    let size = 0
-    const chunks: Buffer[] = []
-    req.on('data', (chunk: Buffer) => {
-      size += chunk.length
-      if (size > MAX_BODY_BYTES) {
-        reject(new Error('request body too large'))
-        req.destroy()
-        return
-      }
-      chunks.push(chunk)
-    })
-    req.on('end', () => {
-      try {
-        resolve(chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : undefined)
-      } catch {
-        reject(new Error('request body is not JSON'))
-      }
-    })
-    req.on('error', reject)
-  })
+export async function readJsonBody(req: IncomingMessage): Promise<unknown> {
+  let size = 0
+  const chunks: Buffer[] = []
+  for await (const chunk of req.iterator({ destroyOnReturn: false }) as AsyncIterable<Buffer>) {
+    size += chunk.length
+    if (size > MAX_BODY_BYTES) throw new HttpError(413, 'request body too large')
+    chunks.push(chunk)
+  }
+  try {
+    return chunks.length ? (JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown) : undefined
+  } catch {
+    throw new HttpError(400, 'request body is not JSON')
+  }
 }
 
-function isLoopbackHost(host: string | undefined): boolean {
+export function isLoopbackHost(host: string | undefined): boolean {
   if (!host) return false
   try {
     const url = new URL(`http://${host}`)
@@ -55,10 +46,9 @@ function isLoopbackHost(host: string | undefined): boolean {
   }
 }
 
-function hasBearer(header: string | undefined, token: string): boolean {
-  if (!header?.startsWith('Bearer ')) return false
-  const given = Buffer.from(header.slice('Bearer '.length))
-  const expected = Buffer.from(token)
+export function hasBearer(header: string | undefined, token: string): boolean {
+  const given = Buffer.from(header ?? '')
+  const expected = Buffer.from(`Bearer ${token}`)
   return given.length === expected.length && timingSafeEqual(given, expected)
 }
 

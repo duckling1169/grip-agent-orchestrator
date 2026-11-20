@@ -44,12 +44,26 @@ export async function startTestMoxy(options: MoxyOptions = {}): Promise<Moxy> {
     leaderAvailable: () => true,
     keepAwake: new KeepAwake({ command: null }),
     pushSender: async () => ({ ok: true }),
-    machines: {
-      get: async () => ({ machines: [], checkedAt: new Date().toISOString(), error: null }),
-      refresh: async () => ({ machines: [], checkedAt: new Date().toISOString(), error: null }),
-    },
     ...options,
   })
   onTestFinished(() => moxy.stop())
   return moxy
+}
+
+type Call = { method?: string; body?: unknown; headers?: Record<string, string> }
+
+export function webCall(moxy: Moxy, path: string, { method = 'GET', body, headers = {} }: Call = {}): Promise<Response> {
+  return fetch(`http://127.0.0.1:${moxy.webPort}${path}`, {
+    method,
+    headers: {
+      'Tailscale-User-Login': ALLOWED_LOGIN,
+      ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+      ...headers,
+    },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  })
+}
+
+export async function webJson<T>(response: Promise<Response>): Promise<T> {
+  return (await (await response).json()) as T
 }

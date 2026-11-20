@@ -19,10 +19,11 @@ import type { Quota } from '../providers/quota.js'
 import { QUOTA_ENGINES } from '../providers/quota-readers.js'
 import type { Settings } from '../settings.js'
 import type { PushNotifier } from '../platform/push.js'
-import type { MachineDiscovery } from '../platform/machines.js'
 import type { Tasks } from '../tasks/service.js'
 import type { Workers } from '../workers/service.js'
-import { crossSiteWrite, identify, LOCAL_LOGIN } from './identity.js'
+import type { Identity } from './identity.js'
+import { identify, writeCheck } from './identity.js'
+import { routeError } from './route-error.js'
 import { serveStatic } from './static.js'
 import { UPLOAD_ID, UPLOAD_TYPE, Uploads } from './uploads.js'
 
@@ -46,7 +47,6 @@ export type WebServerOptions = {
   models: Pick<ModelCatalog, 'get'>
   settings: Settings
   push: PushNotifier
-  machines: Pick<MachineDiscovery, 'get' | 'refresh'>
   shutdown: () => void
 }
 
@@ -82,6 +82,12 @@ export async function startWebServer(options: WebServerOptions): Promise<Loopbac
   const { conversation, loop, tasks, workers, database, quota, models, settings, push } = options
   const streams = new Map<ServerResponse, string>()
   const uploads = new Uploads(options.uploadsDir)
+  const referenced = new Set<string>()
+  for (const entry of conversation.conversation()) {
+    if (entry.type === 'user') for (const attachment of entry.attachments ?? []) referenced.add(attachment.id)
+  }
+  await uploads.initialize(referenced)
+  const checkWrite = writeCheck()
   let revision = database.revision
 
   const snapshot = (login: string): Snapshot => {
@@ -113,8 +119,9 @@ export async function startWebServer(options: WebServerOptions): Promise<Loopbac
   settings.on('change', publish)
 
   const openStream = (res: ServerResponse, login: string): void => {
+    const first = JSON.stringify(snapshot(login))
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive' })
-    res.write(`retry: 1000\n\nevent: state\ndata: ${JSON.stringify(snapshot(login))}\n\n`)
+    res.write(`retry: 1000\n\nevent: state\ndata: ${first}\n\n`)
     const heartbeat = setInterval(() => res.write(': ping\n\n'), HEARTBEAT_MS)
     streams.set(res, login)
     res.on('close', () => {
@@ -125,35 +132,30 @@ export async function startWebServer(options: WebServerOptions): Promise<Loopbac
 
   const postMessage = async (req: IncomingMessage): Promise<PostedMessage> => {
     const { text, id, attachments } = await body(req, MessageBody)
-    const files = await Promise.all(
-      attachments.map(async id => {
-        const file = await uploads.get(id)
-        if (!file) throw new HttpError(400, `Attachment ${id} was not found. Upload it again.`)
-        return file
-      }),
-    )
-    const item = userMessage(text, id ?? randomUUID(), files)
-    const received = conversation.receive(item)
-    if (received) loop.wake()
-    return { source: item.source, received }
+    const result = await uploads.attach(attachments, files => {
+      const item = userMessage(text, id ?? randomUUID(), files)
+      return { source: item.source, received: conversation.receive(item) }
+    })
+    if (result.received) loop.wake()
+    return result
   }
 
-  const route = async (req: IncomingMessage, res: ServerResponse, login: string, path: string): Promise<unknown> => {
+  const route = async (
+    req: IncomingMessage,
+    res: ServerResponse,
+    { login, local }: Extract<Identity, { ok: true }>,
+    path: string,
+  ): Promise<unknown> => {
     const method = req.method ?? 'GET'
     if (method === 'GET' && path === '/api/events') return openStream(res, login)
     if (method === 'GET' && path === '/api/state') return snapshot(login)
     if (method === 'POST' && path === '/api/shutdown') {
-      if (login !== LOCAL_LOGIN) throw new HttpError(403, 'Moxy can be stopped only from its own machine')
+      if (!local) throw new HttpError(403, 'Moxy can be stopped only from its own machine')
       setImmediate(options.shutdown)
       return { pid: process.pid }
     }
-    if (method === 'GET' && path === '/api/machines') {
-      const refresh = new URL(req.url ?? '/', 'http://127.0.0.1').searchParams.get('refresh') === 'true'
-      return refresh ? options.machines.refresh() : options.machines.get()
-    }
     if (path === '/api/push' || path.startsWith('/api/push/')) {
-      if (!options.allowedLogins.some(allowed => allowed.toLowerCase() === login.toLowerCase()))
-        throw new HttpError(403, 'Notifications require an allowed Tailscale login')
+      if (local) throw new HttpError(403, 'Notifications require an allowed Tailscale login')
       if (method === 'GET' && path === '/api/push') {
         const endpoint = new URL(req.url ?? '/', 'http://127.0.0.1').searchParams.get('endpoint') ?? undefined
         return push.status(login, endpoint)
@@ -221,22 +223,26 @@ export async function startWebServer(options: WebServerOptions): Promise<Loopbac
     const who = identify(req.headers, options.allowedLogins, options.token)
     if (!who.ok) return sendJson(res, who.status, { error: who.error })
     const isUpload = req.method === 'POST' && path === '/api/uploads'
-    const refused = crossSiteWrite(req.method ?? 'GET', req.headers, isUpload ? UPLOAD_TYPE : undefined)
+    const refused = await checkWrite(req, isUpload ? UPLOAD_TYPE : undefined)
     if (refused) return sendJson(res, 403, { error: refused })
     if (!path.startsWith('/api/')) {
       if (req.method === 'GET' || req.method === 'HEAD') return serveStatic(req, res, options.staticDir)
       return sendJson(res, 404, { error: 'not found' })
     }
     try {
-      const result = await route(req, res, who.login, path)
+      const result = await route(req, res, who, path)
       if (!res.headersSent) sendJson(res, 200, result ?? null)
     } catch (error) {
+      const failure = routeError(error, path)
+      if (!failure) console.error(`Moxy web ${req.method} ${path}: ${errorText(error)}`)
       if (res.headersSent) return void res.destroy()
-      if (isUpload) req.resume()
-      sendJson(res, error instanceof HttpError ? error.status : 400, { error: errorText(error) })
+      if (!req.complete) {
+        if (failure?.status === 408) res.setHeader('Connection', 'close')
+        req.resume()
+      }
+      sendJson(res, failure?.status ?? 500, { error: failure?.message ?? 'internal error' })
     }
   })
-  server.server.requestTimeout = 0
   return {
     port: server.port,
     close: async () => {

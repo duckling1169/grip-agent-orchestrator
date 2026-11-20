@@ -22,7 +22,6 @@ import { KeepAwake } from './platform/keep-awake.js'
 import { tailscaleOwner } from './platform/tailscale.js'
 import { PushNotifier } from './platform/push.js'
 import type { PushSender } from './platform/push.js'
-import { MachineDiscovery } from './platform/machines.js'
 import type { MoxyPaths } from './paths.js'
 import { ModelCatalog } from './providers/models.js'
 import { Quota } from './providers/quota.js'
@@ -66,7 +65,6 @@ export type MoxyOptions = {
   quotaReaders?: QuotaReaders
   models?: Pick<ModelCatalog, 'get'>
   pushSender?: PushSender
-  machines?: Pick<MachineDiscovery, 'get' | 'refresh'>
   leaderAvailable?: (engine: Engine) => boolean
   keepAwake?: Pick<KeepAwake, 'set' | 'release'>
 }
@@ -225,7 +223,6 @@ export async function startMoxy(options: MoxyOptions = {}): Promise<Moxy> {
       models,
       settings,
       push,
-      machines: options.machines ?? new MachineDiscovery(),
       shutdown: () => void stop().catch(error => log(`stop failed: ${errorText(error)}`)),
     })
     if (config.allowedLogins.length === 0) log(`no Tailscale login is allowed yet; add one to allowedLogins in ${paths.config}`)

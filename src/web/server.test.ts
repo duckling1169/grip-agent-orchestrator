@@ -1,57 +1,15 @@
-import { mkdir, readdir, readFile, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { request } from 'node:http'
 import { join } from 'node:path'
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import type { Moxy } from '../app.js'
 import type { Snapshot } from '../contracts/api.js'
+import * as commands from '../exec.js'
 import type { LeaderReply, LeaderRunner } from '../runtime/leaders/leader.js'
 import { temporaryHome } from '../testing/harness.js'
-import { ALLOWED_LOGIN, echoLeader, startTestMoxy } from '../testing/test-moxy.js'
-import { inboxPart } from '../moxy/prompt.js'
-import type { PushMessage, PushStatus } from '../contracts/push.js'
-import type { PushSender } from '../platform/push.js'
-
-const pushSubscription = (id: string) => ({
-  endpoint: `https://fcm.googleapis.com/fcm/send/${id}`,
-  keys: {
-    p256dh: Buffer.concat([Buffer.from([4]), Buffer.alloc(64, 1)]).toString('base64url'),
-    auth: Buffer.alloc(16, 2).toString('base64url'),
-  },
-})
-
-type Call = { method?: string; body?: unknown; headers?: Record<string, string> }
-
-function call(moxy: Moxy, path: string, { method = 'GET', body, headers = {} }: Call = {}): Promise<Response> {
-  return fetch(`http://127.0.0.1:${moxy.webPort}${path}`, {
-    method,
-    headers: {
-      'Tailscale-User-Login': ALLOWED_LOGIN,
-      ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
-      ...headers,
-    },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  })
-}
-
-async function json<T>(response: Promise<Response>): Promise<T> {
-  return (await (await response).json()) as T
-}
-
-function upload(moxy: Moxy, name: string, type: string, body: string | Uint8Array<ArrayBuffer>, headers = {}): Promise<Response> {
-  return fetch(`http://127.0.0.1:${moxy.webPort}/api/uploads`, {
-    method: 'POST',
-    body,
-    headers: {
-      'Tailscale-User-Login': ALLOWED_LOGIN,
-      'Content-Type': 'application/octet-stream',
-      'X-File-Name': encodeURIComponent(name),
-      'X-File-Type': type,
-      ...headers,
-    },
-  })
-}
+import { ALLOWED_LOGIN, startTestMoxy, webCall as call, webJson as json } from '../testing/test-moxy.js'
 
 async function* snapshots(moxy: Moxy): AsyncGenerator<Snapshot> {
   const response = await call(moxy, '/api/events')
@@ -87,199 +45,6 @@ const answered = (text: string) => (snapshot: Snapshot) =>
   snapshot.conversation.some(entry => entry.type === 'moxy' && entry.turn.status === 'finished' && entry.turn.output === text)
 
 describe('web server', () => {
-  it('stores attachments safely, serves them to authorized users, and delivers their paths to the leader', async () => {
-    const leader = echoLeader()
-    const moxy = await startTestMoxy({ leaders: () => leader })
-    expect((await upload(moxy, 'test.png', 'image/png', 'data', { Origin: 'https://evil.example' })).status).toBe(403)
-    expect((await upload(moxy, 'test.png', 'image/png', 'data', { 'Tailscale-User-Login': '' })).status).toBe(401)
-    const token = (await readFile(moxy.paths.webToken, 'utf8')).trim()
-    expect(
-      (await upload(moxy, 'test.png', 'image/png', 'data', { 'Tailscale-User-Login': 'outsider', Authorization: `Bearer ${token}` }))
-        .status,
-    ).toBe(403)
-    const image = await json<{ id: string }>(upload(moxy, '../../test.png', 'image/png', 'data'))
-    const file = await json<{ id: string }>(
-      upload(moxy, 'notes.html', 'text/html', 'hello', { 'Tailscale-User-Login': '', Authorization: `Bearer ${token}` }),
-    )
-    const imagePath = join(moxy.paths.home, 'uploads', image.id, 'test.png')
-    const filePath = join(moxy.paths.home, 'uploads', file.id, 'notes.html')
-    expect(await readFile(imagePath, 'utf8')).toBe('data')
-    const imageUrl = `/api/uploads/${image.id}`
-    expect((await call(moxy, imageUrl, { headers: { 'Tailscale-User-Login': '' } })).status).toBe(401)
-    expect((await call(moxy, `${imageUrl}/%2e%2e%2f%2e%2e%2fweb-token`)).status).toBe(404)
-    await symlink(join(moxy.paths.uploads, image.id), join(moxy.paths.uploads, '01234567-89ab-cdef-0123-456789abcdef'), 'junction')
-    expect((await call(moxy, '/api/uploads/01234567-89ab-cdef-0123-456789abcdef')).status).toBe(404)
-    const inline = await call(moxy, imageUrl)
-    expect(inline.headers.get('content-type')).toBe('image/png')
-    expect(inline.headers.get('content-disposition')).toMatch(/^inline/)
-    expect(await inline.text()).toBe('data')
-    const download = await call(moxy, `/api/uploads/${file.id}`)
-    expect(download.headers.get('content-type')).toBe('text/html')
-    expect(download.headers.get('content-disposition')).toMatch(/^attachment/)
-    expect(await download.text()).toBe('hello')
-    const result = await call(moxy, '/api/messages', { method: 'POST', body: { text: '', attachments: [image.id, file.id] } })
-    expect(result.status).toBe(200)
-    await moxy.loop.idle()
-    expect(leader.requests.map(request => inboxPart(request.message))).toEqual([
-      `Attachments:\n- ${imagePath} (image/png, 4 bytes)\n- ${filePath} (text/html, 5 bytes)`,
-    ])
-    expect(await json(call(moxy, '/api/state'))).toMatchObject({
-      conversation: expect.arrayContaining([
-        expect.objectContaining({
-          type: 'user',
-          text: '',
-          attachments: [
-            { id: image.id, name: 'test.png', type: 'image/png', size: 4, path: imagePath },
-            { id: file.id, name: 'notes.html', type: 'text/html', size: 5, path: filePath },
-          ],
-        }),
-      ]) as unknown,
-    })
-    const withText = await call(moxy, '/api/messages', { method: 'POST', body: { text: 'Read this', attachments: [file.id] } })
-    expect(withText.status).toBe(200)
-    await moxy.loop.idle()
-    expect(inboxPart(leader.requests.at(-1)!.message)).toBe(`Read this\n\nAttachments:\n- ${filePath} (text/html, 5 bytes)`)
-  })
-
-  it('rejects oversized uploads, excess attachments, and client-supplied file paths', async () => {
-    const moxy = await startTestMoxy()
-    const oversized = await upload(moxy, 'large.bin', '', new Uint8Array(25 * 1024 * 1024 + 1))
-    expect(oversized.status).toBe(413)
-    expect(await oversized.json()).toMatchObject({ error: expect.stringContaining('25 MB') as unknown })
-    const streamed = await new Promise<number | undefined>((resolve, reject) => {
-      const req = request(
-        `http://127.0.0.1:${moxy.webPort}/api/uploads`,
-        {
-          method: 'POST',
-          headers: {
-            'Tailscale-User-Login': ALLOWED_LOGIN,
-            'Content-Type': 'application/octet-stream',
-            'X-File-Name': 'stream.bin',
-          },
-        },
-        res => {
-          res.resume()
-          res.on('end', () => resolve(res.statusCode))
-          res.on('error', reject)
-        },
-      )
-      req.on('error', reject)
-      const mb = Buffer.alloc(1024 * 1024)
-      for (let i = 0; i < 25; i++) req.write(mb)
-      req.end('extra byte')
-    })
-    expect(streamed).toBe(413)
-    expect(await readdir(moxy.paths.uploads)).toEqual([])
-    const id = '12345678-1234-1234-1234-123456789abc'
-    const tooMany = await call(moxy, '/api/messages', { method: 'POST', body: { text: 'hi', attachments: Array(11).fill(id) } })
-    expect(tooMany.status).toBe(400)
-    expect(await tooMany.json()).toMatchObject({ error: expect.stringContaining('10 files') as unknown })
-    for (const attachment of ['../web-token', id]) {
-      expect((await call(moxy, '/api/messages', { method: 'POST', body: { text: 'hi', attachments: [attachment] } })).status).toBe(400)
-    }
-    expect(moxy.conversation.conversation()).toEqual([])
-  })
-  it('protects machine discovery and keeps refresh separate from the cached read', async () => {
-    const calls: string[] = []
-    const list = {
-      machines: [{ id: 'self', name: 'This machine', dnsName: '', self: true, online: false, moxy: 'yes' as const, url: null }],
-      checkedAt: '2026-11-19T00:00:00.000Z',
-      error: null,
-    }
-    const moxy = await startTestMoxy({
-      machines: {
-        get: async () => {
-          calls.push('get')
-          return list
-        },
-        refresh: async () => {
-          calls.push('refresh')
-          return list
-        },
-      },
-    })
-    expect((await call(moxy, '/api/machines', { headers: { 'Tailscale-User-Login': '' } })).status).toBe(401)
-    expect((await call(moxy, '/api/machines', { headers: { 'Tailscale-User-Login': 'outsider@example.com' } })).status).toBe(403)
-    expect(calls).toEqual([])
-    expect(await json(call(moxy, '/api/machines'))).toEqual(list)
-    expect(await json(call(moxy, '/api/machines?refresh=true'))).toEqual(list)
-    expect(calls).toEqual(['get', 'refresh'])
-  })
-
-  it('owns notification devices by login, sends title-only ready notifications once, and does not replay them on restart', async () => {
-    const home = await temporaryHome()
-    const otherLogin = 'other@example.com'
-    await writeFile(join(home, 'config.json'), JSON.stringify({ allowedLogins: [ALLOWED_LOGIN, otherLogin], quotaRefreshMinutes: 0 }))
-    const sent: { endpoint: string; message: PushMessage }[] = []
-    const sender: PushSender = async (subscription, payload) => {
-      sent.push({ endpoint: subscription.endpoint, message: JSON.parse(payload) as PushMessage })
-      return { ok: true }
-    }
-    const moxy = await startTestMoxy({ home, pushSender: sender })
-    const phone = pushSubscription('phone')
-    const response = await json<PushStatus>(call(moxy, '/api/push/subscribe', { method: 'POST', body: { subscription: phone } }))
-    expect(response).toMatchObject({ devices: 1, subscribed: true, publicKey: expect.any(String) as unknown })
-    expect(Object.keys(response).sort()).toEqual(['devices', 'publicKey', 'subscribed'])
-    expect(await json(call(moxy, `/api/push?endpoint=${encodeURIComponent(phone.endpoint)}`))).toMatchObject({
-      devices: 1,
-      subscribed: true,
-    })
-    const otherHeaders = { 'Tailscale-User-Login': otherLogin }
-    expect(await json(call(moxy, '/api/push', { headers: otherHeaders }))).toMatchObject({ devices: 0, subscribed: false })
-    expect((await call(moxy, '/api/push/subscribe', { method: 'POST', body: { subscription: phone }, headers: otherHeaders })).status).toBe(
-      400,
-    )
-    const otherPhone = pushSubscription('other-phone')
-    await call(moxy, '/api/push/subscribe', { method: 'POST', body: { subscription: otherPhone }, headers: otherHeaders })
-    await call(moxy, '/api/push/unsubscribe', { method: 'POST', body: { endpoint: otherPhone.endpoint } })
-    expect(await json(call(moxy, '/api/push', { headers: otherHeaders }))).toMatchObject({ devices: 1 })
-    expect(await json(call(moxy, '/api/push/test', { method: 'POST', body: {} }))).toEqual({ attempted: 1, sent: 1, failed: 0, errors: [] })
-    expect(sent.map(message => message.endpoint)).toEqual([phone.endpoint])
-    expect((await call(moxy, '/api/push/test', { method: 'POST', body: {}, headers: { Origin: 'https://evil.example' } })).status).toBe(403)
-    const localToken = (await readFile(moxy.paths.webToken, 'utf8')).trim()
-    expect(
-      (
-        await call(moxy, '/api/push/test', {
-          method: 'POST',
-          body: {},
-          headers: { 'Tailscale-User-Login': '', Authorization: `Bearer ${localToken}` },
-        })
-      ).status,
-    ).toBe(403)
-    const task = await moxy.tasks.create({ title: 'Review the release', plan: 'Private implementation details' })
-    await moxy.tasks.ready(task.id, { howToTry: 'Private output and paths' })
-    await expect.poll(() => sent.length).toBe(3)
-    expect(sent.slice(1).map(message => message.message)).toEqual([
-      { title: task.title, taskId: task.id, path: `/?task=${task.id}` },
-      { title: task.title, taskId: task.id, path: `/?task=${task.id}` },
-    ])
-    await moxy.tasks.ready(task.id, { howToTry: 'Private output and paths' })
-    await moxy.stop()
-    const restarted = await startTestMoxy({ home, pushSender: sender })
-    expect(sent).toHaveLength(3)
-    expect(await json(call(restarted, '/api/push'))).toMatchObject({ publicKey: response.publicKey, devices: 1 })
-    await call(restarted, '/api/push/unsubscribe', { method: 'POST', body: { endpoint: phone.endpoint } })
-    expect(await json(call(restarted, '/api/push/test', { method: 'POST', body: {} }))).toEqual({
-      attempted: 0,
-      sent: 0,
-      failed: 0,
-      errors: [],
-    })
-  })
-
-  it('reports rejected notification tests without undoing task delivery', async () => {
-    const moxy = await startTestMoxy({ pushSender: async () => ({ ok: false, status: 503, error: 'Push service unavailable' }) })
-    await call(moxy, '/api/push/subscribe', { method: 'POST', body: { subscription: pushSubscription('failed') } })
-    expect(await json(call(moxy, '/api/push/test', { method: 'POST', body: {} }))).toEqual({
-      attempted: 1,
-      sent: 0,
-      failed: 1,
-      errors: ['Push service unavailable'],
-    })
-    const task = await moxy.tasks.create({ title: 'Still ready' })
-    expect(await moxy.tasks.ready(task.id, { howToTry: 'Read it' })).toMatchObject({ status: 'done' })
-  })
-
   it('serves provider models, persists settings, and streams quota refreshes with protected writes', async () => {
     let reads = 0
     const moxy = await startTestMoxy({
@@ -346,8 +111,31 @@ describe('web server', () => {
     })
   })
 
+  it('explains when the allowlist denies every Tailscale login', async () => {
+    const home = await temporaryHome()
+    await writeFile(join(home, 'config.json'), JSON.stringify({ allowedLogins: [] }))
+    const moxy = await startTestMoxy({ home })
+    const response = await call(moxy, '/api/events')
+    expect(response.status).toBe(403)
+    expect(await response.json()).toEqual({
+      error: `No Tailscale logins are allowed. Add ${ALLOWED_LOGIN} to allowedLogins in Moxy's config.json.`,
+    })
+  })
+
   it('refuses writes that are not JSON or come from another site', async () => {
     const moxy = await startTestMoxy()
+    const host = `127.0.0.1:${moxy.webPort}`
+    const blocked: Record<string, string>[] = [
+      { Origin: `https://${host}` },
+      { Origin: `http://${host}/path` },
+      { Origin: 'http://evil.example', 'X-Forwarded-Host': 'evil.example' },
+    ]
+    for (const headers of blocked) {
+      expect((await call(moxy, '/api/messages', { method: 'POST', body: { text: 'hi' }, headers })).status).toBe(403)
+    }
+    expect(
+      (await call(moxy, '/api/messages', { method: 'POST', body: { text: 'hi' }, headers: { Origin: `http://${host}` } })).status,
+    ).toBe(200)
     const crossSite = await call(moxy, '/api/messages', {
       method: 'POST',
       body: { text: 'hi' },
@@ -358,6 +146,53 @@ describe('web server', () => {
     expect(form.status).toBe(403)
     expect(await json(call(moxy, '/api/messages', { method: 'POST', body: { text: '  ' } }))).toEqual({ error: 'text: text is required' })
   })
+
+  it.each(['fails', 'is missing'])(
+    'accepts same-origin HTTPS tailnet writes from an allowed login when the Tailscale CLI %s',
+    async failure => {
+      const moxy = await startTestMoxy()
+      const lookup = vi.spyOn(commands, 'exec')
+      if (failure === 'fails') lookup.mockResolvedValueOnce({ code: 1, stdout: '', stderr: 'status unavailable' })
+      else lookup.mockRejectedValueOnce(Object.assign(new Error('spawn tailscale ENOENT'), { code: 'ENOENT' }))
+      const host = 'moxy.tail-example.ts.net'
+      const origin = `https://${host}`
+      const post = (headers: Record<string, string>) =>
+        new Promise<number | undefined>((resolve, reject) => {
+          const req = request(
+            `http://127.0.0.1:${moxy.webPort}/api/messages`,
+            { method: 'POST', headers: { 'Content-Type': 'application/json', 'Tailscale-User-Login': ALLOWED_LOGIN, ...headers } },
+            res => {
+              res.resume()
+              res.on('end', () => resolve(res.statusCode))
+              res.on('error', reject)
+            },
+          )
+          req.on('error', reject)
+          req.end('{"text":"Hello"}')
+        })
+      try {
+        expect(await post({ Host: host, Origin: origin, 'Tailscale-User-Login': '' })).toBe(401)
+        expect(await post({ Host: host, Origin: origin, 'Tailscale-User-Login': 'outsider@example.com' })).toBe(403)
+        expect(lookup).not.toHaveBeenCalled()
+
+        expect(await post({ Host: host, Origin: origin })).toBe(200)
+        expect(lookup).toHaveBeenCalledWith('tailscale', ['status', '--json'], { timeoutMs: 3000 })
+        const blocked: Record<string, string>[] = [
+          { Host: host },
+          { Host: host, Origin: `http://${host}` },
+          { Host: host, Origin: `${origin}:444` },
+          { Host: host, Origin: 'https://other.tail-example.ts.net', 'X-Forwarded-Host': 'other.tail-example.ts.net' },
+          { Host: 'evil.example', Origin: 'https://evil.example' },
+        ]
+        for (const headers of blocked) {
+          expect(await post(headers)).toBe(403)
+        }
+        expect(lookup).toHaveBeenCalledTimes(1)
+      } finally {
+        lookup.mockRestore()
+      }
+    },
+  )
 
   it('streams a snapshot, then a new one after each change', async () => {
     const moxy = await startTestMoxy()
@@ -400,9 +235,43 @@ describe('web server', () => {
 
   it('says what is wrong with an unknown worker or route', async () => {
     const moxy = await startTestMoxy()
-    expect(await json(call(moxy, '/api/workers/nope'))).toEqual({ error: 'unknown worker nope' })
-    expect(await json(call(moxy, '/api/workers/nope/activity'))).toEqual({ error: 'unknown worker nope' })
+    for (const path of ['/api/workers/nope', '/api/workers/nope/activity', '/api/tasks/nope']) {
+      const response = await call(moxy, path)
+      expect(response.status).toBe(404)
+      expect(await response.json()).toMatchObject({ error: expect.stringContaining('nope') as unknown })
+    }
+    expect((await call(moxy, '/api/leader/retry', { method: 'POST', body: { turnId: 999 } })).status).toBe(404)
     expect((await call(moxy, '/api/nothing')).status).toBe(404)
+  })
+
+  it('logs unexpected failures and returns a generic server error', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const moxy = await startTestMoxy({
+        models: {
+          get: async () => {
+            throw new Error('private discovery error')
+          },
+        },
+      })
+      const response = await call(moxy, '/api/models/codex')
+      expect(response.status).toBe(500)
+      expect(await response.json()).toEqual({ error: 'internal error' })
+      expect(log).toHaveBeenCalledWith(expect.stringContaining('private discovery error'))
+    } finally {
+      log.mockRestore()
+    }
+  })
+
+  it('returns a public validation error for malformed JSON', async () => {
+    const moxy = await startTestMoxy()
+    const response = await fetch(`http://127.0.0.1:${moxy.webPort}/api/messages`, {
+      method: 'POST',
+      headers: { 'Tailscale-User-Login': ALLOWED_LOGIN, 'Content-Type': 'application/json' },
+      body: '{',
+    })
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({ error: 'request body is not JSON' })
   })
 
   it('serves the web app once it is built', async () => {

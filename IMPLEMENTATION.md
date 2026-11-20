@@ -124,7 +124,6 @@ Each step ends with its tests green and `format:check`, `typecheck`, `test` and 
    2. Web app: React, Vite, Tailwind and shadcn with the mockup's layout, the fake-backed `web:preview`, and Playwright on desktop and mobile.
    3. Quota and model lists.
    4. Push for finished tasks.
-   5. The machine switcher.
 6. **Handoff and recovery.** Next-turn engine changes, context rotation, quota-failure switch-and-retry, timers and follow-ups, and user memory.
 7. **Install.** Install and uninstall, logon task, Tailscale Serve on the standard ports, status, stop and restart through a local-only shutdown, keep-awake while work runs, explicit Claw upgrade command, and README.
 
