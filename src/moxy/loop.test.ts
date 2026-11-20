@@ -48,7 +48,7 @@ const workerEvent = (overrides: Partial<WorkerTurnEnded> = {}): WorkerTurnEnded 
   ...overrides,
 })
 
-async function setup() {
+async function setup(systemPrompt = async (engine: string) => `Leader prompt for ${engine}`) {
   const path = join(await temporaryHome(), 'moxy.db')
   let database = Database.open(path, MOXY_SCHEMA)
   onTestFinished(() => database.close())
@@ -60,7 +60,7 @@ async function setup() {
       runners: () => leader,
       mcp: { url: 'http://127.0.0.1:1/mcp', token: 't' },
       cwd: '/work',
-      systemPrompt: async engine => `Leader prompt for ${engine}`,
+      systemPrompt,
       timeoutMs: 1000,
       log: silentLog,
       onTurnEnded: turn => ended.push(turn),
@@ -78,6 +78,22 @@ async function setup() {
     },
   }
 }
+
+it.each(['stop', 'close'] as const)('does not launch a leader turn after %s during prompt preparation', async action => {
+  const prompt = Promise.withResolvers<string>()
+  const { conversation, loop, leader } = await setup(() => prompt.promise)
+  conversation.receive(userMessage('Hello', 'preparing'))
+  loop.wake()
+  expect(conversation.runningTurn()).not.toBeNull()
+  const stopped = loop[action]()
+  if (action === 'stop') expect(await stopped).toBe(true)
+  prompt.resolve('Prompt')
+  await new Promise<void>(resolve => setImmediate(resolve))
+  if (leader.requests.length) leader.reply({ output: '', error: null, nativeSessionId: null })
+  await stopped
+  await loop.idle()
+  expect(leader.requests).toEqual([])
+})
 
 describe('ConversationStore', () => {
   it('drops a second item from the same source', async () => {

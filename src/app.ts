@@ -118,10 +118,11 @@ export async function startMoxy(options: MoxyOptions = {}): Promise<Moxy> {
     })
     claw.on('crashed', ({ code, restartInMs }) => log(`Claw exited with code ${code}; restarting in ${restartInMs / 1000} s`))
     claw.on('restartFailed', error => log(`Claw restart failed: ${errorText(error)}`))
-    const { version } = await claw.start()
-    undo.push(() => claw.stop())
-    assertSupportedClaw(version)
-    log(`Claw ${version} on 127.0.0.1:${clawPort}`)
+    const stopClaw = () =>
+      claw
+        .stop()
+        .catch(error => log(`Claw stop failed: ${errorText(error)}`))
+        .finally(() => client.close())
 
     const conversation = new ConversationStore(database)
     let loop: LeaderLoop | null = null
@@ -158,6 +159,21 @@ export async function startMoxy(options: MoxyOptions = {}): Promise<Moxy> {
       },
     })
 
+    undo.push(stopClaw)
+    const { version } = await claw.start(async version => {
+      assertSupportedClaw(version)
+      const interruptedLeader = conversation.interruptRunningTurn('Moxy restarted during this turn')
+      if (interruptedLeader) log(`marked leader turn ${interruptedLeader.id} interrupted; its messages will be delivered again`)
+      const leaderSessions = (await client.listSessions()).filter(session => session.name.startsWith(LEADER_SESSION_PREFIX))
+      await Promise.all(leaderSessions.map(session => client.stopSession(session.name).catch(() => undefined)))
+      for (const integration of tasks.reconcile()) log(`integration of ${integration.branch} into ${integration.repoRoot} was interrupted`)
+      const { interruptedTurns, orphanedSessions } = await workers.reconcile()
+      if (interruptedTurns.length) log(`marked ${interruptedTurns.length} interrupted worker turn(s)`)
+      if (orphanedSessions.length) log(`stopped ${orphanedSessions.length} Claw session(s) with no running worker turn`)
+    })
+    assertSupportedClaw(version)
+    log(`Claw ${version} on 127.0.0.1:${clawPort}`)
+
     const mcpToken = await loadOrCreateToken(paths.mcpToken)
     const mcp = await startMcpServer({
       tools: { workers, tasks, quota, models, followUps, memory },
@@ -166,15 +182,6 @@ export async function startMoxy(options: MoxyOptions = {}): Promise<Moxy> {
       version: MOXY_VERSION,
     })
     undo.push(() => mcp.close())
-
-    const interruptedLeader = conversation.interruptRunningTurn('Moxy restarted during this turn')
-    if (interruptedLeader) log(`marked leader turn ${interruptedLeader.id} interrupted; its messages will be delivered again`)
-    for (const session of await client.listSessions())
-      if (session.name.startsWith(LEADER_SESSION_PREFIX)) await client.stopSession(session.name).catch(() => undefined)
-    for (const integration of tasks.reconcile()) log(`integration of ${integration.branch} into ${integration.repoRoot} was interrupted`)
-    const { interruptedTurns, orphanedSessions } = await workers.reconcile()
-    if (interruptedTurns.length) log(`marked ${interruptedTurns.length} interrupted worker turn(s)`)
-    if (orphanedSessions.length) log(`stopped ${orphanedSessions.length} Claw session(s) with no running worker turn`)
 
     const workspace = options.workspace ?? paths.leaderWorkspace
     await mkdir(workspace, { recursive: true })
@@ -245,14 +252,12 @@ export async function startMoxy(options: MoxyOptions = {}): Promise<Moxy> {
         followUps.close()
         const quotaClosed = quota.close()
         const pushClosed = push.close()
-        await web.close()
-        await activeLoop.close()
+        const webClosed = web.close()
+        const leaderClosed = activeLoop.close().catch(error => log(`leader stop failed: ${errorText(error)}`))
         workers.interruptAll()
-        await mcp.close()
-        await claw.stop()
-        await workers.idle()
-        await quotaClosed
-        await pushClosed
+        const mcpClosed = mcp.close()
+        await stopClaw()
+        await Promise.all([webClosed, leaderClosed, mcpClosed, workers.idle(), quotaClosed, pushClosed])
         database.close()
       })().finally(markStopped))
     return {
