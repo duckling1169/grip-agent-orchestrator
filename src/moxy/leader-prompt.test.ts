@@ -1,9 +1,41 @@
 import { describe, expect, it } from 'vitest'
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
 
 import { PLAIN_COMMANDS_RULE } from '../contracts/engines.js'
-import { leaderPrompt } from './leader-prompt.js'
+import { leaderPrompt, skillSection } from './leader-prompt.js'
 
 describe('leader prompt', () => {
+  it('lists packaged skills with descriptions and absolute paths', () => {
+    const prompt = leaderPrompt({ machine: 'pc', engine: 'claude', repoFolders: [], repos: [] })
+    expect(prompt).toContain('# Skills\n')
+    expect(prompt).toContain('creative-ideation:')
+    expect(prompt).toContain('orchestrate-brainstorm:')
+    expect(prompt).toContain('frontend-design: Guidance for distinctive, intentional visual design')
+    expect(prompt).toContain('impeccable: Use when the user wants to design')
+    expect(prompt).toContain(resolve('skills', 'frontend-design', 'SKILL.md'))
+    expect(prompt).toContain('Read the full skill')
+  })
+
+  it('skips missing and malformed skill files without interrupting the leader', () => {
+    const root = mkdtempSync(join(tmpdir(), 'moxy-skills-'))
+    try {
+      expect(skillSection(join(root, 'missing'))).toContain('No packaged skills are available')
+      mkdirSync(join(root, 'creative-ideation'))
+      writeFileSync(join(root, 'creative-ideation', 'SKILL.md'), '---\nname: wrong\ndescription: Invalid\n---\n')
+      mkdirSync(join(root, 'frontend-design'))
+      writeFileSync(join(root, 'frontend-design', 'SKILL.md'), '---\nname: frontend-design\ndescription: Useful design guidance\n---\n')
+      mkdirSync(join(root, 'impeccable'))
+      writeFileSync(join(root, 'impeccable', 'SKILL.md'), '---\nname: impeccable\ndescription: "unfinished\n---\n')
+      const section = skillSection(root)
+      expect(section).toContain(`frontend-design: Useful design guidance — ${join(root, 'frontend-design', 'SKILL.md')}`)
+      expect(section).not.toContain('creative-ideation:')
+      expect(section).not.toContain('impeccable:')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
   it('names Moxy and its machine, and lists the known repositories', () => {
     const prompt = leaderPrompt({
       machine: 'Workstation',
