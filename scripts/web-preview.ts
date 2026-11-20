@@ -22,10 +22,14 @@ const FAKE_CLAW_CLI = fileURLToPath(new URL('../src/testing/fake-clawo.mjs', imp
 
 class PreviewLeader implements LeaderRunner {
   delayMs = 0
-  seedReplies = [
-    "I've recorded it as a task and started a Claude Opus worker on airport-sim at high effort. I'll review its diff and let you know when it's ready to try.",
-    "Yes. It's merged at 4f2a9c1. Refresh localhost:5173/settings and set Appearance to Dark. The setting is saved in localStorage, and the existing CSS variables handle the colours.",
-  ]
+  // Realistic replies for the README screenshots only; normal preview use gets the canned reply.
+  seedReplies =
+    process.env.MOXY_PREVIEW_SCREENSHOTS === '1'
+      ? [
+          "I've recorded it as a task and started a Claude Opus worker on airport-sim at high effort. I'll review its diff and let you know when it's ready to try.",
+          "Yes. It's merged at 4f2a9c1. Refresh localhost:5173/settings and set Appearance to Dark. The setting is saved in localStorage, and the existing CSS variables handle the colours.",
+        ]
+      : []
   private cancel: (() => void) | null = null
 
   run(request: LeaderTurnRequest): Promise<LeaderReply> {

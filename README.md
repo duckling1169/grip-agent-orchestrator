@@ -68,7 +68,7 @@ npm run web:preview
 npm run test:web
 ```
 
-The preview at `http://localhost:18799` uses fake data and runs no models. Playwright tests desktop and mobile flows. Contributor instructions are in [AGENTS.md](AGENTS.md). To regenerate screenshots, start the preview and run `npx tsx scripts/capture-screenshots.ts`.
+The preview at `http://localhost:18799` uses fake data and runs no models. Playwright tests desktop and mobile flows. Contributor instructions are in [AGENTS.md](AGENTS.md). To regenerate screenshots, start the preview with `MOXY_PREVIEW_SCREENSHOTS=1` set, then run `npx tsx scripts/capture-screenshots.ts`.
 
 ## Credits
 
