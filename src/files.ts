@@ -15,11 +15,15 @@ export async function loadOrCreateToken(path: string): Promise<string> {
     const existing = (await readFile(path, 'utf8')).trim()
     if (/^[0-9a-f]{64}$/.test(existing)) return existing
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    if (!isMissing(error)) throw error
   }
   const token = randomBytes(32).toString('hex')
   await writeFileAtomic(path, token, 0o600)
   return token
+}
+
+export function isMissing(error: unknown): boolean {
+  return (error as NodeJS.ErrnoException).code === 'ENOENT'
 }
 
 export async function inTempFolder<T>(work: (cwd: string) => Promise<T>): Promise<T> {

@@ -1,3 +1,4 @@
+import { waitUntil } from './fixtures.js'
 import type { ClawEvent, ClawSendResult, ClawSession, ClawSessions, StartSessionOptions } from '../runtime/claw/client.js'
 
 type PendingTurn = { resolve: (result: ClawSendResult) => void; reject: (error: Error) => void }
@@ -48,7 +49,7 @@ export class FakeClaw implements ClawSessions {
   }
 
   async turnStarted(name: string): Promise<void> {
-    for (let attempt = 0; attempt < 400 && !this.pending.has(name); attempt++) await new Promise(resolve => setTimeout(resolve, 5))
+    await waitUntil(() => this.pending.has(name))
     if (!this.pending.has(name)) throw new Error(`no turn started on ${name}`)
   }
 }

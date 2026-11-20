@@ -8,6 +8,7 @@ import { engineName } from '@/components/engine-icon'
 import { Markdown } from '@/components/markdown'
 import { WorkerIcon } from '@/components/worker-icon'
 import { api } from '@/lib/api'
+import { reportingTo } from '@/lib/errors'
 import { clockTime, elapsed } from '@/lib/format'
 import { ghost, iconButton, linkButton, note, readingColumn, textButton, working } from '@/lib/styles'
 import { cn } from '@/lib/utils'
@@ -41,8 +42,7 @@ export function Conversation({
     if (pinned.current && stream.current) stream.current.scrollTop = stream.current.scrollHeight
   }, [entries])
 
-  const act = (action: () => Promise<unknown>) =>
-    void action().catch(error => onError(error instanceof Error ? error.message : String(error)))
+  const act = reportingTo(onError)
 
   return (
     <div
@@ -69,7 +69,7 @@ export function Conversation({
                 key={`moxy-${turn.id}`}
                 turn={turn}
                 offline={offline}
-                onRetry={settings => act(() => api.retry(turn.id, settings))}
+                onRetry={settings => void act(() => api.retry(turn.id, settings))}
               />
             )
           }
@@ -82,8 +82,8 @@ export function Conversation({
               failed={failed}
               queued={entry.leaderTurnId === null && running}
               offline={offline}
-              onRetry={(turnId, settings) => act(() => api.retry(turnId, settings))}
-              onSendNow={() => act(() => api.sendNow())}
+              onRetry={(turnId, settings) => void act(() => api.retry(turnId, settings))}
+              onSendNow={() => void act(() => api.sendNow())}
             />
           )
         })}
@@ -238,7 +238,7 @@ function Working({ turn }: { turn: LeaderTurn }) {
   }, [])
   return (
     <div className={working} role="status">
-      <WorkerIcon family={modelFamily(turn.engine, turn.model)} running small />
+      <WorkerIcon family={modelFamily(turn)} running small />
       <span>Moxy is working · {elapsed(turn.startedAt, null)}</span>
     </div>
   )
@@ -249,7 +249,7 @@ function Byline({ turn, text }: { turn: LeaderTurn; text: string }) {
   const model = [turn.model ?? engineName(turn.engine), turn.effort].filter(Boolean).join(' ')
   return (
     <div className="flex min-h-5.5 items-center gap-1.5 text-xs text-faint opacity-0 transition-opacity group-focus-within/turn:opacity-100 group-hover/turn:opacity-100 max-md:opacity-100">
-      <WorkerIcon family={modelFamily(turn.engine, turn.model)} small />
+      <WorkerIcon family={modelFamily(turn)} small />
       <span>
         {model} · {clockTime(turn.endedAt ?? turn.startedAt)}
       </span>

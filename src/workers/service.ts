@@ -5,6 +5,7 @@ import { resolve } from 'node:path'
 import { engineSpec, PLAIN_COMMANDS_RULE } from '../contracts/engines.js'
 import { MOXY_MCP_TOOLS } from '../contracts/mcp.js'
 import type { Engine } from '../contracts/engines.js'
+import { now } from '../clock.js'
 import { errorText } from '../errors.js'
 import type { Log } from '../log.js'
 import { protectedFolderOf } from '../repos/folders.js'
@@ -148,7 +149,7 @@ export class Workers {
   async changes(id: string): Promise<WorkerChanges> {
     const { worker, turns } = this.detail(id)
     const diff = worker.repo && !hasWorktreeFailure(turns) ? await this.options.worktrees.diff(worker.cwd, worker.repo.baseCommit) : null
-    return { diff, fetchedAt: new Date().toISOString() }
+    return { diff, fetchedAt: now() }
   }
 
   async activity(id: string): Promise<WorkerActivity> {
@@ -167,7 +168,7 @@ export class Workers {
           )
         : [],
     ])
-    return { step, changedFiles, checkedAt: new Date().toISOString() }
+    return { step, changedFiles, checkedAt: now() }
   }
 
   list(): Worker[] {

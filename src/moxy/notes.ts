@@ -1,3 +1,4 @@
+import { now } from '../clock.js'
 import type { Database } from '../db/database.js'
 import type { Row } from '../db/rows.js'
 import type { Worktrees } from '../repos/worktrees.js'
@@ -31,7 +32,7 @@ export class ProjectNotes {
       this.database.prepare('DELETE FROM project_notes WHERE repo_root = ?').run(root)
       return { repo: root, body: '', updatedAt: '' }
     }
-    const updatedAt = new Date().toISOString()
+    const updatedAt = now()
     this.database
       .prepare(
         `INSERT INTO project_notes (repo_root, body, updated_at) VALUES (?, ?, ?)

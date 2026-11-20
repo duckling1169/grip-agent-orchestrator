@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { isAbsolute } from 'node:path'
 
-import { writeFileAtomic } from './files.js'
+import { isMissing, writeFileAtomic } from './files.js'
 import { QuotaRefreshMinutes } from './contracts/settings.js'
 
 export type MoxyConfig = { allowedLogins: string[]; quotaRefreshMinutes: number; repoFolders: string[] }
@@ -38,7 +38,7 @@ export async function readConfigFile(path: string): Promise<Record<string, unkno
   try {
     text = await readFile(path, 'utf8')
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {}
+    if (isMissing(error)) return {}
     throw error
   }
   const parsed: unknown = JSON.parse(text)

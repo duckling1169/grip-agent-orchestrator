@@ -17,6 +17,8 @@ const TIMELINE_SQL = `
   WHERE status != 'running' AND output IS NOT NULL
 `
 
+const TIMELINE = `SELECT ref, at, speaker, text FROM (${TIMELINE_SQL})`
+
 const SNIPPET_CHARS = 300
 const READ_TEXT_LIMIT = 4000
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/
@@ -47,14 +49,9 @@ export class ConversationHistory {
     }
     params.push(limit)
 
-    const sql = `SELECT ref, at, speaker, text FROM (${TIMELINE_SQL}) WHERE ${clauses.join(' AND ')} ORDER BY at DESC, ref DESC LIMIT ?`
+    const sql = `${TIMELINE} WHERE ${clauses.join(' AND ')} ORDER BY at DESC, ref DESC LIMIT ?`
     const rows = this.database.prepare(sql).all(...params) as Row[]
-    return rows.map(row => ({
-      ref: String(row.ref),
-      at: String(row.at),
-      speaker: String(row.speaker) as Speaker,
-      snippet: makeSnippet(String(row.text), terms),
-    }))
+    return rows.map(row => ({ ...messageMeta(row), snippet: makeSnippet(String(row.text), terms) }))
   }
 
   read(input: HistoryReadInput): HistoryMessage[] {
@@ -63,30 +60,20 @@ export class ConversationHistory {
     const target = this.getTarget(input.ref)
     if (around === 0) return [target]
 
-    const beforeRows = this.database
-      .prepare(
-        `SELECT ref, at, speaker, text FROM (${TIMELINE_SQL})
-         WHERE at < ? OR (at = ? AND ref < ?)
-         ORDER BY at DESC, ref DESC
-         LIMIT ?`,
-      )
-      .all(target.at, target.at, target.ref, around) as Row[]
+    return [...this.neighbours(target, 'before', around).reverse(), target, ...this.neighbours(target, 'after', around)]
+  }
 
-    const afterRows = this.database
-      .prepare(
-        `SELECT ref, at, speaker, text FROM (${TIMELINE_SQL})
-         WHERE at > ? OR (at = ? AND ref > ?)
-         ORDER BY at ASC, ref ASC
-         LIMIT ?`,
-      )
-      .all(target.at, target.at, target.ref, around) as Row[]
-
-    return [...beforeRows.reverse().map(toMessage), target, ...afterRows.map(toMessage)]
+  private neighbours(target: HistoryMessage, side: 'before' | 'after', count: number): HistoryMessage[] {
+    const [compare, order] = side === 'before' ? ['<', 'DESC'] : ['>', 'ASC']
+    const rows = this.database
+      .prepare(`${TIMELINE} WHERE at ${compare} ? OR (at = ? AND ref ${compare} ?) ORDER BY at ${order}, ref ${order} LIMIT ?`)
+      .all(target.at, target.at, target.ref, count) as Row[]
+    return rows.map(toMessage)
   }
 
   private getTarget(ref: string): HistoryMessage {
     if (!REF_PATTERN.test(ref)) throw new Error(`unknown history ref: ${ref}`)
-    const row = this.database.prepare(`SELECT ref, at, speaker, text FROM (${TIMELINE_SQL}) WHERE ref = ?`).get(ref) as Row | undefined
+    const row = this.database.prepare(`${TIMELINE} WHERE ref = ?`).get(ref) as Row | undefined
     if (!row) throw new Error(`unknown history ref: ${ref}`)
     return toMessage(row)
   }
@@ -117,12 +104,11 @@ function makeSnippet(text: string, terms: readonly string[]): string {
   return `${start > 0 ? '…' : ''}${text.slice(start, end)}${end < text.length ? '…' : ''}`
 }
 
+function messageMeta(row: Row): Pick<HistoryMessage, 'ref' | 'at' | 'speaker'> {
+  return { ref: String(row.ref), at: String(row.at), speaker: String(row.speaker) as Speaker }
+}
+
 function toMessage(row: Row): HistoryMessage {
   const text = String(row.text)
-  return {
-    ref: String(row.ref),
-    at: String(row.at),
-    speaker: String(row.speaker) as Speaker,
-    text: text.length <= READ_TEXT_LIMIT ? text : `${text.slice(0, READ_TEXT_LIMIT - 1)}…`,
-  }
+  return { ...messageMeta(row), text: text.length <= READ_TEXT_LIMIT ? text : `${text.slice(0, READ_TEXT_LIMIT - 1)}…` }
 }

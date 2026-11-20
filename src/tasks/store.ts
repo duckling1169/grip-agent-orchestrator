@@ -1,4 +1,5 @@
 import type { Integration, IntegrationStatus, Task, TaskStatus } from '../contracts/api.js'
+import { now } from '../clock.js'
 import type { Database } from '../db/database.js'
 import { textOrNull } from '../db/rows.js'
 import type { Row } from '../db/rows.js'
@@ -6,8 +7,6 @@ import type { Row } from '../db/rows.js'
 export type TaskNotes = Partial<Pick<Task, 'title' | 'plan' | 'notes' | 'testing'>>
 
 const NOTE_COLUMNS = { title: 'title', plan: 'plan', notes: 'notes', testing: 'testing' } as const
-
-const now = () => new Date().toISOString()
 
 export class TaskStore {
   constructor(private readonly database: Database) {}

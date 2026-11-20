@@ -7,6 +7,7 @@ import { pipeline } from 'node:stream/promises'
 
 import { MAX_ATTACHMENT_BYTES, MAX_ATTACHMENT_MB, MAX_ATTACHMENTS } from '../contracts/attachments.js'
 import type { MessageAttachment } from '../contracts/attachments.js'
+import { isMissing } from '../files.js'
 import { HttpError } from '../http.js'
 
 export const UPLOAD_TYPE = 'application/octet-stream'
@@ -166,7 +167,7 @@ export class Uploads {
       const file = await lstat(path)
       return file.isFile() && file.size === size ? { id, name, type, size, path } : null
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
+      if (isMissing(error)) return null
       throw error
     }
   }

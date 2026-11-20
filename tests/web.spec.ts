@@ -3,7 +3,7 @@ import { hostname } from 'node:os'
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
 
-const isMobile = (page: Page) => (page.viewportSize()?.width ?? 0) < 768
+import { isMobile, showTasks } from './viewport.js'
 
 test('shows the host as text in the header', async ({ page }) => {
   await page.goto('/')
@@ -101,7 +101,7 @@ test('an interrupted worker keeps its status tint on hover and selection', async
 
 test('tasks sit under Working while a worker runs, Reviewing while Moxy checks them, then Done', async ({ page }) => {
   await openIdle(page)
-  if (isMobile(page)) await page.getByRole('button', { name: 'Tasks', exact: true }).click()
+  await showTasks(page)
   const sections = page.getByRole('navigation', { name: 'Tasks' })
   const section = (label: string) =>
     sections.locator(':scope > div').filter({ has: page.getByRole('button', { name: new RegExp(`^${label}\\s*\\d+$`) }) })
@@ -181,7 +181,7 @@ test('a failed turn can be retried from its message', async ({ page }) => {
 test('the running worker ring is static and muted offline or with reduced motion', async ({ page }) => {
   await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' })
   await page.goto('/')
-  if (isMobile(page)) await page.getByRole('button', { name: 'Tasks', exact: true }).click()
+  await showTasks(page)
   const task = page.getByRole('button', { name: /Departures board pagination/ }).first()
   const icon = task.getByRole('img', { name: 'Mixed models', exact: true })
   const ring = () =>
@@ -204,7 +204,7 @@ test('the running worker ring is static and muted offline or with reduced motion
 
 test('a task opens in the inspector and leads to its workers', async ({ page }) => {
   await page.goto('/')
-  if (isMobile(page)) await page.getByRole('button', { name: 'Tasks', exact: true }).click()
+  await showTasks(page)
   await page
     .getByRole('button', { name: /Departures board pagination/ })
     .first()
@@ -227,7 +227,7 @@ test('a task opens in the inspector and leads to its workers', async ({ page }) 
 
 test('icons follow the model family, and a task with mixed families shows a neutral icon', async ({ page }) => {
   await page.goto('/')
-  if (isMobile(page)) await page.getByRole('button', { name: 'Tasks', exact: true }).click()
+  await showTasks(page)
   const tasks = page.getByRole('navigation', { name: 'Tasks' })
   const darkMode = tasks.getByRole('button', { name: 'Dark mode toggle in settings' })
   await expect(darkMode.getByRole('img', { name: 'GPT', exact: true }).first()).toBeVisible()

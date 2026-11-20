@@ -69,7 +69,7 @@ function WorkerSummary({ worker, onOpen }: { worker: Worker; onOpen: () => void 
       onClick={onOpen}
     >
       <span className="flex min-w-0 items-center gap-2">
-        <WorkerIcon family={modelFamily(worker.engine, worker.model)} running={worker.status === 'running'} />
+        <WorkerIcon family={modelFamily(worker)} running={worker.status === 'running'} />
         <span className={rowLabel}>{worker.title}</span>
         <span className={rowAside}>{STATUS_LABELS[worker.status]}</span>
       </span>

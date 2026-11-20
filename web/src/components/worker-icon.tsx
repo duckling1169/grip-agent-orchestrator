@@ -1,4 +1,4 @@
-import type { Family } from '@contracts/engines'
+import type { SharedFamily } from '@contracts/engines'
 import { Blend } from 'lucide-react'
 import { FamilyIcon } from '@/components/engine-icon'
 import { cn } from '@/lib/utils'
@@ -10,10 +10,10 @@ const RING = cn(
   'in-data-offline:after:animate-none! in-data-offline:after:border-border!',
 )
 
-export function WorkerIcon({ family, running, small }: { family: Family | 'mixed' | null; running?: boolean; small?: boolean }) {
+export function WorkerIcon({ family, running, small }: { family: SharedFamily; running?: boolean; small?: boolean }) {
   const size = small ? 'size-3.5' : 'size-4'
   return (
-    <span className={cn('relative inline-flex size-4 flex-none items-center justify-center', small && 'size-3.5', running && RING)}>
+    <span className={cn('relative inline-flex flex-none items-center justify-center', size, running && RING)}>
       {family === 'mixed' ? (
         <Blend role="img" aria-label="Mixed models" className={cn(size, 'text-muted-foreground')} />
       ) : family ? (

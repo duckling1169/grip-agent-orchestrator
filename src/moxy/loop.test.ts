@@ -7,6 +7,7 @@ import { Database } from '../db/database.js'
 import { MOXY_SCHEMA } from '../db/schema.js'
 import type { LeaderReply, LeaderRunner, LeaderTurnRequest } from '../runtime/leaders/leader.js'
 import { silentLog, temporaryHome } from '../testing/harness.js'
+import { waitUntil } from '../testing/fixtures.js'
 import { LeaderLoop } from './loop.js'
 import { renderInbox } from './prompt.js'
 import { ConversationStore, userMessage } from './store.js'
@@ -32,7 +33,7 @@ class ScriptedLeader implements LeaderRunner {
   }
 
   async started(count: number): Promise<void> {
-    for (let attempt = 0; attempt < 400 && this.requests.length < count; attempt++) await new Promise(resolve => setTimeout(resolve, 5))
+    await waitUntil(() => this.requests.length >= count)
     expect(this.requests).toHaveLength(count)
   }
 }

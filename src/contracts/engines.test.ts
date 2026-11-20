@@ -3,15 +3,15 @@ import { modelFamily, sharedFamily } from './engines.js'
 
 describe('modelFamily', () => {
   it('names the family of a model that another engine runs', () => {
-    expect(modelFamily('agy', 'claude-sonnet-5-5')).toBe('claude')
-    expect(modelFamily('agy', 'gemini-4-hydrogen')).toBe('gemini')
-    expect(modelFamily('opencode', 'openai/gpt-5.5')).toBe('gpt')
+    expect(modelFamily({ engine: 'agy', model: 'claude-sonnet-5-5' })).toBe('claude')
+    expect(modelFamily({ engine: 'agy', model: 'gemini-4-hydrogen' })).toBe('gemini')
+    expect(modelFamily({ engine: 'opencode', model: 'openai/gpt-5.5' })).toBe('gpt')
   })
 
   it('falls back to the engine family for unknown or missing models', () => {
-    expect(modelFamily('claude', 'opus')).toBe('claude')
-    expect(modelFamily('agy', null)).toBe('gemini')
-    expect(modelFamily('cursor', 'composer-2')).toBe('cursor')
+    expect(modelFamily({ engine: 'claude', model: 'opus' })).toBe('claude')
+    expect(modelFamily({ engine: 'agy', model: null })).toBe('gemini')
+    expect(modelFamily({ engine: 'cursor', model: 'composer-2' })).toBe('cursor')
   })
 })
 

@@ -58,17 +58,17 @@ export type WorkerStep = { text: string; at: string }
 
 export type WorkerActivity = { step: WorkerStep | null; changedFiles: string[]; checkedAt: string }
 
-export type Turn = {
-  number: number
+export type TurnFields = {
   model: string | null
   effort: string | null
-  input: string
-  output: string | null
   status: TurnStatus
+  output: string | null
   error: string | null
   startedAt: string
   endedAt: string | null
 }
+
+export type Turn = TurnFields & { number: number; input: string }
 
 export type FileChange = {
   path: string
@@ -83,19 +83,7 @@ export type WorktreeDiff = { files: FileChange[]; patch: string; truncated: bool
 
 export type Recovery = { provider: Engine; resetsAt: string | null; suggested: LeaderSettings | null; reason: string }
 
-export type LeaderTurn = {
-  id: number
-  engine: Engine
-  model: string | null
-  effort: string | null
-  status: TurnStatus
-  output: string | null
-  error: string | null
-  startedAt: string
-  endedAt: string | null
-  retried: boolean
-  recovery: Recovery | null
-}
+export type LeaderTurn = TurnFields & { id: number; engine: Engine; retried: boolean; recovery: Recovery | null }
 
 export type LeaderSettings = { engine: Engine; model: string | null; effort: string | null }
 

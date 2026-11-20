@@ -1,7 +1,8 @@
 import type { Turn, TurnStatus, Worker } from '../contracts/api.js'
 import type { Engine } from '../contracts/engines.js'
+import { now } from '../clock.js'
 import type { Database } from '../db/database.js'
-import { textOrNull } from '../db/rows.js'
+import { textOrNull, turnFields } from '../db/rows.js'
 import type { Row } from '../db/rows.js'
 import { workerTurnEnded } from '../moxy/store.js'
 import type { ConversationStore } from '../moxy/store.js'
@@ -18,8 +19,6 @@ const WORKER_SELECT = `
   SELECT w.*, t.status AS status, t.number AS turn_count, t.started_at AS turn_started_at
   FROM workers w
   JOIN worker_turns t ON t.worker_id = w.id AND t.number = (SELECT MAX(number) FROM worker_turns WHERE worker_id = w.id)`
-
-const now = () => new Date().toISOString()
 
 export class WorkerStore {
   constructor(
@@ -181,15 +180,5 @@ function toWorker(row: Row): Worker {
 }
 
 function toTurn(row: Row): Turn {
-  return {
-    number: Number(row.number),
-    model: textOrNull(row, 'model'),
-    effort: textOrNull(row, 'effort'),
-    input: String(row.input),
-    output: textOrNull(row, 'output'),
-    status: String(row.status) as TurnStatus,
-    error: textOrNull(row, 'error'),
-    startedAt: String(row.started_at),
-    endedAt: textOrNull(row, 'ended_at'),
-  }
+  return { ...turnFields(row), number: Number(row.number), input: String(row.input) }
 }

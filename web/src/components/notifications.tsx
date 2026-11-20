@@ -46,6 +46,11 @@ export function NotificationSettings({ offline }: { offline: boolean }) {
       setBusy(false)
     }
   }
+  const action = (label: string, work: () => Promise<void>, disabled = false) => (
+    <button className={outlineButton} type="button" disabled={offline || busy || disabled} onClick={() => void act(work)}>
+      {label}
+    </button>
+  )
   const hasDeviceStatus = state && 'devices' in state
   return (
     <section aria-label="Notifications">
@@ -71,63 +76,20 @@ export function NotificationSettings({ offline }: { offline: boolean }) {
         <span>{offline || !hasDeviceStatus ? '—' : state.devices}</span>
       </div>
       <div className={settingRow}>
-        {hasDeviceStatus && state.kind !== 'on' && (
-          <button
-            className={outlineButton}
-            type="button"
-            disabled={offline || busy}
-            onClick={() =>
-              void act(async () => {
-                setState(await enableNotifications(api))
-              })
-            }
-          >
-            Enable notifications
-          </button>
-        )}
-        {hasDeviceStatus && state.kind === 'on' && (
-          <button
-            className={outlineButton}
-            type="button"
-            disabled={offline || busy}
-            onClick={() =>
-              void act(async () => {
-                setState(await disableNotifications(api))
-              })
-            }
-          >
-            Disable on this device
-          </button>
-        )}
-        {hasDeviceStatus && (
-          <button
-            className={outlineButton}
-            type="button"
-            disabled={offline || busy || state.devices === 0}
-            onClick={() =>
-              void act(async () => {
-                const report = await api.pushTest()
-                setNotice(notificationTestMessage(report))
-                if (report.errors.length) setError(`Push service errors: ${report.errors.join('; ')}`)
-                setState(await readNotificationState(api))
-              })
-            }
-          >
-            Send notification test
-          </button>
-        )}
-        <button
-          className={outlineButton}
-          type="button"
-          disabled={offline || busy}
-          onClick={() =>
-            void act(async () => {
+        {hasDeviceStatus && state.kind !== 'on' && action('Enable notifications', async () => setState(await enableNotifications(api)))}
+        {hasDeviceStatus && state.kind === 'on' && action('Disable on this device', async () => setState(await disableNotifications(api)))}
+        {hasDeviceStatus &&
+          action(
+            'Send notification test',
+            async () => {
+              const report = await api.pushTest()
+              setNotice(notificationTestMessage(report))
+              if (report.errors.length) setError(`Push service errors: ${report.errors.join('; ')}`)
               setState(await readNotificationState(api))
-            })
-          }
-        >
-          Refresh notification status
-        </button>
+            },
+            state.devices === 0,
+          )}
+        {action('Refresh notification status', async () => setState(await readNotificationState(api)))}
       </div>
       {notice && (
         <p className={note} role="status">

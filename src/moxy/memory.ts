@@ -1,3 +1,4 @@
+import { now } from '../clock.js'
 import type { Database } from '../db/database.js'
 import type { Row } from '../db/rows.js'
 
@@ -27,7 +28,7 @@ export class Memory {
       if (instructions !== current.instructions || preferences !== current.preferences) {
         this.database
           .prepare('UPDATE memory SET instructions = ?, preferences = ?, updated_at = ? WHERE id = 1')
-          .run(instructions, preferences, new Date().toISOString())
+          .run(instructions, preferences, now())
       }
       return this.read()
     })

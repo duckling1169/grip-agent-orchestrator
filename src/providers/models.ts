@@ -10,6 +10,7 @@ import { errorText } from '../errors.js'
 import { inTempFolder } from '../files.js'
 import { ACP_COMMANDS, isAcpEngine, startAcpProcess } from '../runtime/acp-process.js'
 import type { AcpCommand, AcpEngine, AcpProcessOptions } from '../runtime/acp-process.js'
+import { withTimeout } from '../runtime/deadline.js'
 import { engineUnavailable, isEngineInstalled } from '../runtime/engines.js'
 
 const CLAUDE_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']
@@ -85,43 +86,44 @@ export async function probeAcpModels(
   return inTempFolder(async cwd => {
     const process = startAcpProcess(command, cwd, options)
     const app = client({ name: 'moxy-models' }).onRequest('session/request_permission', () => ({ outcome: { outcome: 'cancelled' } }))
-    let timer: ReturnType<typeof setTimeout> | undefined
     try {
-      return await Promise.race([
-        app.connectWith(process.stream, async agent => {
-          await agent.request('initialize', { protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
-          const session = await agent.request('session/new', { cwd, mcpServers: [] })
-          const config = selectOption(session.configOptions ?? [], 'model')
-          if (!config) return []
-          const models: ModelOption[] = []
-          for (const model of choices(config)) {
-            const options =
-              model.value === config.currentValue
-                ? (session.configOptions ?? [])
-                : (
-                    await agent.request('session/set_config_option', {
-                      sessionId: session.sessionId,
-                      configId: config.id,
-                      value: model.value,
-                    })
-                  ).configOptions
-            const effort = selectOption(options, 'thought_level')
-            models.push({
-              id: model.value,
-              label: model.name,
-              efforts: effort ? choices(effort).map(choice => choice.value) : [],
-              isDefault: model.value === config.currentValue,
-            })
-          }
-          return models
-        }),
-        process.failed('while listing models'),
-        new Promise<never>((_, reject) => {
-          timer = setTimeout(() => reject(new Error('ACP model discovery timed out')), options.timeoutMs ?? 30_000)
-        }),
-      ])
+      return await withTimeout(
+        Promise.race([
+          app.connectWith(process.stream, async agent => {
+            await agent.request('initialize', { protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+            const session = await agent.request('session/new', { cwd, mcpServers: [] })
+            const config = selectOption(session.configOptions ?? [], 'model')
+            if (!config) return []
+            const models: ModelOption[] = []
+            for (const model of choices(config)) {
+              const options =
+                model.value === config.currentValue
+                  ? (session.configOptions ?? [])
+                  : (
+                      await agent.request('session/set_config_option', {
+                        sessionId: session.sessionId,
+                        configId: config.id,
+                        value: model.value,
+                      })
+                    ).configOptions
+              const effort = selectOption(options, 'thought_level')
+              models.push({
+                id: model.value,
+                label: model.name,
+                efforts: effort ? choices(effort).map(choice => choice.value) : [],
+                isDefault: model.value === config.currentValue,
+              })
+            }
+            return models
+          }),
+          process.failed('while listing models'),
+        ]),
+        options.timeoutMs ?? 30_000,
+        () => {
+          throw new Error('ACP model discovery timed out')
+        },
+      )
     } finally {
-      if (timer) clearTimeout(timer)
       process.kill()
     }
   })

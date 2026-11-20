@@ -1,6 +1,9 @@
 import { appendFileSync, mkdirSync, renameSync, statSync } from 'node:fs'
 import { dirname } from 'node:path'
 
+import { now } from './clock.js'
+import { isMissing } from './files.js'
+
 export type Log = (line: string) => void
 
 const ROTATE_AT_BYTES = 5 * 1024 * 1024
@@ -10,7 +13,7 @@ export function rotateIfLarge(path: string): void {
   try {
     if (statSync(path).size > ROTATE_AT_BYTES) renameSync(path, `${path}.1`)
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    if (!isMissing(error)) throw error
   }
 }
 
@@ -18,7 +21,7 @@ export function fileLog(path: string, echo: Log = line => console.log(`[moxy] ${
   rotateIfLarge(path)
   return line => {
     echo(line)
-    appendBestEffort(path, `${new Date().toISOString()} ${line}\n`)
+    appendBestEffort(path, `${now()} ${line}\n`)
   }
 }
 

@@ -16,6 +16,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { api } from '@/lib/api'
+import { reportingTo } from '@/lib/errors'
 import { composerGutter, ghost, linkButton, readingColumn } from '@/lib/styles'
 import { useFetched } from '@/lib/use-fetched'
 import { cn } from '@/lib/utils'
@@ -48,7 +49,7 @@ export function Composer({
   const modelLabel = selectedModel?.label ?? leader.model ?? 'Default model'
   const empty = text.trim() === '' && files.length === 0
   const stopping = running && empty
-  const act = (action: () => Promise<unknown>) => action().catch(error => onError(error instanceof Error ? error.message : String(error)))
+  const act = reportingTo(onError)
 
   const addFiles = (selected: FileList) => {
     if (offline || sending) return

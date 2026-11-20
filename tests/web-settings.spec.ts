@@ -1,7 +1,6 @@
 import { expect, test } from '@playwright/test'
-import type { Page } from '@playwright/test'
 
-const isMobile = (page: Page) => (page.viewportSize()?.width ?? 0) < 768
+import { isMobile } from './viewport.js'
 
 test('the theme setting switches to light', async ({ page }) => {
   await page.goto('/')

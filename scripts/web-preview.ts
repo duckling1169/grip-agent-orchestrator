@@ -2,7 +2,6 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { createServer, request } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 
 import { startMoxy } from '../src/app.js'
 import type { EngineUsage } from '../src/contracts/api.js'
@@ -12,13 +11,13 @@ import { KeepAwake } from '../src/platform/keep-awake.js'
 import { userMessage } from '../src/moxy/store.js'
 import type { LeaderReply, LeaderRunner, LeaderTurnRequest } from '../src/runtime/leaders/leader.js'
 import { TaskStore } from '../src/tasks/store.js'
+import { FAKE_CLAW_CLI } from '../src/testing/fixtures.js'
 import { WorkerStore } from '../src/workers/store.js'
 import type { NewWorker } from '../src/workers/store.js'
 
 const PREVIEW_PORT = 18799
 const LOGIN = 'preview@example.com'
 const REPLY_DELAY_MS = 4000
-const FAKE_CLAW_CLI = fileURLToPath(new URL('../src/testing/fake-clawo.mjs', import.meta.url))
 
 class PreviewLeader implements LeaderRunner {
   delayMs = 0

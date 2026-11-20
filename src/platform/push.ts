@@ -6,7 +6,8 @@ import { generateVAPIDKeys, sendNotification } from 'web-push'
 
 import type { PushMessage, PushReport, PushStatus, PushSubscriptionJson } from '../contracts/push.js'
 import { errorText } from '../errors.js'
-import { writeFileAtomic } from '../files.js'
+import { isMissing, writeFileAtomic } from '../files.js'
+import { withTimeout } from '../runtime/deadline.js'
 
 type VapidKeys = { publicKey: string; privateKey: string }
 type Device = PushSubscriptionJson & { login: string }
@@ -62,7 +63,7 @@ export class PushNotifier {
         devices: saved.devices.filter(validDevice).map(device => ({ ...device, login: device.login.toLowerCase() })),
       }
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      if (!isMissing(error)) throw error
       file = { vapid: generateVAPIDKeys(), devices: [] }
       created = true
     }
@@ -76,16 +77,13 @@ export class PushNotifier {
   }
 
   status(login: string, endpoint?: string): PushStatus {
-    login = login.toLowerCase()
-    this.assertAllowed(login)
+    login = this.manager(login)
     const devices = this.file.devices.filter(device => device.login === login)
     return { publicKey: this.publicKey, devices: devices.length, subscribed: devices.some(device => device.endpoint === endpoint) }
   }
 
   async subscribe(login: string, subscription: PushSubscriptionJson): Promise<void> {
-    if (this.closed) throw new Error('Push notifier is closed')
-    login = login.toLowerCase()
-    this.assertAllowed(login)
+    login = this.changingManager(login)
     if (!validSubscription(subscription)) throw new Error('Invalid push subscription')
     const existing = this.file.devices.find(device => device.endpoint === subscription.endpoint)
     if (existing && existing.login !== login) throw new Error('This push subscription belongs to another login')
@@ -96,17 +94,13 @@ export class PushNotifier {
   }
 
   async unsubscribe(login: string, endpoint: string): Promise<void> {
-    if (this.closed) throw new Error('Push notifier is closed')
-    login = login.toLowerCase()
-    this.assertAllowed(login)
+    login = this.changingManager(login)
     this.file.devices = this.file.devices.filter(device => device.login !== login || device.endpoint !== endpoint)
     await this.save()
   }
 
   test(login: string): Promise<PushReport> {
-    login = login.toLowerCase()
-    this.assertAllowed(login)
-    return this.broadcast({ title: 'Moxy notification test', path: '/' }, login)
+    return this.broadcast({ title: 'Moxy notification test', path: '/' }, this.manager(login))
   }
 
   ready(task: { id: string; title: string }): Promise<PushReport> {
@@ -119,8 +113,14 @@ export class PushNotifier {
     await this.writes
   }
 
-  private assertAllowed(login: string): void {
+  private changingManager(login: string): string {
+    if (this.closed) throw new Error('Push notifier is closed')
+    return this.manager(login)
+  }
+
+  private manager(login: string): string {
     if (!this.allowed(login)) throw new Error('Login is not allowed to manage notifications')
+    return login.toLowerCase()
   }
 
   private allowed(login: string): boolean {
@@ -141,13 +141,13 @@ export class PushNotifier {
   }
 
   private enqueue(work: () => Promise<PushResult | null>): Promise<PushResult | null> {
-    if (this.queue.length >= 1024) return Promise.resolve({ ok: false, status: 0, error: 'Push queue is full' })
+    if (this.queue.length >= 1024) return Promise.resolve(failure('Push queue is full'))
     return new Promise(resolve => {
       const run = () => {
         this.active++
         void work()
           .then(resolve)
-          .catch(error => resolve({ ok: false, status: 0, error: errorText(error).slice(0, 200) }))
+          .catch(error => resolve(failure(errorText(error))))
           .finally(() => {
             this.active--
             this.queue.shift()?.()
@@ -160,20 +160,11 @@ export class PushNotifier {
 
   private async deliver(device: Device, message: PushMessage): Promise<PushResult | null> {
     if (this.closed || !this.allowed(device.login) || !this.file.devices.includes(device)) return null
-    let timer: ReturnType<typeof setTimeout> | undefined
-    let result: PushResult
-    try {
-      result = await Promise.race([
-        this.sender(device, JSON.stringify(message), { ttlSeconds: 86400, timeoutMs: this.timeoutMs }),
-        new Promise<PushResult>(resolve => {
-          timer = setTimeout(() => resolve({ ok: false, status: 0, error: 'Push send timed out' }), this.timeoutMs)
-        }),
-      ])
-    } catch (error) {
-      result = { ok: false, status: 0, error: errorText(error).slice(0, 200) }
-    } finally {
-      if (timer) clearTimeout(timer)
-    }
+    const result = await withTimeout(
+      this.sender(device, JSON.stringify(message), { ttlSeconds: 86400, timeoutMs: this.timeoutMs }),
+      this.timeoutMs,
+      () => failure('Push send timed out'),
+    ).catch(error => failure(errorText(error)))
     if (!result.ok && (result.status === 404 || result.status === 410)) {
       this.file.devices = this.file.devices.filter(saved => saved !== device)
       await this.save()
@@ -187,6 +178,10 @@ export class PushNotifier {
     this.writes = write.catch(() => undefined)
     return write
   }
+}
+
+function failure(error: string, status = 0): PushResult {
+  return { ok: false, status, error: error.slice(0, 200) }
 }
 
 function validDevice(value: unknown): value is Device {
@@ -230,7 +225,7 @@ export function webPushSender(vapid: VapidKeys, send: typeof sendNotification = 
       return { ok: true }
     } catch (error) {
       const status = typeof (error as { statusCode?: unknown })?.statusCode === 'number' ? (error as { statusCode: number }).statusCode : 0
-      return { ok: false, status, error: status ? `Push service returned ${status}` : errorText(error).slice(0, 200) }
+      return failure(status ? `Push service returned ${status}` : errorText(error), status)
     }
   }
 }

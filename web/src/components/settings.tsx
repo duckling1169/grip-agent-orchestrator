@@ -6,6 +6,7 @@ import type { Theme } from '@/lib/theme'
 import { errorText, field, ghost, note, outlineButton, settingHeading, settingRow } from '@/lib/styles'
 import { cn } from '@/lib/utils'
 import { api } from '@/lib/api'
+import { errorMessage } from '@/lib/errors'
 import { NotificationSettings } from '@/components/notifications'
 
 const THEME_LABELS: Record<Theme, string> = { system: 'System', light: 'Light', dark: 'Dark' }
@@ -34,7 +35,7 @@ export function Settings({
       await api.settings({ quotaRefreshMinutes: Number(minutes ?? snapshot.settings.quotaRefreshMinutes) })
       setMinutes(null)
     } catch (error) {
-      setError(error instanceof Error ? error.message : String(error))
+      setError(errorMessage(error))
     } finally {
       setSaving(false)
     }

@@ -55,15 +55,18 @@ export function isEngine(value: string): value is Engine {
   return Object.hasOwn(ENGINE_SPECS, value)
 }
 
-const MODEL_FAMILIES: readonly Family[] = ['claude', 'gpt', 'gemini', 'grok', 'kimi', 'deepseek']
+const FAMILIES = Object.keys(FAMILY_NAMES) as Family[]
 
-export function modelFamily(engine: Engine, model: string | null): Family {
+export type ModelChoice = { engine: Engine; model: string | null }
+export type SharedFamily = Family | 'mixed' | null
+
+export function modelFamily({ engine, model }: ModelChoice): Family {
   const name = model?.toLowerCase().split('/').at(-1) ?? ''
-  return MODEL_FAMILIES.find(family => name.startsWith(family)) ?? ENGINE_SPECS[engine].family
+  return FAMILIES.find(family => name.startsWith(family)) ?? ENGINE_SPECS[engine].family
 }
 
-export function sharedFamily(runs: { engine: Engine; model: string | null }[]): Family | 'mixed' | null {
-  const families = new Set(runs.map(run => modelFamily(run.engine, run.model)))
+export function sharedFamily(choices: ModelChoice[]): SharedFamily {
+  const families = new Set(choices.map(modelFamily))
   if (families.size > 1) return 'mixed'
   return families.values().next().value ?? null
 }

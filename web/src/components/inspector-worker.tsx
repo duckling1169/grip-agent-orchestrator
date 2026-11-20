@@ -6,6 +6,7 @@ import { modelFamily } from '@contracts/engines'
 import { Markdown } from '@/components/markdown'
 import { WorkerIcon } from '@/components/worker-icon'
 import { api } from '@/lib/api'
+import { reportingTo } from '@/lib/errors'
 import { patchLines } from '@/lib/diff'
 import { clockTime } from '@/lib/format'
 import { STATUS_LABELS } from '@/lib/status'
@@ -28,7 +29,7 @@ export function WorkerInspector({ id, ...props }: InspectorProps & { id: string 
     <>
       <Head title={worker.title} {...props}>
         <div className={SUBTITLE}>
-          <WorkerIcon family={modelFamily(worker.engine, worker.model)} running={worker.status === 'running'} small />
+          <WorkerIcon family={modelFamily(worker)} running={worker.status === 'running'} small />
           <span>{modelLine(worker)}</span>
         </div>
         <WorkerActivityLines worker={worker} />
@@ -90,7 +91,7 @@ function TurnView({ turn, worker }: { turn: Turn; worker: Worker }) {
       {turn.output && <Markdown text={turn.output} />}
       {turn.status === 'running' && (
         <div className={working}>
-          <WorkerIcon family={modelFamily(worker.engine, worker.model)} running small />
+          <WorkerIcon family={modelFamily(worker)} running small />
           <span>Still working</span>
         </div>
       )}
@@ -177,11 +178,11 @@ const ACTIONS = 'flex items-center gap-2 border-t px-4 py-2.5'
 
 function WorkerActions({ worker, offline, onError }: { worker: Worker; offline: boolean; onError: (message: string) => void }) {
   const [text, setText] = useState('')
-  const fail = (error: unknown) => onError(error instanceof Error ? error.message : String(error))
+  const act = reportingTo(onError)
   if (worker.status === 'running')
     return (
       <div className={ACTIONS}>
-        <button className={outlineButton} type="button" disabled={offline} onClick={() => void api.stopWorker(worker.id).catch(fail)}>
+        <button className={outlineButton} type="button" disabled={offline} onClick={() => void act(() => api.stopWorker(worker.id))}>
           <Square className="size-3" />
           Stop
         </button>
@@ -190,10 +191,7 @@ function WorkerActions({ worker, offline, onError }: { worker: Worker; offline: 
     )
   const send = () => {
     if (!text.trim()) return
-    void api
-      .messageWorker(worker.id, text.trim())
-      .then(() => setText(''))
-      .catch(fail)
+    void act(() => api.messageWorker(worker.id, text.trim()).then(() => setText('')))
   }
   return (
     <form

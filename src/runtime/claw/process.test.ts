@@ -1,12 +1,14 @@
 import { readFile } from 'node:fs/promises'
 import { ChildProcess } from 'node:child_process'
 import { join } from 'node:path'
+import { setTimeout as sleep } from 'node:timers/promises'
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { freePort } from '../../ports.js'
 import { listenOnLoopback, sendJson } from '../../http.js'
-import { FAKE_CLAW_CLI, temporaryHome } from '../../testing/harness.js'
+import { FAKE_CLAW_CLI } from '../../testing/fixtures.js'
+import { temporaryHome } from '../../testing/harness.js'
 import { ClawClient } from './client.js'
 import { ClawProcess } from './process.js'
 
@@ -83,7 +85,7 @@ describe('ClawProcess', () => {
     let crashes = 0
     claw.on('crashed', () => crashes++)
     await claw.stop()
-    await new Promise(resolve => setTimeout(resolve, 300))
+    await sleep(300)
     expect(crashes).toBe(0)
     expect(claw.running).toBe(false)
   })

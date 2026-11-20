@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 
@@ -19,6 +19,7 @@ import { ClawClient } from '../src/runtime/claw/client.js'
 import { assertSupportedClaw, installedClawCli } from '../src/runtime/claw/install.js'
 import { ClawProcess } from '../src/runtime/claw/process.js'
 import { isEngineInstalled } from '../src/runtime/engines.js'
+import { initRepo } from '../src/testing/fixtures.js'
 import { Workers } from '../src/workers/service.js'
 import { WorkerStore } from '../src/workers/store.js'
 
@@ -47,13 +48,7 @@ const paths = moxyPaths(join(scratch, 'home'))
 await mkdir(dirname(paths.clawLog), { recursive: true })
 const repo = join(scratch, 'repo')
 await mkdir(repo)
-const git = (...args: string[]) => execOk(exec, 'git', ['-C', repo, ...args])
-await git('init', '-q', '-b', 'main')
-await git('config', 'user.name', 'Moxy Check')
-await git('config', 'user.email', 'check@moxy.invalid')
-await writeFile(join(repo, 'README.md'), '# permission check\n')
-await git('add', '.')
-await git('commit', '-q', '-m', 'start')
+await initRepo(repo, 'Check')
 
 const clawPort = await freePort()
 const client = new ClawClient(`http://127.0.0.1:${clawPort}`, await loadOrCreateToken(paths.clawToken))

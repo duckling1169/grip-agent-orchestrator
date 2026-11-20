@@ -3,6 +3,7 @@ import { useState } from 'react'
 import type { EngineQuota, UsageWindow } from '@contracts/api'
 import { EngineIcon, engineName } from '@/components/engine-icon'
 import { api } from '@/lib/api'
+import { errorMessage } from '@/lib/errors'
 import { clockTime } from '@/lib/format'
 import { errorText, textButton } from '@/lib/styles'
 import { cn } from '@/lib/utils'
@@ -20,7 +21,7 @@ export function Quota({ quota, offline, onError }: { quota: EngineQuota[]; offli
     try {
       await api.refreshQuota(entry.engine)
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
+      const message = errorMessage(error)
       setError(message)
       onError(message)
     } finally {

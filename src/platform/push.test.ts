@@ -1,6 +1,7 @@
 import { createECDH } from 'node:crypto'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
+import { setTimeout as sleep } from 'node:timers/promises'
 import { join } from 'node:path'
 
 import { afterEach, describe, expect, it } from 'vitest'
@@ -149,7 +150,7 @@ describe('PushNotifier', () => {
         active++
         peak = Math.max(peak, active)
         if (device.endpoint.endsWith('/stall')) return new Promise(() => {})
-        await new Promise(resolve => setTimeout(resolve, 5))
+        await sleep(5)
         active--
         return { ok: true }
       },

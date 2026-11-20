@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { setTimeout as sleep } from 'node:timers/promises'
 
 import { describe, expect, it } from 'vitest'
 
@@ -38,7 +39,7 @@ async function startedLeader(claw: FakeClaw, index = 0): Promise<string> {
       await claw.turnStarted(name)
       return name
     }
-    await new Promise(resolve => setTimeout(resolve, 5))
+    await sleep(5)
   }
   throw new Error('no leader session started')
 }
@@ -249,7 +250,7 @@ describe('AcpLeader', () => {
   it('cancels a running turn on stop', async () => {
     const { leader, log } = leaderWith({ hang: true })
     const reply = leader.run(request({ engine: 'agy' }))
-    while (log.prompts.length === 0) await new Promise(resolve => setTimeout(resolve, 5))
+    await expect.poll(() => log.prompts.length).toBeGreaterThan(0)
     await leader.stop()
     expect(await reply).toMatchObject({ error: 'stopped' })
     expect(log.cancelled).toBe(1)

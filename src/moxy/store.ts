@@ -1,9 +1,10 @@
-import type { ConversationEntry, LeaderSettings, LeaderTurn, Recovery, Turn, TurnStatus, Worker } from '../contracts/api.js'
+import type { ConversationEntry, LeaderSettings, LeaderTurn, Recovery, Turn, Worker } from '../contracts/api.js'
 import type { MessageAttachment } from '../contracts/attachments.js'
 import type { Engine } from '../contracts/engines.js'
 import { LEADER_ENGINES } from '../contracts/engines.js'
+import { now } from '../clock.js'
 import type { Database } from '../db/database.js'
-import { numberOrNull, textOrNull } from '../db/rows.js'
+import { numberOrNull, textOrNull, turnFields } from '../db/rows.js'
 import type { Row } from '../db/rows.js'
 
 export type LeaderState = LeaderSettings & {
@@ -64,8 +65,6 @@ export function workerTurnEnded(worker: Worker, turn: Turn): InboxItem {
 export function userMessage(text: string, id: string, attachments: MessageAttachment[] = []): InboxItem {
   return { kind: 'user_message', source: `user:${id}`, body: attachments.length ? { text, attachments } : { text } }
 }
-
-const now = () => new Date().toISOString()
 
 export class ConversationStore {
   constructor(
@@ -260,15 +259,9 @@ function toItem(row: Row): ReceivedItem {
 
 function toTurn(row: Row): LeaderTurn {
   return {
+    ...turnFields(row),
     id: Number(row.id),
     engine: String(row.engine) as Engine,
-    model: textOrNull(row, 'model'),
-    effort: textOrNull(row, 'effort'),
-    status: String(row.status) as TurnStatus,
-    output: textOrNull(row, 'output'),
-    error: textOrNull(row, 'error'),
-    startedAt: String(row.started_at),
-    endedAt: textOrNull(row, 'ended_at'),
     retried: row.retried_at !== null,
     recovery: row.recovery === null || row.recovery === undefined ? null : (JSON.parse(String(row.recovery)) as Recovery),
   }

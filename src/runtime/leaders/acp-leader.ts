@@ -9,7 +9,7 @@ import { MOXY_MCP_NAME } from '../../contracts/mcp.js'
 import { errorText } from '../../errors.js'
 import { startAcpProcess } from '../acp-process.js'
 import type { AcpCommand, AcpProcessOptions } from '../acp-process.js'
-import { settlesWithin } from '../deadline.js'
+import { settlesWithin, withTimeout } from '../deadline.js'
 import type { LeaderReply, LeaderRunner, LeaderTurnRequest, McpEndpoint } from './leader.js'
 
 const require = createRequire(import.meta.url)
@@ -104,23 +104,14 @@ export class AcpLeader implements LeaderRunner {
 
     const running: RunningTurn = { cancel: () => cancel(), kill, done: turn.catch(() => undefined) }
     this.running = running
-    let timer: ReturnType<typeof setTimeout> | undefined
     try {
-      const stopReason = await Promise.race([
-        turn,
-        agentProcess.failed('during the turn'),
-        new Promise<never>((_, reject) => {
-          timer = setTimeout(
-            () => reject(new Error(`no reply within ${Math.round(request.timeoutMs / 60_000)} minutes`)),
-            request.timeoutMs,
-          )
-        }),
-      ])
+      const stopReason = await withTimeout(Promise.race([turn, agentProcess.failed('during the turn')]), request.timeoutMs, () => {
+        throw new Error(`no reply within ${Math.round(request.timeoutMs / 60_000)} minutes`)
+      })
       return { output, error: stopError(stopReason), nativeSessionId: sessionId, ...(context ? { context } : {}) }
     } catch (error) {
       return { output, error: errorText(error), nativeSessionId: sessionId, ...(context ? { context } : {}) }
     } finally {
-      if (timer) clearTimeout(timer)
       if (this.running === running) this.running = null
       kill()
     }

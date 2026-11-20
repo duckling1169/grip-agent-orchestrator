@@ -13,10 +13,10 @@ export function recoveryFor(
 ): Recovery | null {
   const now = Date.now()
   const windows = providerWindows(engine, quota)
-  const exhausted = windows.filter(window => fresh(window, now) && window.usedPercent >= 100)
+  const exhausted = windows.filter(window => spent(window, now))
   if (!exhausted.length && (!error || !QUOTA_FAILURE.test(error))) return null
   const candidates = LEADER_ENGINES.filter(candidate => candidate !== engine && available(candidate)).filter(
-    candidate => !providerWindows(candidate, quota).some(window => fresh(window, now) && window.usedPercent >= 100),
+    candidate => !providerWindows(candidate, quota).some(window => spent(window, now)),
   )
   const knownAvailable = candidates.find(candidate => {
     const windows = providerWindows(candidate, quota)
@@ -38,6 +38,10 @@ export function recoveryFor(
 function providerWindows(engine: Engine, quota: readonly EngineQuota[]): UsageWindow[] {
   const reading = quota.find(reading => reading.engine === engine)
   return reading && !reading.error ? reading.windows.filter(window => window.name === '5h' || window.name === 'week') : []
+}
+
+function spent(window: UsageWindow, now: number): boolean {
+  return fresh(window, now) && window.usedPercent >= 100
 }
 
 function fresh(window: UsageWindow, now: number): boolean {

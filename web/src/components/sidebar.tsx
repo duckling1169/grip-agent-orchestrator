@@ -56,7 +56,7 @@ export function Sidebar({
               key={worker.id}
               label={worker.title}
               tip={`${worker.title} · ${STATUS_LABELS[worker.status]}`}
-              icon={<WorkerIcon family={modelFamily(worker.engine, worker.model)} running={worker.status === 'running'} />}
+              icon={<WorkerIcon family={modelFamily(worker)} running={worker.status === 'running'} />}
               tone={rowTone(worker.status)}
               selected={selection?.kind === 'worker' && selection.id === worker.id}
               onOpen={() => onSelect({ kind: 'worker', id: worker.id })}

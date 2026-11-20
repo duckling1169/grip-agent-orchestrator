@@ -1,3 +1,4 @@
+import { errorMessage } from './errors'
 import { useCallback, useEffect, useState } from 'react'
 
 export type Fetched<T> = { data: T | null; error: string | null; reload: () => void }
@@ -15,7 +16,7 @@ export function useFetched<T>(load: (signal: AbortSignal) => Promise<T>, keys: u
         setError(null)
       },
       (failure: unknown) => {
-        if (!controller.signal.aborted) setError(failure instanceof Error ? failure.message : String(failure))
+        if (!controller.signal.aborted) setError(errorMessage(failure))
       },
     )
     return () => controller.abort()
