@@ -26,7 +26,7 @@ type MobileTab = 'moxy' | 'tasks' | 'settings' | 'inspect' | 'quota'
 const ERROR_SHOWN_MS = 6000
 
 export function App() {
-  const { snapshot, connection } = useLiveState()
+  const { snapshot, connection, denial } = useLiveState()
   const [linkedTask] = useState(() => {
     const id = new URLSearchParams(window.location.search).get('task')
     return id && /^[\w-]{1,128}$/.test(id) ? id : null
@@ -52,7 +52,7 @@ export function App() {
     return () => clearTimeout(timer)
   }, [error])
 
-  if (!snapshot) return <Splash connection={connection} />
+  if (!snapshot || denial) return <Splash connection={connection} denial={denial} />
 
   const offline = connection === 'offline'
   const running = snapshot.conversation.some(entry => entry.type === 'moxy' && entry.turn.status === 'running')
@@ -279,10 +279,10 @@ function TabButton({ on, icon, label, onClick }: { on: boolean; icon: ReactNode;
   )
 }
 
-function Splash({ connection }: { connection: Connection }) {
+function Splash({ connection, denial }: { connection: Connection; denial: string | null }) {
   return (
-    <div className="grid h-full place-items-center text-sm text-faint">
-      {connection === 'offline' ? 'Moxy is not reachable.' : 'Connecting to Moxy…'}
+    <div className="grid h-full place-items-center px-4 text-center text-sm text-faint">
+      {denial ? <p role="alert">{denial}</p> : connection === 'offline' ? 'Moxy is not reachable.' : 'Connecting to Moxy…'}
     </div>
   )
 }

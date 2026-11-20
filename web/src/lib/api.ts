@@ -16,11 +16,20 @@ import type { Engine } from '@contracts/engines'
 import type { PushReport, PushStatus, PushSubscriptionJson } from '@contracts/push'
 import type { MachineList } from '@contracts/machines'
 
+export class RequestError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message)
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, { cache: 'no-store', ...init })
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as { error?: unknown } | null
-    throw new Error(typeof body?.error === 'string' ? body.error : `Moxy returned HTTP ${response.status}`)
+    throw new RequestError(response.status, typeof body?.error === 'string' ? body.error : `Moxy returned HTTP ${response.status}`)
   }
   return response.json() as Promise<T>
 }
@@ -33,7 +42,7 @@ const workerPath = (id: string) => `/api/workers/${encodeURIComponent(id)}`
 export const uploadPath = (id: string) => `/api/uploads/${encodeURIComponent(id)}`
 
 export const api = {
-  state: () => request<Snapshot>('/api/state'),
+  state: (signal?: AbortSignal) => request<Snapshot>('/api/state', { signal }),
   machines: (refresh = false, signal?: AbortSignal) => request<MachineList>(`/api/machines${refresh ? '?refresh=true' : ''}`, { signal }),
   pushInfo: (endpoint?: string) => request<PushStatus>(`/api/push${endpoint ? `?endpoint=${encodeURIComponent(endpoint)}` : ''}`),
   pushSubscribe: (subscription: PushSubscriptionJson) => post<PushStatus>('/api/push/subscribe', { subscription }),
