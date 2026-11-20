@@ -5,6 +5,7 @@ import { describe, expect, it, onTestFinished } from 'vitest'
 
 import { Database } from '../db/database.js'
 import { MOXY_SCHEMA } from '../db/schema.js'
+import { Worktrees } from '../repos/worktrees.js'
 import { temporaryHome, temporaryRepo } from '../testing/harness.js'
 import { PROJECT_NOTE_LIMIT, ProjectNotes } from './notes.js'
 
@@ -12,7 +13,7 @@ async function setup() {
   const path = join(await temporaryHome(), 'moxy.db')
   const database = Database.open(path, MOXY_SCHEMA)
   onTestFinished(() => database.close())
-  return { path, database, notes: new ProjectNotes(database) }
+  return { path, database, notes: new ProjectNotes(database, new Worktrees()) }
 }
 
 describe('ProjectNotes', () => {

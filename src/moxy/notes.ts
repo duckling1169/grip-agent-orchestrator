@@ -1,6 +1,6 @@
 import type { Database } from '../db/database.js'
 import type { Row } from '../db/rows.js'
-import { Worktrees } from '../repos/worktrees.js'
+import type { Worktrees } from '../repos/worktrees.js'
 
 export type ProjectNote = { repo: string; body: string; updatedAt: string }
 export type ProjectNoteSummary = { repo: string; updatedAt: string }
@@ -10,7 +10,7 @@ export const PROJECT_NOTE_LIMIT = 8000
 export class ProjectNotes {
   constructor(
     private readonly database: Database,
-    private readonly worktrees: Pick<Worktrees, 'repoOf'> = new Worktrees(),
+    private readonly worktrees: Pick<Worktrees, 'repoOf'>,
   ) {}
 
   async read(repo: string): Promise<ProjectNote> {
@@ -23,7 +23,7 @@ export class ProjectNotes {
   }
 
   async update(repo: string, body: string): Promise<ProjectNote> {
-    if (typeof body !== 'string' || body.length > PROJECT_NOTE_LIMIT) {
+    if (body.length > PROJECT_NOTE_LIMIT) {
       throw new Error(`body must be at most ${PROJECT_NOTE_LIMIT} characters`)
     }
     const root = await this.resolveRepo(repo)

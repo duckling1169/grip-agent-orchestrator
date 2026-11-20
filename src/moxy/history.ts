@@ -85,26 +85,8 @@ export class ConversationHistory {
   }
 
   private getTarget(ref: string): HistoryMessage {
-    const match = REF_PATTERN.exec(ref)
-    if (!match) throw new Error(`unknown history ref: ${ref}`)
-    const [, kind, idText] = match
-    const id = Number(idText)
-    const row =
-      kind === 'user'
-        ? (this.database
-            .prepare(
-              `SELECT 'user:' || id AS ref, received_at AS at, 'user' AS speaker, json_extract(body, '$.text') AS text
-               FROM inbox
-               WHERE id = ? AND kind = 'user_message' AND json_extract(body, '$.text') IS NOT NULL`,
-            )
-            .get(id) as Row | undefined)
-        : (this.database
-            .prepare(
-              `SELECT 'moxy:' || id AS ref, COALESCE(ended_at, started_at) AS at, 'moxy' AS speaker, output AS text
-               FROM leader_turns
-               WHERE id = ? AND status != 'running' AND output IS NOT NULL`,
-            )
-            .get(id) as Row | undefined)
+    if (!REF_PATTERN.test(ref)) throw new Error(`unknown history ref: ${ref}`)
+    const row = this.database.prepare(`SELECT ref, at, speaker, text FROM (${TIMELINE_SQL}) WHERE ref = ?`).get(ref) as Row | undefined
     if (!row) throw new Error(`unknown history ref: ${ref}`)
     return toMessage(row)
   }
@@ -132,7 +114,7 @@ function makeSnippet(text: string, terms: readonly string[]): string {
   const anchor = firstIndex === text.length ? 0 : firstIndex
   const start = Math.max(0, Math.min(anchor - Math.floor((SNIPPET_CHARS - firstLength) / 2), text.length - SNIPPET_CHARS))
   const end = Math.min(text.length, start + SNIPPET_CHARS)
-  return `${start > 0 ? '...' : ''}${text.slice(start, end)}${end < text.length ? '...' : ''}`
+  return `${start > 0 ? '…' : ''}${text.slice(start, end)}${end < text.length ? '…' : ''}`
 }
 
 function toMessage(row: Row): HistoryMessage {
@@ -141,6 +123,6 @@ function toMessage(row: Row): HistoryMessage {
     ref: String(row.ref),
     at: String(row.at),
     speaker: String(row.speaker) as Speaker,
-    text: text.length <= READ_TEXT_LIMIT ? text : `${text.slice(0, READ_TEXT_LIMIT - 3)}...`,
+    text: text.length <= READ_TEXT_LIMIT ? text : `${text.slice(0, READ_TEXT_LIMIT - 1)}…`,
   }
 }

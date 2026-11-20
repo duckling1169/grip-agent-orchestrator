@@ -51,6 +51,7 @@ describe('handoffContext', () => {
         tasks: [task('working'), task('second'), task('closed', { status: 'done', notes: 'DONE TASK DETAILS' })],
         conversation: [],
         memory,
+        notes: [],
       },
       3,
     )
@@ -76,6 +77,7 @@ describe('handoffContext', () => {
       {
         tasks: [],
         memory,
+        notes: [],
         conversation: [
           user(1, 'Past request'),
           reply(1, 'Past response'),
@@ -103,7 +105,7 @@ describe('handoffContext', () => {
       }),
     )
     const conversation = Array.from({ length: 40 }, (_, i) => user(i, `message-${i} ${'text'.repeat(5000)}`, i))
-    const context = handoffContext({ tasks, conversation, memory: { ...memory, preferences: 'preferences '.repeat(5000) } }, 50)
+    const context = handoffContext({ tasks, conversation, memory: { ...memory, preferences: 'preferences '.repeat(5000) }, notes: [] }, 50)
     expect(context.length).toBeLessThan(40000)
     expect(context).toContain('clipped')
     expect(context).toContain('task_get')
@@ -117,16 +119,16 @@ describe('handoffContext', () => {
   it('does not mutate supplied task and conversation records', () => {
     const tasks = [task('one')]
     const conversation = [user(1, 'One'), reply(1, 'Two')]
-    const before = JSON.stringify({ tasks, conversation, memory })
-    handoffContext({ tasks, conversation, memory }, 3)
-    expect(JSON.stringify({ tasks, conversation, memory })).toBe(before)
+    const before = JSON.stringify({ tasks, conversation, memory, notes: [] })
+    handoffContext({ tasks, conversation, memory, notes: [] }, 3)
+    expect(JSON.stringify({ tasks, conversation, memory, notes: [] })).toBe(before)
   })
 
   it('keeps oversized model labels and task pointers inside the seed budget', () => {
     const historical = reply(1, 'assistant message '.repeat(5000))
     if (historical.type === 'moxy') historical.turn.model = 'model'.repeat(20000)
     const context = handoffContext(
-      { tasks: [task('oversized', { repoRoot: 'repo'.repeat(20000) })], conversation: [historical], memory },
+      { tasks: [task('oversized', { repoRoot: 'repo'.repeat(20000) })], conversation: [historical], memory, notes: [] },
       2,
     )
     expect(context.length).toBeLessThan(40000)
@@ -143,8 +145,8 @@ describe('handoffContext', () => {
         conversation: [],
         memory,
         notes: [
-          { repo: 'C:/repos/older', updatedAt: '2026-11-18T10:00:00.000Z' },
           { repo: 'C:/repos/newer', updatedAt: '2026-11-19T10:00:00.000Z' },
+          { repo: 'C:/repos/older', updatedAt: '2026-11-18T10:00:00.000Z' },
         ],
       },
       1,

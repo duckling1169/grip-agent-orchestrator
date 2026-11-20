@@ -74,9 +74,9 @@ describe('ConversationHistory', () => {
     const [hit] = history.search({ words: 'target_token' })
     expect(hit).toBeDefined()
     expect(hit!.snippet).toContain('TARGET_TOKEN')
-    expect(hit!.snippet.startsWith('...')).toBe(true)
-    expect(hit!.snippet.endsWith('...')).toBe(true)
-    expect(hit!.snippet.length).toBeLessThanOrEqual(310)
+    expect(hit!.snippet.startsWith('…')).toBe(true)
+    expect(hit!.snippet.endsWith('…')).toBe(true)
+    expect(hit!.snippet.length).toBeLessThanOrEqual(302)
   })
 
   it('reads messages around a user or moxy ref, handles edges, clips long messages and rejects unknown refs', async () => {
