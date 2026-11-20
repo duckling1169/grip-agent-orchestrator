@@ -12,7 +12,9 @@ import { DEFAULT_MCP_PORT, startMcpServer } from './mcp/server.js'
 import { LeaderLoop } from './moxy/loop.js'
 import { ConversationStore } from './moxy/store.js'
 import { FollowUps } from './moxy/follow-ups.js'
+import { ConversationHistory } from './moxy/history.js'
 import { Memory } from './moxy/memory.js'
+import { ProjectNotes } from './moxy/notes.js'
 import { handoffContext } from './moxy/context.js'
 import { leaderPrompt } from './moxy/leader-prompt.js'
 import { knownRepos } from './repos/known.js'
@@ -80,6 +82,8 @@ export type Moxy = {
   push: PushNotifier
   followUps: FollowUps
   memory: Memory
+  notes: ProjectNotes
+  history: ConversationHistory
   clawPort: number
   clawVersion: string
   mcpPort: number
@@ -125,9 +129,11 @@ export async function startMoxy(options: MoxyOptions = {}): Promise<Moxy> {
     const conversation = new ConversationStore(database)
     let loop: LeaderLoop | null = null
     const memory = new Memory(database)
+    const history = new ConversationHistory(database)
     const followUps = new FollowUps(database, { wake: () => loop?.wake(), onError: error => log(`follow-up failed: ${errorText(error)}`) })
     undo.push(() => followUps.close())
     const worktrees = new Worktrees()
+    const notes = new ProjectNotes(database, worktrees)
     const workers = new Workers({
       store: new WorkerStore(database, conversation),
       claw: client,
@@ -174,7 +180,7 @@ export async function startMoxy(options: MoxyOptions = {}): Promise<Moxy> {
 
     const mcpToken = await loadOrCreateToken(paths.mcpToken)
     const mcp = await startMcpServer({
-      tools: { workers, tasks, quota, models, followUps, memory },
+      tools: { workers, tasks, quota, models, followUps, memory, notes, history },
       token: mcpToken,
       port: options.mcpPort ?? DEFAULT_MCP_PORT,
       version: MOXY_VERSION,
@@ -192,7 +198,11 @@ export async function startMoxy(options: MoxyOptions = {}): Promise<Moxy> {
         leaderPrompt({ machine: hostname(), engine, repoFolders: config.repoFolders, repos: await knownRepos(config.repoFolders) }),
       timeoutMs: options.leaderTimeoutMs ?? LEADER_TURN_TIMEOUT_MS,
       log,
-      seed: turnId => handoffContext({ tasks: tasks.list(), conversation: conversation.conversation(), memory: memory.read() }, turnId),
+      seed: turnId =>
+        handoffContext(
+          { tasks: tasks.list(), conversation: conversation.conversation(), memory: memory.read(), notes: notes.list() },
+          turnId,
+        ),
       instructions: () => {
         const instructions = memory.read().instructions
         return instructions ? `[User standing instructions]\n${instructions}` : ''
@@ -268,6 +278,8 @@ export async function startMoxy(options: MoxyOptions = {}): Promise<Moxy> {
       push,
       followUps,
       memory,
+      notes,
+      history,
       clawPort,
       clawVersion: version,
       mcpPort: mcp.port,

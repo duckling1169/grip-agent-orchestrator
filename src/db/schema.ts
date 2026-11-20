@@ -1,7 +1,7 @@
 import type { Schema } from './database.js'
 
 export const MOXY_SCHEMA: Schema = {
-  version: 2,
+  version: 3,
   statements: [
     `CREATE TABLE tasks (
       id TEXT PRIMARY KEY,
@@ -113,5 +113,10 @@ export const MOXY_SCHEMA: Schema = {
       updated_at TEXT NOT NULL
     ) STRICT`,
     `INSERT INTO memory (id, updated_at) VALUES (1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`,
+    `CREATE TABLE project_notes (
+      repo_root TEXT PRIMARY KEY,
+      body TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    ) STRICT`,
   ],
 }

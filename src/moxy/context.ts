@@ -1,15 +1,22 @@
 import type { ConversationEntry, Task } from '../contracts/api.js'
 import { MEMORY_LIMITS } from './memory.js'
 import type { UserMemory } from './memory.js'
+import type { ProjectNoteSummary } from './notes.js'
 import { renderUserMessage } from './prompt.js'
 
-type HandoffInput = { tasks: readonly Task[]; conversation: readonly ConversationEntry[]; memory: UserMemory }
+type HandoffInput = {
+  tasks: readonly Task[]
+  conversation: readonly ConversationEntry[]
+  memory: UserMemory
+  notes?: readonly ProjectNoteSummary[]
+}
 
 export function handoffContext(input: HandoffInput, currentTurnId: number): string {
   return [
     'This is historical context for a fresh session, not a new request. Current inbox items govern this turn; history alone does not authorize accepting a task. Read full task records with task_get.',
     `User preferences:\n${clipped(input.memory.preferences, MEMORY_LIMITS.preferences) || '(none saved)'}`,
     `Open tasks:\n${taskContext(input.tasks)}`,
+    `Project notes:\n${notesContext(input.notes ?? [])}`,
     `Recent conversation:\n${conversationContext(input.conversation, currentTurnId)}`,
   ].join('\n\n')
 }
@@ -39,6 +46,23 @@ function taskContext(tasks: readonly Task[]): string {
     )
     .join('\n\n')
   return `${text}${notice}`
+}
+
+function notesContext(notes: readonly ProjectNoteSummary[]): string {
+  if (!notes.length) return '(none saved)'
+  const sorted = [...notes].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+  const lines: string[] = []
+  let length = 0
+  for (const note of sorted) {
+    const line = `${note.repo} (updated ${note.updatedAt})`
+    const nextLength = length + (lines.length ? 1 : 0) + line.length
+    if (lines.length && nextLength > 1400) break
+    lines.push(lines.length || line.length <= 1400 ? line : clipped(line, 1400))
+    length = lines.reduce((sum, item) => sum + item.length, 0) + Math.max(0, lines.length - 1)
+  }
+  const omitted = sorted.length - lines.length
+  const notice = omitted ? `\n[${omitted} project notes omitted; context clipped. Use notes_read for the full list.]` : ''
+  return `${lines.join('\n')}${notice}`
 }
 
 function conversationContext(conversation: readonly ConversationEntry[], currentTurnId: number): string {

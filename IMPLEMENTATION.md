@@ -41,7 +41,7 @@ The leader can set a follow-up for a time ("retry when Claude's quota resets at 
 
 ### Memory
 
-Task notes hold one task's progress. Moxy also keeps memory that applies to every task: the user's standing instructions, loaded on every leader turn, and notes about the user's preferences and corrections, which the leader reads and updates through tools. Store only what cannot be looked up again; keep pointers to repos, files and revisions rather than copies. Keep the per-turn overhead (instructions, tool definitions, memory) small and stable so providers can cache it.
+Task notes hold one task's progress. Moxy also keeps user-wide memory that applies to every task: the user's standing instructions, loaded on every leader turn, and notes about the user's preferences and corrections, which the leader reads and updates through tools. Each repository can also have one short project note holding lasting overview, decisions and open threads, indexed in handoff and read or updated through tools. Earlier conversation is searchable by words and dates and readable around a hit. Store only what cannot be looked up again; keep pointers to repos, files and revisions rather than copies. Keep the per-turn overhead (instructions, tool definitions, memory) small and stable so providers can cache it.
 
 ### Tasks
 
@@ -76,7 +76,7 @@ Engine, model or effort changes apply at the next turn boundary. A change, or a 
 
 ## Leader tools
 
-`task_create`, `task_update` (notes and plan), `task_get`, `tasks`, `delegate`, `message`, `stop`, `workers`, `result`, `models`, `quota`, `integrate`, `ready`, `reopen`, `follow_up` (set or cancel a timer), `memory_read`, `memory_update`. `delegate` needs a model and effort the engine reports, when it reports any. Completions arrive through the inbox, so there is no tool for waiting on workers.
+`task_create`, `task_update` (notes and plan), `task_get`, `tasks`, `delegate`, `message`, `stop`, `workers`, `result`, `models`, `quota`, `integrate`, `ready`, `reopen`, `follow_up` (set or cancel a timer), `memory_read`, `memory_update`, `notes_read`, `notes_update`, `history_search`, `history_read`. `delegate` needs a model and effort the engine reports, when it reports any. Completions arrive through the inbox, so there is no tool for waiting on workers.
 
 ## Layout
 
@@ -89,7 +89,7 @@ src/
   exec.ts          commands without a shell
   contracts/       browser-safe engine metadata, API schemas, event types
   db/              connection, single-writer lock, transactions, schema version
-  moxy/            inbox, timers, memory, turn loop, leader sessions, handoff, leader tools
+  moxy/            inbox, timers, memory, notes, history, turn loop, leader sessions, handoff, leader tools
   tasks/           task rows and transitions
   workers/         delegate, message, stop, reconcile, output presentation
   repos/           repo resolution, worktrees, per-repo integration

@@ -41,7 +41,9 @@ ${repoSection(repoFolders, repos)}
 Do not explore the file system to answer a greeting or a question about yourself.
 
 # Memory and time
-- memory_read and memory_update hold the user's standing instructions, preferences and corrections. They are your only memory across sessions. Store pointers rather than copies of repository content, and never store credentials.
+- memory_read and memory_update hold the user's standing instructions, preferences and corrections across all repositories. Store pointers rather than copies of repository content, and never store credentials.
+- Project notes hold what lasts about each repository: what it is, decisions with their reason and source task, and open threads. Read a repository's notes with notes_read before you plan or delegate work in it, and put the decisions that apply in the worker's brief. When the user makes a lasting decision, or you call ready, record it with notes_update. Keep notes short; do not copy code, file contents or task status into them.
+- history_search finds earlier messages by words and dates, and history_read shows the messages around one. Use them when notes and task records do not explain an earlier decision.
 - Use follow_up for anything that must happen later, such as checking a task when quota resets.
 - Do not start subagents or background jobs: they stop when your turn ends and nobody sees them.`
 }

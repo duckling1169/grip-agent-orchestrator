@@ -132,4 +132,35 @@ describe('handoffContext', () => {
     expect(context.length).toBeLessThan(40000)
     expect(context).toContain('clipped')
   })
+
+  it('includes the project notes index newest first, clips long lists and shows (none saved) when empty', () => {
+    const empty = handoffContext({ tasks: [], conversation: [], memory, notes: [] }, 1)
+    expect(empty).toContain('Project notes:\n(none saved)')
+
+    const listed = handoffContext(
+      {
+        tasks: [],
+        conversation: [],
+        memory,
+        notes: [
+          { repo: 'C:/repos/older', updatedAt: '2026-11-18T10:00:00.000Z' },
+          { repo: 'C:/repos/newer', updatedAt: '2026-11-19T10:00:00.000Z' },
+        ],
+      },
+      1,
+    )
+    expect(listed).toContain(
+      'Project notes:\nC:/repos/newer (updated 2026-11-19T10:00:00.000Z)\nC:/repos/older (updated 2026-11-18T10:00:00.000Z)',
+    )
+
+    const many = Array.from({ length: 40 }, (_, i) => ({
+      repo: `C:/repos/project-with-a-fairly-long-name-${i}`,
+      updatedAt: `2026-11-${String((i % 28) + 1).padStart(2, '0')}T10:00:00.000Z`,
+    }))
+    const clipped = handoffContext({ tasks: [], conversation: [], memory, notes: many }, 1)
+    const section = clipped.split('Project notes:\n')[1]!.split('\n\nRecent conversation:')[0]!
+    expect(section.length).toBeLessThanOrEqual(1600)
+    expect(section).toContain('clipped')
+    expect(section).toContain('notes_read')
+  })
 })
