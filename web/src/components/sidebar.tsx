@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 
 import type { Task, Worker } from '@contracts/api'
+import { modelFamily, sharedFamily } from '@contracts/engines'
 import { WorkerIcon } from '@/components/worker-icon'
 import { useStoredFlag } from '@/lib/stored'
 import { latestWorker, rowTone, STAGE_LABELS, STATUS_LABELS, taskStage, workersByTask } from '@/lib/status'
@@ -31,13 +32,14 @@ export function Sidebar({
         return (
           <Section key={stage} id={stage} label={STAGE_LABELS[stage]} count={stageTasks.length}>
             {stageTasks.map(task => {
-              const latest = latestWorker(byTask.get(task.id) ?? [])
+              const taskWorkers = byTask.get(task.id) ?? []
+              const latest = latestWorker(taskWorkers)
               return (
                 <Row
                   key={task.id}
                   label={task.title}
                   tip={`${task.title} · ${STAGE_LABELS[stage]}`}
-                  icon={<WorkerIcon engine={latest?.engine ?? null} running={stage !== 'done'} />}
+                  icon={<WorkerIcon family={sharedFamily(taskWorkers)} running={stage !== 'done'} />}
                   tone={stage === 'reviewing' && latest ? rowTone(latest.status) : null}
                   selected={selection?.kind === 'task' && selection.id === task.id}
                   onOpen={() => onSelect({ kind: 'task', id: task.id })}
@@ -54,7 +56,7 @@ export function Sidebar({
               key={worker.id}
               label={worker.title}
               tip={`${worker.title} · ${STATUS_LABELS[worker.status]}`}
-              icon={<WorkerIcon engine={worker.engine} running={worker.status === 'running'} />}
+              icon={<WorkerIcon family={modelFamily(worker.engine, worker.model)} running={worker.status === 'running'} />}
               tone={rowTone(worker.status)}
               selected={selection?.kind === 'worker' && selection.id === worker.id}
               onOpen={() => onSelect({ kind: 'worker', id: worker.id })}

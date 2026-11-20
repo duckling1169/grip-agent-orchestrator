@@ -2,6 +2,7 @@ import { Square } from 'lucide-react'
 import { useState } from 'react'
 
 import type { FileChange, Turn, Worker } from '@contracts/api'
+import { modelFamily } from '@contracts/engines'
 import { Markdown } from '@/components/markdown'
 import { WorkerIcon } from '@/components/worker-icon'
 import { api } from '@/lib/api'
@@ -27,7 +28,7 @@ export function WorkerInspector({ id, ...props }: InspectorProps & { id: string 
     <>
       <Head title={worker.title} {...props}>
         <div className={SUBTITLE}>
-          <WorkerIcon engine={worker.engine} running={worker.status === 'running'} small />
+          <WorkerIcon family={modelFamily(worker.engine, worker.model)} running={worker.status === 'running'} small />
           <span>{modelLine(worker)}</span>
         </div>
         <WorkerActivityLines worker={worker} />
@@ -89,7 +90,7 @@ function TurnView({ turn, worker }: { turn: Turn; worker: Worker }) {
       {turn.output && <Markdown text={turn.output} />}
       {turn.status === 'running' && (
         <div className={working}>
-          <WorkerIcon engine={worker.engine} running small />
+          <WorkerIcon family={modelFamily(worker.engine, worker.model)} running small />
           <span>Still working</span>
         </div>
       )}

@@ -2,8 +2,22 @@ export type ClawEngine = 'claude' | 'codex-app' | 'agy' | 'cursor' | 'grok' | 'o
 export type ClawPermissionMode = 'auto' | 'bypassPermissions'
 export type ClawSandboxMode = 'danger-full-access'
 
+export const FAMILY_NAMES = {
+  claude: 'Claude',
+  gpt: 'GPT',
+  gemini: 'Gemini',
+  cursor: 'Cursor',
+  grok: 'Grok',
+  opencode: 'OpenCode',
+  kimi: 'Kimi',
+  deepseek: 'DeepSeek',
+} as const
+
+export type Family = keyof typeof FAMILY_NAMES
+
 export type EngineSpec = {
   name: string
+  family: Family
   claw: ClawEngine
   acpAgent?: string
   bin: string
@@ -12,14 +26,14 @@ export type EngineSpec = {
 }
 
 export const ENGINE_SPECS = {
-  claude: { name: 'Claude', claw: 'claude', bin: 'claude', permissionMode: 'auto' },
-  codex: { name: 'Codex', claw: 'codex-app', bin: 'codex', sandboxMode: 'danger-full-access' },
-  agy: { name: 'Gemini', claw: 'agy', bin: 'agy', permissionMode: 'bypassPermissions' },
-  cursor: { name: 'Cursor', claw: 'cursor', bin: 'cursor-agent' },
-  grok: { name: 'Grok', claw: 'grok', bin: 'grok', permissionMode: 'auto' },
-  opencode: { name: 'OpenCode', claw: 'opencode', bin: 'opencode' },
-  kimi: { name: 'Kimi', claw: 'acp', acpAgent: 'kimi-code', bin: 'kimi' },
-  deepseek: { name: 'DeepSeek', claw: 'acp', acpAgent: 'dsh', bin: 'dsh' },
+  claude: { name: 'Claude', family: 'claude', claw: 'claude', bin: 'claude', permissionMode: 'auto' },
+  codex: { name: 'Codex', family: 'gpt', claw: 'codex-app', bin: 'codex', sandboxMode: 'danger-full-access' },
+  agy: { name: 'Antigravity', family: 'gemini', claw: 'agy', bin: 'agy', permissionMode: 'bypassPermissions' },
+  cursor: { name: 'Cursor', family: 'cursor', claw: 'cursor', bin: 'cursor-agent' },
+  grok: { name: 'Grok', family: 'grok', claw: 'grok', bin: 'grok', permissionMode: 'auto' },
+  opencode: { name: 'OpenCode', family: 'opencode', claw: 'opencode', bin: 'opencode' },
+  kimi: { name: 'Kimi', family: 'kimi', claw: 'acp', acpAgent: 'kimi-code', bin: 'kimi' },
+  deepseek: { name: 'DeepSeek', family: 'deepseek', claw: 'acp', acpAgent: 'dsh', bin: 'dsh' },
 } as const satisfies Record<string, EngineSpec>
 
 export type Engine = keyof typeof ENGINE_SPECS
@@ -39,4 +53,17 @@ export function engineSpec(engine: Engine): EngineSpec {
 
 export function isEngine(value: string): value is Engine {
   return Object.hasOwn(ENGINE_SPECS, value)
+}
+
+const MODEL_FAMILIES: readonly Family[] = ['claude', 'gpt', 'gemini', 'grok', 'kimi', 'deepseek']
+
+export function modelFamily(engine: Engine, model: string | null): Family {
+  const name = model?.toLowerCase().split('/').at(-1) ?? ''
+  return MODEL_FAMILIES.find(family => name.startsWith(family)) ?? ENGINE_SPECS[engine].family
+}
+
+export function sharedFamily(runs: { engine: Engine; model: string | null }[]): Family | 'mixed' | null {
+  const families = new Set(runs.map(run => modelFamily(run.engine, run.model)))
+  if (families.size > 1) return 'mixed'
+  return families.values().next().value ?? null
 }

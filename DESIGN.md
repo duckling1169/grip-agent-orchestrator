@@ -18,7 +18,7 @@ The desktop app shows the conversation, task sidebar and inspector. Tasks are gr
 
 Messages can include up to 10 attachments of 25 MiB each. Pending uploads share a 250 MiB budget, must complete within 60 seconds, and expire after 24 hours if not attached to a sent message. Sent attachments remain available. Images open inline and other files download.
 
-Quota checks cover Codex, Gemini and Claude. Claude checks spend a small Haiku turn; the default five-minute timer includes Claude and can be disabled in Settings. Notifications are opt-in per device and contain the task title and a link, not code or output.
+Quota checks cover Codex, Antigravity and Claude. Claude checks spend a small Haiku turn; the default five-minute timer includes Claude and can be disabled in Settings. Notifications are opt-in per device and contain the task title and a link, not code or output.
 
 ## Boundaries
 

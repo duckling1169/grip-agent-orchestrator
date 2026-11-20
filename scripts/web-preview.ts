@@ -90,7 +90,7 @@ const moxy = await startMoxy({
     claude: async () => usage('claude', ++claudeReads === 1 ? 35 : 42, true),
     codex: async () => usage('codex', 22),
     agy: async () => {
-      throw new Error('Gemini quota temporarily unavailable')
+      throw new Error('Antigravity quota temporarily unavailable')
     },
   },
   models: {
@@ -166,6 +166,12 @@ tasks.create({
 })
 worker('codex-vite', { title: 'Upgrade Vite', engine: 'codex', taskId: 'vite' }, 'Upgrade Vite and its plugins.')
 finish('codex-vite', 'finished', 'Upgraded Vite and both plugins. The build and tests pass.')
+worker(
+  'agy-vite-review',
+  { title: 'Review the Vite upgrade', engine: 'agy', model: 'claude-sonnet-5-5', effort: 'high', taskId: 'vite' },
+  'Review the Vite upgrade for breaking plugin changes.',
+)
+finish('agy-vite-review', 'finished', 'No breaking plugin changes found.')
 
 worker(
   'agy-cold-start',

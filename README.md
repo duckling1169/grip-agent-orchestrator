@@ -20,7 +20,7 @@ Moxy drives the coding CLIs you already have signed in, using their own sign-ins
 
 - Windows 10 or 11, Node.js 24.11.0 or later, and Git with `user.name` and `user.email` configured.
 - Tailscale signed in on the PC and phone, with HTTPS enabled for Tailscale Serve.
-- At least one supported coding CLI installed, signed in and on PATH. Claude leads by default. Claude, Codex, Gemini (`agy`), Kimi and DeepSeek can lead; Cursor, Grok and OpenCode are workers only.
+- At least one supported coding CLI installed, signed in and on PATH. Claude leads by default. Claude, Codex, Antigravity (`agy`), Kimi and DeepSeek can lead; Cursor, Grok and OpenCode are workers only.
 - For direct leader launches, `agy`, `kimi` and `dsh` need a real `.exe` or `.com` on PATH. Workers launched through Claw can also use npm `.cmd` shims.
 
 ## Install and first run
@@ -45,7 +45,7 @@ To index repositories, add their parent folders to `repoFolders` in `~/.moxy/con
 
 ## Quota checks
 
-Moxy checks Codex through app-server, Gemini through `agy /usage`, and Claude with a small Haiku probe turn with tools disabled and no saved session. The automatic check runs every five minutes by default, including Claude: up to 288 tiny Haiku turns per day while Moxy runs. Change the interval in Settings or set `quotaRefreshMinutes` in `~/.moxy/config.json` to a whole number from 1 to 1440. Set it to `0` to turn automatic checks off. Manual checks remain available. Codex and Gemini also refresh after a turn, at most once per minute; Claude does not.
+Moxy checks Codex through app-server, Antigravity through `agy /usage`, and Claude with a small Haiku probe turn with tools disabled and no saved session. The automatic check runs every five minutes by default, including Claude: up to 288 tiny Haiku turns per day while Moxy runs. Change the interval in Settings or set `quotaRefreshMinutes` in `~/.moxy/config.json` to a whole number from 1 to 1440. Set it to `0` to turn automatic checks off. Manual checks remain available. Codex and Antigravity also refresh after a turn, at most once per minute; Claude does not.
 
 ## Security
 

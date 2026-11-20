@@ -183,7 +183,7 @@ test('the running worker ring is static and muted offline or with reduced motion
   await page.goto('/')
   if (isMobile(page)) await page.getByRole('button', { name: 'Tasks', exact: true }).click()
   const task = page.getByRole('button', { name: /Departures board pagination/ }).first()
-  const icon = task.getByRole('img', { name: 'Claude', exact: true }).first()
+  const icon = task.getByRole('img', { name: 'Mixed models', exact: true })
   const ring = () =>
     icon.evaluate(element => {
       const style = getComputedStyle(element.parentElement!, '::after')
@@ -223,4 +223,19 @@ test('a task opens in the inspector and leads to its workers', async ({ page }) 
     await inspector.getByRole('button', { name: 'Back' }).click()
     await expect(inspector.getByText('20 rows a page')).toBeVisible()
   }
+})
+
+test('icons follow the model family, and a task with mixed families shows a neutral icon', async ({ page }) => {
+  await page.goto('/')
+  if (isMobile(page)) await page.getByRole('button', { name: 'Tasks', exact: true }).click()
+  const tasks = page.getByRole('navigation', { name: 'Tasks' })
+  const darkMode = tasks.getByRole('button', { name: 'Dark mode toggle in settings' })
+  await expect(darkMode.getByRole('img', { name: 'GPT', exact: true }).first()).toBeVisible()
+  const vite = tasks.getByRole('button', { name: 'Upgrade Vite to 8' })
+  await expect(vite.getByRole('img', { name: 'Mixed models', exact: true })).toBeVisible()
+  await vite.click()
+  const inspector = page.getByRole('complementary', { name: 'Inspector' })
+  const review = inspector.getByRole('button', { name: /Review the Vite upgrade/ })
+  await expect(review.getByText('Antigravity · claude-sonnet-5-5 · high')).toBeVisible()
+  await expect(review.getByRole('img', { name: 'Claude', exact: true }).first()).toBeVisible()
 })

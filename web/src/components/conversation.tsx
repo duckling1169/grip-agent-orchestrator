@@ -2,6 +2,7 @@ import { Check, CircleAlert, Copy, RotateCw } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 import type { ConversationEntry, LeaderSettings, LeaderTurn, Recovery } from '@contracts/api'
+import { modelFamily } from '@contracts/engines'
 import { MessageAttachments } from '@/components/attachments'
 import { engineName } from '@/components/engine-icon'
 import { Markdown } from '@/components/markdown'
@@ -237,7 +238,7 @@ function Working({ turn }: { turn: LeaderTurn }) {
   }, [])
   return (
     <div className={working} role="status">
-      <WorkerIcon engine={turn.engine} running small />
+      <WorkerIcon family={modelFamily(turn.engine, turn.model)} running small />
       <span>Moxy is working · {elapsed(turn.startedAt, null)}</span>
     </div>
   )
@@ -248,7 +249,7 @@ function Byline({ turn, text }: { turn: LeaderTurn; text: string }) {
   const model = [turn.model ?? engineName(turn.engine), turn.effort].filter(Boolean).join(' ')
   return (
     <div className="flex min-h-5.5 items-center gap-1.5 text-xs text-faint opacity-0 transition-opacity group-focus-within/turn:opacity-100 group-hover/turn:opacity-100 max-md:opacity-100">
-      <WorkerIcon engine={turn.engine} small />
+      <WorkerIcon family={modelFamily(turn.engine, turn.model)} small />
       <span>
         {model} · {clockTime(turn.endedAt ?? turn.startedAt)}
       </span>

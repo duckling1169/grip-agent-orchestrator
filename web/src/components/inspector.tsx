@@ -1,11 +1,12 @@
 import type { ReactNode } from 'react'
 
 import type { Integration, Task, Worker } from '@contracts/api'
+import { modelFamily, sharedFamily } from '@contracts/engines'
 import { Markdown } from '@/components/markdown'
 import { WorkerIcon } from '@/components/worker-icon'
 import { api } from '@/lib/api'
 import { clockTime, folderName } from '@/lib/format'
-import { latestWorker, rowTone, STAGE_LABELS, STATUS_LABELS, taskStage } from '@/lib/status'
+import { rowTone, STAGE_LABELS, STATUS_LABELS, taskStage } from '@/lib/status'
 import { fieldLabel, meta, mono, row, rowAside, rowLabel, rows } from '@/lib/styles'
 import { useFetched } from '@/lib/use-fetched'
 import { cn } from '@/lib/utils'
@@ -18,13 +19,12 @@ export function TaskInspector({ id, ...props }: InspectorProps & { id: string })
   const { data, error } = useFetched(signal => api.task(id, signal), [id, props.revision])
   if (!data || data.task.id !== id) return <Placeholder error={error} {...props} />
   const { task, workers, integrations } = data
-  const latest = latestWorker(workers)
   const stage = taskStage(task, workers)
   return (
     <>
       <Head title={task.title} {...props}>
         <div className={SUBTITLE}>
-          <WorkerIcon engine={latest?.engine ?? null} running={stage !== 'done'} small />
+          <WorkerIcon family={sharedFamily(workers)} running={stage !== 'done'} small />
           <span>{STAGE_LABELS[stage]}</span>
           {task.repoRoot && (
             <>
@@ -69,7 +69,7 @@ function WorkerSummary({ worker, onOpen }: { worker: Worker; onOpen: () => void 
       onClick={onOpen}
     >
       <span className="flex min-w-0 items-center gap-2">
-        <WorkerIcon engine={worker.engine} running={worker.status === 'running'} />
+        <WorkerIcon family={modelFamily(worker.engine, worker.model)} running={worker.status === 'running'} />
         <span className={rowLabel}>{worker.title}</span>
         <span className={rowAside}>{STATUS_LABELS[worker.status]}</span>
       </span>
