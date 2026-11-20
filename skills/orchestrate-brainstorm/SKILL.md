@@ -1,4 +1,4 @@
-﻿---
+---
 name: orchestrate-brainstorm
 description: Run independent ideation, blind judging and practical validation before choosing a direction.
 ---

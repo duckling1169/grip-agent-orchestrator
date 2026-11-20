@@ -1,4 +1,4 @@
-﻿# Moxy skills
+# Moxy skills
 
 The leader sees each skill's name, description and absolute path in its prompt. It reads relevant instructions on demand and gives workers the path, pasting short skills into their briefs. Workers read these files directly on any engine. The user's instructions take precedence. For Impeccable, also read [the Moxy usage note](impeccable/MOXY.md).
 

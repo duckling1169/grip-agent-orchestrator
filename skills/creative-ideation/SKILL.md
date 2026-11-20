@@ -1,4 +1,4 @@
-﻿---
+---
 name: creative-ideation
 description: Generate five independent, mechanically distinct ideas from a creative brief.
 ---

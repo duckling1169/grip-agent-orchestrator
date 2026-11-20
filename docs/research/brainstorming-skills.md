@@ -1,4 +1,4 @@
-﻿# Brainstorming skills: research and design
+# Brainstorming skills: research and design
 
 ## 1. Answer first
 

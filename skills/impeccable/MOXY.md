@@ -1,4 +1,4 @@
-﻿# Moxy usage
+# Moxy usage
 
 Any engine's worker can read `SKILL.md` and the relevant files in `reference/` directly. Treat command names as instructions to read the matching reference and perform the requested design work with the tools available to that worker. Read the project's existing product and design context directly, and read `reference/craft-floor.md` before UI edits. Follow the user's instructions and the host's permissions when upstream guidance calls for a launcher, subagents, installation or a host-specific command. The upstream launcher, agents, hooks and live-browser tools are not vendored here.
 
