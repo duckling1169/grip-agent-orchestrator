@@ -1,9 +1,13 @@
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, rmSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import type { StatementSync } from 'node:sqlite'
 
-export type Schema = { version: number; statements: readonly string[] }
+export type Schema = {
+  version: number
+  statements: readonly string[]
+  upgrades: Readonly<Record<number, readonly string[]>>
+}
 
 export class DatabaseInUseError extends Error {
   constructor(readonly path: string) {
@@ -30,7 +34,7 @@ export class Database {
       holdExclusiveLock(connection)
       connection.exec('PRAGMA foreign_keys = ON')
       const database = new Database(connection)
-      database.applySchema(schema)
+      database.applySchema(schema, path)
       database.changesSeen = database.totalChanges()
       return database
     } catch (error) {
@@ -89,12 +93,32 @@ export class Database {
     return Number(this.connection.prepare('SELECT total_changes() AS total').get()?.total)
   }
 
-  private applySchema(schema: Schema): void {
+  private applySchema(schema: Schema, path: string): void {
     const version = Number(this.connection.prepare('PRAGMA user_version').get()?.user_version)
     if (version === schema.version) return
-    if (version !== 0) throw new Error(`database schema version ${version} is not the expected ${schema.version}`)
+    if (version > schema.version) {
+      throw new Error(`database schema version ${version} is from a newer Moxy; this Moxy expects version ${schema.version}`)
+    }
+    if (version === 0) {
+      this.transaction(() => {
+        for (const statement of schema.statements) this.connection.exec(statement)
+        this.connection.exec(`PRAGMA user_version = ${schema.version}`)
+      })
+      return
+    }
+    const steps: (readonly string[])[] = []
+    for (let next = version + 1; next <= schema.version; next++) {
+      const statements = schema.upgrades[next]
+      if (!statements) throw new Error(`cannot upgrade database schema from version ${version} to ${schema.version}`)
+      steps.push(statements)
+    }
+    const backupPath = `${path}.v${version}.bak`
+    rmSync(backupPath, { force: true })
+    this.connection.prepare('VACUUM INTO ?').run(backupPath)
     this.transaction(() => {
-      for (const statement of schema.statements) this.connection.exec(statement)
+      for (const statements of steps) {
+        for (const statement of statements) this.connection.exec(statement)
+      }
       this.connection.exec(`PRAGMA user_version = ${schema.version}`)
     })
   }

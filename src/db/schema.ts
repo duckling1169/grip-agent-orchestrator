@@ -1,5 +1,11 @@
 import type { Schema } from './database.js'
 
+const CREATE_PROJECT_NOTES = `CREATE TABLE project_notes (
+      repo_root TEXT PRIMARY KEY,
+      body TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    ) STRICT`
+
 export const MOXY_SCHEMA: Schema = {
   version: 3,
   statements: [
@@ -113,10 +119,9 @@ export const MOXY_SCHEMA: Schema = {
       updated_at TEXT NOT NULL
     ) STRICT`,
     `INSERT INTO memory (id, updated_at) VALUES (1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`,
-    `CREATE TABLE project_notes (
-      repo_root TEXT PRIMARY KEY,
-      body TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    ) STRICT`,
+    CREATE_PROJECT_NOTES,
   ],
+  upgrades: {
+    3: [CREATE_PROJECT_NOTES],
+  },
 }

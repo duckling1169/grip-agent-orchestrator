@@ -5,7 +5,7 @@ Read the relevant code and tests before editing; consult [DESIGN.md](DESIGN.md) 
 ## Changes
 
 - Keep edits focused on the requested behavior. Preserve unrelated work and avoid incidental refactors.
-- No legacy code, deprecated paths, compatibility shims, aliases or migrations. Replace code outright and delete what it replaces.
+- No legacy code, deprecated paths, compatibility shims or aliases. Replace code outright and delete what it replaces. The database is the one exception: a schema change updates the full schema, raises its version and adds a forward-only upgrade step from the previous version, so existing installs keep their data.
 - Name things well and keep code DRY. Reuse existing helpers and dependencies. Add abstractions only when they remove demonstrated duplication.
 - Do not write explanatory code comments. Names, types and small functions explain the code. Attribution is not a comment to remove: credit the source of copied or adapted code, ideas and designs early and often.
 - Spawn application commands through `src/exec.ts` without a shell.

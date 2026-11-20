@@ -9,7 +9,7 @@
 - Review is a leader turn, not a stored lifecycle. The leader reads results and runs checks; heavier review is another worker with a review prompt.
 - The leader finishes a task with `ready` once it has reviewed, integrated and verified the work. The user's feedback reopens it.
 - Record intent before every external call (Claw, Git), and reconcile after a restart. Never promise exactly-once; never launch a duplicate silently.
-- No legacy code, deprecated paths, compatibility shims, aliases or migrations from earlier versions. Moxy has no history to stay compatible with.
+- No legacy code, deprecated paths, compatibility shims or aliases; replace code outright. The database is the one exception: schema changes raise the version and add a forward-only upgrade step so existing installs keep their data.
 - Name things well and keep code DRY. Add an abstraction only when two real callers need it.
 - No explanatory code comments. Names, types and small functions explain the code. Always credit the source of copied or adapted code, ideas and designs.
 
@@ -88,7 +88,7 @@ src/
   log.ts           file log with rotation
   exec.ts          commands without a shell
   contracts/       browser-safe engine metadata, API schemas, event types
-  db/              connection, single-writer lock, transactions, schema version
+  db/              connection, single-writer lock, transactions, schema version and upgrades
   moxy/            inbox, timers, memory, notes, history, turn loop, leader sessions, handoff, leader tools
   tasks/           task rows and transitions
   workers/         delegate, message, stop, reconcile, output presentation

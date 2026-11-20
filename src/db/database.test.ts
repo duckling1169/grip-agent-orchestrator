@@ -1,13 +1,28 @@
+import { existsSync } from 'node:fs'
 import { unlink } from 'node:fs/promises'
 import { join } from 'node:path'
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, onTestFinished } from 'vitest'
 
 import { temporaryHome } from '../testing/harness.js'
 import { Database, DatabaseInUseError } from './database.js'
 import type { Schema } from './database.js'
+import { MOXY_SCHEMA } from './schema.js'
 
-const NOTES: Schema = { version: 1, statements: ['CREATE TABLE notes (id INTEGER PRIMARY KEY, body TEXT NOT NULL) STRICT'] }
+const NOTES: Schema = {
+  version: 1,
+  statements: ['CREATE TABLE notes (id INTEGER PRIMARY KEY, body TEXT NOT NULL) STRICT'],
+  upgrades: {},
+}
+
+const NOTES_V2: Schema = {
+  version: 2,
+  statements: [
+    'CREATE TABLE notes (id INTEGER PRIMARY KEY, body TEXT NOT NULL) STRICT',
+    'CREATE TABLE tags (name TEXT PRIMARY KEY) STRICT',
+  ],
+  upgrades: { 2: ['CREATE TABLE tags (name TEXT PRIMARY KEY) STRICT'] },
+}
 
 async function openNotes() {
   const path = join(await temporaryHome(), 'moxy.db')
@@ -80,17 +95,92 @@ describe('Database', () => {
     Database.open(path, NOTES).close()
   })
 
-  it('refuses a database written by a different schema version', async () => {
+  it('upgrades a database forward, backs up the old version, and keeps existing rows', async () => {
+    const { path, database } = await openNotes()
+    database.prepare('INSERT INTO notes (body) VALUES (?)').run('kept')
+    database.close()
+
+    const upgraded = Database.open(path, NOTES_V2)
+    onTestFinished(() => upgraded.close())
+    expect(bodies(upgraded)).toEqual(['kept'])
+    expect(upgraded.prepare('PRAGMA user_version').get()?.user_version).toBe(2)
+    upgraded.prepare('INSERT INTO tags (name) VALUES (?)').run('v2')
+    expect(upgraded.prepare('SELECT name FROM tags').all()).toEqual([{ name: 'v2' }])
+
+    const backupPath = `${path}.v1.bak`
+    expect(existsSync(backupPath)).toBe(true)
+    const backup = Database.open(backupPath, NOTES)
+    onTestFinished(() => backup.close())
+    expect(bodies(backup)).toEqual(['kept'])
+  })
+
+  it('refuses an upgrade with a missing step without modifying or backing up the database', async () => {
+    const { path, database } = await openNotes()
+    database.prepare('INSERT INTO notes (body) VALUES (?)').run('untouched')
+    database.close()
+
+    expect(() => Database.open(path, { version: 2, statements: [], upgrades: {} })).toThrow(
+      'cannot upgrade database schema from version 1 to 2',
+    )
+    expect(existsSync(`${path}.v1.bak`)).toBe(false)
+    const reopened = Database.open(path, NOTES)
+    onTestFinished(() => reopened.close())
+    expect(bodies(reopened)).toEqual(['untouched'])
+  })
+
+  it('rolls back a failing upgrade and leaves the old version and data intact', async () => {
+    const { path, database } = await openNotes()
+    database.prepare('INSERT INTO notes (body) VALUES (?)').run('safe')
+    database.close()
+
+    expect(() =>
+      Database.open(path, {
+        version: 2,
+        statements: [],
+        upgrades: { 2: ['CREATE TABLE tags (name TEXT PRIMARY KEY) STRICT', 'CREATE TABLE broken'] },
+      }),
+    ).toThrow()
+    const reopened = Database.open(path, NOTES)
+    onTestFinished(() => reopened.close())
+    expect(reopened.prepare('PRAGMA user_version').get()?.user_version).toBe(1)
+    expect(bodies(reopened)).toEqual(['safe'])
+  })
+
+  it('refuses a database written by a newer Moxy', async () => {
     const { path, database } = await openNotes()
     database.close()
-    expect(() => Database.open(path, { version: 2, statements: [] })).toThrow('schema version 1 is not the expected 2')
-    Database.open(path, NOTES).close()
-    await unlink(path)
+    const v2 = Database.open(path, NOTES_V2)
+    v2.close()
+
+    expect(() => Database.open(path, NOTES)).toThrow('newer')
+  })
+
+  it('upgrades a v2 MOXY_SCHEMA database to v3 matching a fresh v3 schema', async () => {
+    const v3Upgrade = MOXY_SCHEMA.upgrades[3] ?? []
+    const v2Schema: Schema = {
+      version: 2,
+      statements: MOXY_SCHEMA.statements.filter(statement => !v3Upgrade.includes(statement)),
+      upgrades: {},
+    }
+    const v2Path = join(await temporaryHome(), 'v2.db')
+    const v2 = Database.open(v2Path, v2Schema)
+    v2.prepare('UPDATE memory SET preferences = ? WHERE id = 1').run('Keep tests focused')
+    v2.close()
+
+    const upgraded = Database.open(v2Path, MOXY_SCHEMA)
+    onTestFinished(() => upgraded.close())
+    expect(upgraded.prepare('SELECT preferences FROM memory WHERE id = 1').get()?.preferences).toBe('Keep tests focused')
+
+    const freshPath = join(await temporaryHome(), 'fresh.db')
+    const fresh = Database.open(freshPath, MOXY_SCHEMA)
+    onTestFinished(() => fresh.close())
+    const masterSql = 'SELECT type, name, tbl_name, sql FROM sqlite_master ORDER BY name'
+    expect(upgraded.prepare(masterSql).all()).toEqual(fresh.prepare(masterSql).all())
   })
 
   it('releases the database when creating the schema fails', async () => {
     const path = join(await temporaryHome(), 'moxy.db')
-    expect(() => Database.open(path, { version: 1, statements: ['CREATE TABLE broken'] })).toThrow()
+    expect(() => Database.open(path, { version: 1, statements: ['CREATE TABLE broken'], upgrades: {} })).toThrow()
     Database.open(path, NOTES).close()
     await unlink(path)
   })
