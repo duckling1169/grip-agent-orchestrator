@@ -8,7 +8,7 @@ Tasks retain their plan, notes, testing instructions, workers and delivery state
 
 The leader reviews and verifies worker output before delivery. Integration commits remaining worker changes and merges into the repository's delivery branch when the checkout is suitable. `ready` marks a task Done and records how to try it. It refuses delivery while a task worker or integration is running. For a repository task, the revision must be a commit reachable from the delivery branch. Later integration can mark an earlier delivery superseded. Feedback can reopen a task.
 
-Conversation, tasks and worker results survive restart. Messages and worker completions enter an inbox so the leader can respond while workers run. Engine, model and effort changes apply at the next turn boundary. Quota failures can offer a switch and retry.
+Conversation, tasks and worker results survive restart. The leader also keeps short per-repository notes across sessions and can search earlier conversation messages. Messages and worker completions enter an inbox so the leader can respond while workers run. Engine, model and effort changes apply at the next turn boundary. Quota failures can offer a switch and retry.
 
 ## Interface
 

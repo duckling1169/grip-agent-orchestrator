@@ -29,4 +29,13 @@ describe('leader prompt', () => {
     expect(prompt).toContain('No repository folders are configured')
     expect(prompt).not.toContain('Known repositories')
   })
+
+  it('guides the leader on project notes and conversation recall', () => {
+    const prompt = leaderPrompt({ machine: 'pc', engine: 'claude', repoFolders: [], repos: [] })
+    expect(prompt).toContain('notes_read')
+    expect(prompt).toContain('notes_update')
+    expect(prompt).toContain('history_search')
+    expect(prompt).toContain('history_read')
+    expect(prompt).not.toContain('only memory across sessions')
+  })
 })

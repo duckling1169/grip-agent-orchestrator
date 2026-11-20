@@ -142,11 +142,15 @@ describe('startMoxy', () => {
     expect((await mcp.listTools()).tools.map(tool => tool.name).sort()).toEqual([
       'delegate',
       'follow_up',
+      'history_read',
+      'history_search',
       'integrate',
       'memory_read',
       'memory_update',
       'message',
       'models',
+      'notes_read',
+      'notes_update',
       'quota',
       'ready',
       'reopen',
@@ -173,6 +177,20 @@ describe('startMoxy', () => {
     ).not.toHaveProperty('isError')
     expect(await mcp.callTool({ name: 'memory_read', arguments: {} })).toMatchObject({
       content: [{ text: expect.stringContaining('Keep changes focused') as unknown }],
+    })
+    const repo = await temporaryRepo()
+    expect(await mcp.callTool({ name: 'notes_update', arguments: { repo, body: 'Repo overview' } })).not.toHaveProperty('isError')
+    expect(await mcp.callTool({ name: 'notes_read', arguments: { repo } })).toMatchObject({
+      content: [{ text: expect.stringContaining('Repo overview') as unknown }],
+    })
+    expect(await mcp.callTool({ name: 'notes_read', arguments: {} })).toMatchObject({
+      content: [{ text: expect.stringContaining('updatedAt') as unknown }],
+    })
+    const found = await mcp.callTool({ name: 'history_search', arguments: { words: 'Hello' } })
+    const hits = JSON.parse((found.content as { text: string }[])[0]?.text ?? '[]') as { ref: string }[]
+    expect(hits.length).toBeGreaterThan(0)
+    expect(await mcp.callTool({ name: 'history_read', arguments: { ref: hits[0]!.ref } })).toMatchObject({
+      content: [{ text: expect.stringContaining('Hello') as unknown }],
     })
     const scheduled = await mcp.callTool({
       name: 'follow_up',

@@ -14,8 +14,10 @@ import type { ModelCatalog } from '../providers/models.js'
 import type { Quota } from '../providers/quota.js'
 import { FOLLOW_UP_PROMPT_LIMIT } from '../moxy/follow-ups.js'
 import type { FollowUps } from '../moxy/follow-ups.js'
-import { MEMORY_LIMITS } from '../moxy/memory.js'
 import type { Memory } from '../moxy/memory.js'
+import type { ProjectNotes } from '../moxy/notes.js'
+import type { ConversationHistory } from '../moxy/history.js'
+import { registerMemoryTools } from './memory-tools.js'
 
 export type LeaderToolsDeps = {
   workers: Workers
@@ -24,6 +26,8 @@ export type LeaderToolsDeps = {
   quota: Pick<Quota, 'snapshot'>
   followUps: FollowUps
   memory: Memory
+  notes: ProjectNotes
+  history: ConversationHistory
 }
 
 const workerId = z.string().describe('A worker id from delegate or workers')
@@ -53,31 +57,13 @@ function summarize(worker: Worker) {
   }
 }
 
-export function createLeaderMcpServer({ workers, tasks, models, quota, followUps, memory }: LeaderToolsDeps, version: string): McpServer {
+export function createLeaderMcpServer(
+  { workers, tasks, models, quota, followUps, memory, notes, history }: LeaderToolsDeps,
+  version: string,
+): McpServer {
   const server = new McpServer({ name: MOXY_MCP_NAME, version })
 
-  server.registerTool(
-    'memory_read',
-    {
-      title: 'Read user memory',
-      description: 'Standing instructions and durable preferences shared across tasks. Keep pointers rather than copies of repo contents.',
-      ...readOnly,
-    },
-    () => asToolResult(() => memory.read()),
-  )
-  server.registerTool(
-    'memory_update',
-    {
-      title: 'Update user memory',
-      description:
-        'Replace standing instructions or durable preference notes. Store only preferences and corrections, never credentials or repo content that can be read again.',
-      inputSchema: {
-        instructions: z.string().max(MEMORY_LIMITS.instructions).optional(),
-        preferences: z.string().max(MEMORY_LIMITS.preferences).optional(),
-      },
-    },
-    update => asToolResult(() => memory.update(update)),
-  )
+  registerMemoryTools(server, { memory, notes, history }, asToolResult)
   server.registerTool(
     'follow_up',
     {
