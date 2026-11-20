@@ -44,10 +44,6 @@ export async function startTestMoxy(options: MoxyOptions = {}): Promise<Moxy> {
     leaderAvailable: () => true,
     keepAwake: new KeepAwake({ command: null }),
     pushSender: async () => ({ ok: true }),
-    machines: {
-      get: async () => ({ machines: [], checkedAt: new Date().toISOString(), error: null }),
-      refresh: async () => ({ machines: [], checkedAt: new Date().toISOString(), error: null }),
-    },
     ...options,
   })
   onTestFinished(() => moxy.stop())

@@ -45,33 +45,6 @@ const answered = (text: string) => (snapshot: Snapshot) =>
   snapshot.conversation.some(entry => entry.type === 'moxy' && entry.turn.status === 'finished' && entry.turn.output === text)
 
 describe('web server', () => {
-  it('protects machine discovery and keeps refresh separate from the cached read', async () => {
-    const calls: string[] = []
-    const list = {
-      machines: [{ id: 'self', name: 'This machine', dnsName: '', self: true, online: false, moxy: 'yes' as const, url: null }],
-      checkedAt: '2026-11-19T00:00:00.000Z',
-      error: null,
-    }
-    const moxy = await startTestMoxy({
-      machines: {
-        get: async () => {
-          calls.push('get')
-          return list
-        },
-        refresh: async () => {
-          calls.push('refresh')
-          return list
-        },
-      },
-    })
-    expect((await call(moxy, '/api/machines', { headers: { 'Tailscale-User-Login': '' } })).status).toBe(401)
-    expect((await call(moxy, '/api/machines', { headers: { 'Tailscale-User-Login': 'outsider@example.com' } })).status).toBe(403)
-    expect(calls).toEqual([])
-    expect(await json(call(moxy, '/api/machines'))).toEqual(list)
-    expect(await json(call(moxy, '/api/machines?refresh=true'))).toEqual(list)
-    expect(calls).toEqual(['get', 'refresh'])
-  })
-
   it('serves provider models, persists settings, and streams quota refreshes with protected writes', async () => {
     let reads = 0
     const moxy = await startTestMoxy({

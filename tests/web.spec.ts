@@ -1,7 +1,21 @@
+import { hostname } from 'node:os'
+
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
 
 const isMobile = (page: Page) => (page.viewportSize()?.width ?? 0) < 768
+
+test('shows the host as text in the header', async ({ page }) => {
+  await page.goto('/')
+  const header = page.getByRole('banner')
+  const host = hostname()
+  await expect(header.getByText(host, { exact: true })).toBeVisible()
+  await expect(header.getByRole('button').filter({ hasText: host })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
+  const settings = page.getByRole('region', { name: 'Settings' })
+  await expect(settings.getByText('Signed in as')).toBeVisible()
+  await expect(settings.getByText('Machine', { exact: true })).toHaveCount(0)
+})
 
 test('files can be picked, removed, and sent as an attachment-only message', async ({ page }) => {
   await openIdle(page)
@@ -69,81 +83,6 @@ test('engine changes apply to the next turn and can switch and retry a quota fai
   await page.screenshot({ path: `test-results/recovery-${isMobile(page) ? 'mobile' : 'desktop'}.png`, animations: 'disabled' })
   await page.getByRole('button', { name: /^Orchestrator:/ }).click()
   await page.getByRole('menuitemradio', { name: 'Claude', exact: true }).click()
-})
-
-test('the machine switcher opens another Moxy without forwarding this machine credentials or task selection', async ({ page }) => {
-  await page.goto('/?task=dark-mode')
-  await page.getByRole('button', { name: /^Switch machine:/ }).click()
-  await expect(page.getByRole('menuitem', { name: /Current/ })).toBeVisible()
-  await expect(page.getByRole('menuitem', { name: /Sleeping workstation.*Tailnet offline/ })).toBeDisabled()
-  await expect(page.getByRole('menuitem', { name: /Other workstation.*Moxy not detected/ })).toBeDisabled()
-  const destination = 'https://laptop.preview-tail.ts.net/'
-  const peer = page.getByRole('menuitem', { name: 'Open Moxy on Preview laptop' })
-  await expect(peer).toHaveAttribute('href', destination)
-  await page.route(`${destination}**`, route => {
-    expect(route.request().headers()).not.toHaveProperty('authorization')
-    expect(route.request().headers()).not.toHaveProperty('tailscale-user-login')
-    return route.fulfill({ contentType: 'text/html', body: '<title>Other Moxy</title><p>Preview laptop Moxy</p>' })
-  })
-  await page.screenshot({ path: `test-results/machines-${isMobile(page) ? 'mobile' : 'desktop'}.png`, animations: 'disabled' })
-  await peer.click()
-  await expect(page).toHaveURL(destination)
-  await expect(page.getByText('Preview laptop Moxy')).toBeVisible()
-})
-
-test('machine discovery errors keep cached destinations and allow another refresh', async ({ page }) => {
-  await page.goto('/')
-  await page.getByRole('button', { name: /^Switch machine:/ }).click()
-  await expect(page.getByRole('menuitem', { name: 'Open Moxy on Preview laptop' })).toBeVisible()
-  await page.route('**/api/machines*', route =>
-    route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'Tailscale is unavailable' }) }),
-  )
-  await page.getByRole('menuitem', { name: 'Refresh machines' }).click()
-  await expect(page.getByRole('alert')).toContainText('Tailscale is unavailable')
-  await expect(page.getByRole('menuitem', { name: 'Open Moxy on Preview laptop' })).toBeVisible()
-  await page.unroute('**/api/machines*')
-  await page.route('**/api/machines*', route =>
-    route.fulfill({
-      contentType: 'application/json',
-      body: JSON.stringify({
-        machines: [{ id: 'self', name: 'Preview desktop', dnsName: '', self: true, online: false, moxy: 'yes', url: null }],
-        checkedAt: new Date().toISOString(),
-        error: 'Tailscale stopped',
-      }),
-    }),
-  )
-  await page.getByRole('menuitem', { name: 'Refresh machines' }).click()
-  await expect(page.getByRole('alert')).toContainText('Tailscale stopped')
-  await expect(page.getByRole('menuitem', { name: 'Open Moxy on Preview laptop' })).toBeVisible()
-  await page.unroute('**/api/machines*')
-  await page.route('**/api/machines*', route =>
-    route.fulfill({
-      contentType: 'application/json',
-      body: JSON.stringify({
-        machines: [
-          { id: 'self', name: 'Preview desktop', dnsName: '', self: true, online: true, moxy: 'yes', url: null },
-          {
-            id: 'laptop',
-            name: 'Preview laptop',
-            dnsName: 'laptop.preview-tail.ts.net',
-            self: false,
-            online: false,
-            moxy: 'unknown',
-            url: null,
-          },
-        ],
-        checkedAt: new Date().toISOString(),
-        error: 'Machine discovery was limited',
-      }),
-    }),
-  )
-  await page.getByRole('menuitem', { name: 'Refresh machines' }).click()
-  await expect(page.getByRole('alert')).toContainText('Machine discovery was limited')
-  await expect(page.getByRole('menuitem', { name: 'Open Moxy on Preview laptop' })).toHaveCount(0)
-  await expect(page.getByRole('menuitem', { name: /Preview laptop.*Tailnet offline/ })).toBeDisabled()
-  await page.unroute('**/api/machines*')
-  await page.getByRole('menuitem', { name: 'Refresh machines' }).click()
-  await expect(page.getByRole('alert')).toHaveCount(0)
 })
 
 test('an interrupted worker keeps its status tint on hover and selection', async ({ page }) => {

@@ -19,7 +19,6 @@ import type { Quota } from '../providers/quota.js'
 import { QUOTA_ENGINES } from '../providers/quota-readers.js'
 import type { Settings } from '../settings.js'
 import type { PushNotifier } from '../platform/push.js'
-import type { MachineDiscovery } from '../platform/machines.js'
 import type { Tasks } from '../tasks/service.js'
 import type { Workers } from '../workers/service.js'
 import type { Identity } from './identity.js'
@@ -48,7 +47,6 @@ export type WebServerOptions = {
   models: Pick<ModelCatalog, 'get'>
   settings: Settings
   push: PushNotifier
-  machines: Pick<MachineDiscovery, 'get' | 'refresh'>
   shutdown: () => void
 }
 
@@ -155,10 +153,6 @@ export async function startWebServer(options: WebServerOptions): Promise<Loopbac
       if (!local) throw new HttpError(403, 'Moxy can be stopped only from its own machine')
       setImmediate(options.shutdown)
       return { pid: process.pid }
-    }
-    if (method === 'GET' && path === '/api/machines') {
-      const refresh = new URL(req.url ?? '/', 'http://127.0.0.1').searchParams.get('refresh') === 'true'
-      return refresh ? options.machines.refresh() : options.machines.get()
     }
     if (path === '/api/push' || path.startsWith('/api/push/')) {
       if (local) throw new HttpError(403, 'Notifications require an allowed Tailscale login')

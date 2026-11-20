@@ -14,7 +14,6 @@ import type {
 } from '@contracts/api'
 import type { Engine } from '@contracts/engines'
 import type { PushReport, PushStatus, PushSubscriptionJson } from '@contracts/push'
-import type { MachineList } from '@contracts/machines'
 
 export class RequestError extends Error {
   constructor(
@@ -43,7 +42,6 @@ export const uploadPath = (id: string) => `/api/uploads/${encodeURIComponent(id)
 
 export const api = {
   state: (signal?: AbortSignal) => request<Snapshot>('/api/state', { signal }),
-  machines: (refresh = false, signal?: AbortSignal) => request<MachineList>(`/api/machines${refresh ? '?refresh=true' : ''}`, { signal }),
   pushInfo: (endpoint?: string) => request<PushStatus>(`/api/push${endpoint ? `?endpoint=${encodeURIComponent(endpoint)}` : ''}`),
   pushSubscribe: (subscription: PushSubscriptionJson) => post<PushStatus>('/api/push/subscribe', { subscription }),
   pushUnsubscribe: (endpoint: string) => post<PushStatus>('/api/push/unsubscribe', { endpoint }),

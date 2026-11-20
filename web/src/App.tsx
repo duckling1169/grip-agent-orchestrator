@@ -2,7 +2,6 @@ import { Gauge, ListTodo, MessageSquare, PanelLeft, PanelRight, Settings as Sett
 import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 
-import type { Snapshot } from '@contracts/api'
 import { Composer } from '@/components/composer'
 import { Conversation } from '@/components/conversation'
 import { TaskInspector, WorkerInspector } from '@/components/inspector'
@@ -16,7 +15,6 @@ import { useLiveState } from '@/lib/live'
 import type { Selection } from '@/lib/selection'
 import { useStoredFlag, useStoredState } from '@/lib/stored'
 import { useTheme } from '@/lib/theme'
-import { MachineSwitcher } from '@/components/machine-switcher'
 import { composerGutter, ghost, readingColumn } from '@/lib/styles'
 import { cn } from '@/lib/utils'
 
@@ -79,7 +77,7 @@ export function App() {
   return (
     <div className="flex h-full flex-col" data-offline={offline || undefined}>
       <Header
-        snapshot={snapshot}
+        host={snapshot.host}
         connection={connection}
         side={side}
         sidebarOpen={sidebarOpen}
@@ -159,7 +157,7 @@ export function App() {
 }
 
 function Header({
-  snapshot,
+  host,
   connection,
   side,
   sidebarOpen,
@@ -169,7 +167,7 @@ function Header({
   onToggleInspector,
   onSettings,
 }: {
-  snapshot: Snapshot
+  host: string
   connection: Connection
   side: Side
   sidebarOpen: boolean
@@ -179,6 +177,9 @@ function Header({
   onToggleInspector: () => void
   onSettings: () => void
 }) {
+  const offline = connection === 'offline'
+  const reconnecting = connection === 'reconnecting'
+  const hostTip = offline ? `${host} is offline` : reconnecting ? `Reconnecting to ${host}` : host
   const sidebarToggle = (
     <PanelToggle label={sidebarOpen ? 'Hide tasks' : 'Show tasks'} on={sidebarOpen} onClick={onToggleSidebar}>
       {side === 'left' ? <PanelLeft /> : <PanelRight />}
@@ -199,7 +200,18 @@ function Header({
       {side === 'left' && sidebarToggle}
       {side === 'right' && inspectorToggle}
       <span className="pr-1.5 pl-1 text-sm font-semibold tracking-tight">Moxy</span>
-      <MachineSwitcher host={snapshot.host} connection={connection} />
+      <span className="inline-flex items-center gap-1.5 px-2 text-xs text-muted-foreground" title={hostTip}>
+        {(offline || reconnecting) && (
+          <span
+            className={cn(
+              'size-1.75 flex-none rounded-full',
+              offline ? 'bg-destructive' : 'animate-pulse bg-warning motion-reduce:animate-none',
+            )}
+            aria-hidden="true"
+          />
+        )}
+        {host}
+      </span>
       <span className="flex-1" />
       {side === 'left' && inspectorToggle}
       {side === 'right' && sidebarToggle}
