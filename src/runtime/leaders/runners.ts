@@ -1,11 +1,17 @@
 import { engineSpec } from '../../contracts/engines.js'
 import type { Engine } from '../../contracts/engines.js'
 import { ACP_COMMANDS, isAcpEngine } from '../acp-process.js'
+import { canSpawnDirectly, isEngineInstalled } from '../engines.js'
 import { AcpLeader } from './acp-leader.js'
 import type { AcpLeaderOptions } from './acp-leader.js'
 import type { LeaderRunner } from './leader.js'
 
 export type LeaderRunners = (engine: Engine) => LeaderRunner
+
+export function canRunLeader(engine: Engine): boolean {
+  if (engine === 'claude') return isEngineInstalled(engine)
+  return engine === 'codex' || (isAcpEngine(engine) && canSpawnDirectly(engine))
+}
 
 export function leaderRunners(claude: LeaderRunner, acpOptions: AcpLeaderOptions = {}): LeaderRunners {
   const acp = new Map<Engine, LeaderRunner>()

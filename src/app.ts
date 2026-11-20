@@ -37,7 +37,7 @@ import { assertSupportedClaw, installedClawCli } from './runtime/claw/install.js
 import { ClawProcess } from './runtime/claw/process.js'
 import { isEngineInstalled } from './runtime/engines.js'
 import { ClawLeader, LEADER_SESSION_PREFIX } from './runtime/leaders/claw-leader.js'
-import { leaderRunners } from './runtime/leaders/runners.js'
+import { canRunLeader, leaderRunners } from './runtime/leaders/runners.js'
 import type { LeaderRunners } from './runtime/leaders/runners.js'
 import { Tasks } from './tasks/service.js'
 import { TaskStore } from './tasks/store.js'
@@ -200,7 +200,7 @@ export async function startMoxy(options: MoxyOptions = {}): Promise<Moxy> {
         return instructions ? `[User standing instructions]\n${instructions}` : ''
       },
       quota: () => quota.snapshot(),
-      available: options.leaderAvailable ?? isEngineInstalled,
+      available: options.leaderAvailable ?? canRunLeader,
       onTurnEnded: turn => {
         quota.afterTurn(turn.engine)
         log(`leader turn ${turn.id} ${turn.status}${turn.error ? `: ${turn.error}` : ''}`)
