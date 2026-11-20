@@ -166,12 +166,7 @@ function FileSummary({ file }: { file: FileChange }) {
       {FILE_STATUS[file.status] && <span className="text-faint">{FILE_STATUS[file.status]}</span>}
       {file.skipped && <span className="text-faint">Skipped ({file.skipped})</span>}
       {file.binary && <span className="text-faint">Binary</span>}
-      {file.added !== null && (
-        <span className="text-added">
-          +${''}
-          {file.added}
-        </span>
-      )}
+      {file.added !== null && <span className="text-added">+{file.added}</span>}
       {file.removed !== null && <span className="text-removed">−{file.removed}</span>}
     </div>
   )
