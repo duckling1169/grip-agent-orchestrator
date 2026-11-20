@@ -24,6 +24,9 @@ export class WorkerStore {
 
   create(worker: NewWorker, input: string): Worker {
     this.database.transaction(() => {
+      if (worker.taskId && this.database.prepare('SELECT status FROM tasks WHERE id = ?').get(worker.taskId)?.status === 'done') {
+        throw new Error(`task ${worker.taskId} is done; reopen it first`)
+      }
       this.database
         .prepare(
           `INSERT INTO workers (id, task_id, title, engine, model, effort, folder, cwd, repo_root, branch, base, base_commit, created_at)

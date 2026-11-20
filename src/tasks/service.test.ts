@@ -70,6 +70,39 @@ describe('Tasks', () => {
     expect(deliveries).toHaveLength(1)
   })
 
+  it('requires the revision to have reached the branch integration targets', async () => {
+    const { repo, tasks, work, git } = await setup()
+    const task = await tasks.create({ title: 'Deliver a change', folder: repo })
+    const worker = await work(task.id, 'Change', { 'new.txt': 'new\n' })
+    await execOk(exec, 'git', ['-C', worker.cwd, 'add', '.'])
+    await execOk(exec, 'git', ['-C', worker.cwd, 'commit', '-qm', 'Worker change'])
+    const revision = await git('rev-parse', String(worker.repo?.branch))
+    const delivery = { revision, howToTry: 'Read new.txt' }
+
+    await expect(tasks.ready(task.id, delivery)).rejects.toThrow('delivery branch main')
+    await git('switch', '--detach', revision)
+    await expect(tasks.ready(task.id, delivery)).rejects.toThrow('delivery branch main')
+    await git('switch', 'main')
+    expect(await tasks.integrate(task.id, worker.id)).toMatchObject({ status: 'merged' })
+    expect(await tasks.ready(task.id, delivery)).toMatchObject({ status: 'done', revision })
+  })
+
+  it('requires active workers and integrations to finish before delivery', async () => {
+    const { repo, tasks, claw, workers } = await setup()
+    const task = await tasks.create({ title: 'Busy task', folder: repo })
+    const worker = await tasks.delegate(task.id, { engine: 'claude', prompt: 'Change' })
+    const delivery = { revision: 'HEAD', howToTry: 'Read README.md' }
+    await claw.turnStarted(sessionName(worker.id))
+    await expect(tasks.ready(task.id, delivery)).rejects.toThrow(`worker ${worker.id} is still running`)
+    claw.answer(sessionName(worker.id), { output: 'Done' })
+    await workers.settled(worker.id)
+
+    const integration = tasks.integrate(task.id, worker.id)
+    await expect(tasks.ready(task.id, delivery)).rejects.toThrow('integration is still running')
+    await integration
+    expect(tasks.get(task.id).task.status).toBe('working')
+  })
+
   it('announces a committed delivery once, and stays quiet on restart or an identical ready call', async () => {
     const deliveries: Task[] = []
     const { tasks, restart, taskStore } = await setup(task => {

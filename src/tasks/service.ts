@@ -5,12 +5,10 @@ import { samePath } from '../repos/folders.js'
 import type { Integrator } from '../repos/integration.js'
 import type { Worktrees } from '../repos/worktrees.js'
 import type { DelegateInput, Workers } from '../workers/service.js'
-import type { Integration, Task, Worker } from '../contracts/api.js'
+import type { Integration, Task, TaskDetail, Worker } from '../contracts/api.js'
 import type { TaskNotes, TaskStore } from './store.js'
 
 export type NewTask = { title: string; folder?: string; plan?: string; testing?: string }
-
-export type TaskDetail = { task: Task; workers: Worker[]; integrations: Integration[] }
 
 export type TaskDelegation = Omit<DelegateInput, 'taskId' | 'folder'> & { folder?: string }
 
@@ -102,12 +100,29 @@ export class Tasks {
     if (!howToTry) throw new Error('say how the user can try it')
     if (task.repoRoot && !delivery.revision) throw new Error(`task ${taskId} is in ${task.repoRoot}, so give the revision to try`)
     if (!task.repoRoot && delivery.revision) throw new Error(`task ${taskId} has no repo, so it has no revision`)
-    const revision = task.repoRoot && delivery.revision ? await this.options.worktrees.commit(task.repoRoot, delivery.revision) : null
+    let workers = this.checkDeliveryIdle(taskId)
+    let revision = null
+    if (task.repoRoot && delivery.revision) {
+      const base = workers.at(-1)?.repo?.base
+      revision = await this.options.worktrees.deliveryCommit(task.repoRoot, delivery.revision, base)
+      workers = this.checkDeliveryIdle(taskId)
+      if (workers.at(-1)?.repo?.base !== base) throw new Error(`task ${taskId}'s delivery branch changed; try ready again`)
+    }
     const current = this.store.mustGet(taskId)
     const delivered = this.store.deliver(taskId, revision, howToTry)
     if (current.status !== 'done' || current.revision !== revision || current.howToTry !== howToTry || current.supersededBy !== null)
       this.options.onReady?.(delivered)
     return delivered
+  }
+
+  private checkDeliveryIdle(taskId: string): Worker[] {
+    const workers = this.options.workers.listForTask(taskId)
+    const running = workers.find(worker => worker.status === 'running')
+    if (running) throw new Error(`worker ${running.id} is still running on task ${taskId}; wait for it or stop it before calling ready`)
+    if (this.store.integrations(taskId).some(integration => integration.status === 'running')) {
+      throw new Error(`an integration is still running on task ${taskId}; wait for it before calling ready`)
+    }
+    return workers
   }
 
   reopen(taskId: string, feedback: string): Task {

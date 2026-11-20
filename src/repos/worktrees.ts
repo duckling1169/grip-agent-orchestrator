@@ -4,7 +4,7 @@ import { dirname, join, resolve } from 'node:path'
 import type { WorktreeDiff } from '../contracts/api.js'
 import { exec as defaultExec } from '../exec.js'
 import type { Exec } from '../exec.js'
-import { gitOk } from './git.js'
+import { git, gitOk } from './git.js'
 import { basename, parseStatusFiles, slugify } from './git-parse.js'
 
 export type Repo = { root: string; base: string }
@@ -51,10 +51,24 @@ export class Worktrees {
     }
   }
 
-  async commit(repoRoot: string, revision: string): Promise<string> {
-    return this.git(repoRoot, ['rev-parse', '--verify', '--end-of-options', `${revision}^{commit}`]).catch(() => {
+  async deliveryCommit(repoRoot: string, revision: string, base?: string): Promise<string> {
+    const commit = await this.git(repoRoot, ['rev-parse', '--verify', '--end-of-options', `${revision}^{commit}`]).catch(() => {
       throw new Error(`${revision} is not a commit in ${repoRoot}`)
     })
+    const ref = base
+      ? `refs/heads/${base}`
+      : await this.git(repoRoot, ['symbolic-ref', '--quiet', 'HEAD']).catch(() => {
+          throw new Error(`check out the delivery branch in ${repoRoot} before calling ready`)
+        })
+    const branch = ref.slice('refs/heads/'.length)
+    const tip = await this.git(repoRoot, ['rev-parse', '--verify', '--end-of-options', `${ref}^{commit}`]).catch(() => {
+      throw new Error(`delivery branch ${branch} does not exist in ${repoRoot}`)
+    })
+    const ancestor = await git(this.run, repoRoot, ['merge-base', '--is-ancestor', commit, tip])
+    if (ancestor.code === 1)
+      throw new Error(`${revision} has not reached delivery branch ${branch} in ${repoRoot}; integrate it before calling ready`)
+    if (ancestor.code !== 0) throw new Error(`could not verify delivery branch ${branch} in ${repoRoot}: ${ancestor.stderr.trim()}`)
+    return commit
   }
 
   async add(planned: PlannedWorktree): Promise<void> {
