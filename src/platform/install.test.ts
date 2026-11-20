@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import type { Snapshot } from '../contracts/api.js'
 import type { Exec } from '../exec.js'
@@ -137,11 +137,16 @@ describe('moxy install', () => {
   })
 
   it('refuses to install elevated or outside Windows', async () => {
-    const elevated = await machine({ elevated: true })
-    await expect(install(elevated.context)).rejects.toThrow('running elevated')
-    expect(elevated.calls).toEqual([])
-    const mac = await machine()
-    await expect(install({ ...mac.context, platform: 'darwin' })).rejects.toThrow('Windows only')
+    vi.stubGlobal('process', { ...process, platform: 'linux', getuid: () => 1000 })
+    try {
+      const elevated = await machine({ elevated: true })
+      await expect(install(elevated.context)).rejects.toThrow('running elevated')
+      expect(elevated.calls).toEqual([])
+      const linux = await machine()
+      await expect(install({ ...linux.context, platform: undefined })).rejects.toThrow('Windows only')
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it('removes only the logon task on uninstall', async () => {

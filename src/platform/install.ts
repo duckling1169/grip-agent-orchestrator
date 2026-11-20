@@ -59,9 +59,9 @@ function command(context: CommandContext): Command {
 
 export async function install(context: CommandContext): Promise<void> {
   const { out, run, paths, task, moxy } = command(context)
-  if ((context.platform ?? process.platform) !== 'win32')
-    throw new Error('moxy install supports Windows only. Elsewhere, run moxy serve yourself.')
-  await assertNotElevated(run)
+  const platform = context.platform ?? process.platform
+  if (platform !== 'win32') throw new Error('moxy install supports Windows only. Elsewhere, run moxy serve yourself.')
+  await assertNotElevated(run, platform)
   if (!context.cli.endsWith('.js')) throw new Error('Run install from the built CLI: npm run build, then node dist/cli.js install.')
   const staticDir = context.staticDir ?? DEFAULT_STATIC_DIR
   if (!existsSync(join(staticDir, 'index.html'))) out(`! the web app is not built (${staticDir}); run npm run build`)
