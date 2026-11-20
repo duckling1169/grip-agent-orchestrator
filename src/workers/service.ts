@@ -12,6 +12,7 @@ import type { Turn, Worker, WorkerActivity, WorkerChanges, WorkerDetail, Worktre
 import type { WorktreeFacts, Worktrees } from '../repos/worktrees.js'
 import { replyText } from '../runtime/claw/client.js'
 import type { ClawSessions } from '../runtime/claw/client.js'
+import { engineUnavailable } from '../runtime/engines.js'
 import { latestStep } from './activity.js'
 import type { TurnEnding, TurnRef, WorkerStore } from './store.js'
 
@@ -79,9 +80,7 @@ export class Workers {
   async delegate(input: DelegateInput): Promise<Worker> {
     const prompt = input.prompt.trim()
     if (!prompt) throw new Error('a prompt is required')
-    if (!this.options.isInstalled(input.engine)) {
-      throw new Error(`${engineSpec(input.engine).name} is not installed on this machine (no ${engineSpec(input.engine).bin} on PATH)`)
-    }
+    if (!this.options.isInstalled(input.engine)) throw new Error(engineUnavailable(input.engine))
     const folder = await this.workableFolder(input.folder)
     const id = randomBytes(4).toString('hex')
     const title = input.title?.trim() || titleFrom(prompt)

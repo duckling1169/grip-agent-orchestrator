@@ -4,6 +4,7 @@ import { recoveryFor } from '../providers/recovery.js'
 import { errorText } from '../errors.js'
 import type { Log } from '../log.js'
 import { settlesWithin } from '../runtime/deadline.js'
+import { engineUnavailable } from '../runtime/engines.js'
 import type { LeaderRunner, McpEndpoint } from '../runtime/leaders/leader.js'
 import type { LeaderRunners } from '../runtime/leaders/runners.js'
 import { renderInbox, withContext } from './prompt.js'
@@ -111,6 +112,7 @@ export class LeaderLoop {
       message = withContext(prefix, renderInbox(items))
       const systemPrompt = await this.options.systemPrompt(turn.engine)
       if (this.closed || this.options.conversation.runningTurn()?.id !== turn.id) return
+      if (this.options.available && !this.options.available(turn.engine)) throw new Error(engineUnavailable(turn.engine))
       this.runner = this.options.runners(turn.engine)
       const reply = await this.runner.run({
         engine: turn.engine,

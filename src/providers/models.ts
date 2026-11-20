@@ -10,7 +10,7 @@ import { errorText } from '../errors.js'
 import { inTempFolder } from '../files.js'
 import { ACP_COMMANDS, isAcpEngine, startAcpProcess } from '../runtime/acp-process.js'
 import type { AcpCommand, AcpEngine, AcpProcessOptions } from '../runtime/acp-process.js'
-import { isEngineInstalled } from '../runtime/engines.js'
+import { engineUnavailable, isEngineInstalled } from '../runtime/engines.js'
 
 const CLAUDE_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']
 
@@ -64,7 +64,7 @@ export class ModelCatalog {
 
   private async read(engine: Engine): Promise<EngineModels> {
     try {
-      if (!this.installed(engine)) throw new Error(`${engineSpec(engine).name} is not installed`)
+      if (!this.installed(engine)) throw new Error(engineUnavailable(engine))
       const models = isAcpEngine(engine) ? await this.probe(engine) : engine === 'claude' ? CLAUDE_MODELS : []
       return { engine, models, error: null }
     } catch (error) {
