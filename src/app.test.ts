@@ -89,7 +89,7 @@ describe('startMoxy', () => {
     await moxy.stop()
     expect(await new ClawClient(`http://127.0.0.1:${moxy.clawPort}`, '').health(500)).toBeNull()
     await start({ home: moxy.paths.home })
-  }, 12_000)
+  })
 
   it('keeps the machine awake only while a turn runs', async () => {
     const held: boolean[] = []
