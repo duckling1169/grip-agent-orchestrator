@@ -251,7 +251,7 @@ function toItem(row: Row): ReceivedItem {
     id: Number(row.id),
     source: String(row.source),
     kind: String(row.kind),
-    body: JSON.parse(String(row.body)),
+    body: JSON.parse(String(row.body)) as InboxItem['body'],
     receivedAt: String(row.received_at),
     leaderTurnId: numberOrNull(row, 'leader_turn_id'),
     interruptedDeliveries: Number(row.interrupted_deliveries),

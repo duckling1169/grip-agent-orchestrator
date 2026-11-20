@@ -19,7 +19,7 @@ export function useLiveState(): { snapshot: Snapshot | null; connection: Connect
     events.addEventListener('state', event => {
       clearOffline()
       setConnection('live')
-      setSnapshot(JSON.parse((event as MessageEvent<string>).data))
+      setSnapshot(JSON.parse((event as MessageEvent<string>).data) as Snapshot)
     })
     events.addEventListener('error', () => {
       setConnection(current => (current === 'offline' ? current : 'reconnecting'))

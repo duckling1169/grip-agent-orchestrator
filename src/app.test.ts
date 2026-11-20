@@ -103,10 +103,10 @@ describe('startMoxy', () => {
     ])
     const created = await mcp.callTool({ name: 'task_create', arguments: { title: 'Notes' } })
     expect(await mcp.callTool({ name: 'models', arguments: { engine: 'codex' } })).toMatchObject({
-      content: [{ text: expect.stringContaining('codex') }],
+      content: [{ text: expect.stringContaining('codex') as unknown }],
     })
     expect(await mcp.callTool({ name: 'quota', arguments: {} })).toMatchObject({
-      content: [{ text: expect.stringContaining('checkedAt') }],
+      content: [{ text: expect.stringContaining('checkedAt') as unknown }],
     })
     expect(
       await mcp.callTool({
@@ -115,7 +115,7 @@ describe('startMoxy', () => {
       }),
     ).not.toHaveProperty('isError')
     expect(await mcp.callTool({ name: 'memory_read', arguments: {} })).toMatchObject({
-      content: [{ text: expect.stringContaining('Keep changes focused') }],
+      content: [{ text: expect.stringContaining('Keep changes focused') as unknown }],
     })
     const scheduled = await mcp.callTool({
       name: 'follow_up',
@@ -124,21 +124,21 @@ describe('startMoxy', () => {
     const timer = JSON.parse((scheduled.content as { text: string }[])[0]?.text ?? '{}') as { id: string }
     expect(timer.id).toBeTruthy()
     expect(await mcp.callTool({ name: 'follow_up', arguments: { action: 'cancel', id: timer.id } })).toMatchObject({
-      content: [{ text: expect.stringContaining('cancelled') }],
+      content: [{ text: expect.stringContaining('cancelled') as unknown }],
     })
     const task = JSON.parse((created.content as { text: string }[])[0]?.text ?? '{}') as { id: string }
     expect(
       await mcp.callTool({ name: 'delegate', arguments: { task_id: task.id, engine: 'claude', prompt: 'Add notes', model: 'opus' } }),
-    ).toMatchObject({ isError: true, content: [{ text: expect.stringContaining('choose an effort for Claude opus') }] })
+    ).toMatchObject({ isError: true, content: [{ text: expect.stringContaining('choose an effort for Claude opus') as unknown }] })
     expect(await mcp.callTool({ name: 'ready', arguments: { task_id: task.id, how_to_try: 'Read them' } })).toMatchObject({
-      content: [{ text: expect.stringContaining('"status": "done"') }],
+      content: [{ text: expect.stringContaining('"status": "done"') as unknown }],
     })
     expect(
       await mcp.callTool({
         name: 'delegate',
         arguments: { task_id: task.id, engine: 'claude', prompt: 'More notes', model: 'haiku' },
       }),
-    ).toMatchObject({ isError: true, content: [{ text: expect.stringContaining('is done; reopen it first') }] })
+    ).toMatchObject({ isError: true, content: [{ text: expect.stringContaining('is done; reopen it first') as unknown }] })
     expect(await mcp.callTool({ name: 'workers', arguments: {} })).toMatchObject({ content: [{ type: 'text', text: '[]' }] })
     await mcp.close()
   })

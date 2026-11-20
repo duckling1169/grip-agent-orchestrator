@@ -44,7 +44,7 @@ export function App() {
 
   useEffect(() => {
     if (linkedTask) setInspectorOpen(true)
-  }, [linkedTask])
+  }, [linkedTask, setInspectorOpen])
 
   useEffect(() => {
     if (!error) return

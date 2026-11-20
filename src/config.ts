@@ -19,7 +19,7 @@ export async function loadConfig(path: string, owner: () => Promise<string | nul
     throw new Error(`${path}: quotaRefreshMinutes must be 0 (off) or whole minutes from 1 to 1440`)
   }
   const repoFolders = raw.repoFolders ?? []
-  if (!Array.isArray(repoFolders) || !repoFolders.every(folder => typeof folder === 'string' && isAbsolute(folder))) {
+  if (!Array.isArray(repoFolders) || !repoFolders.every((folder): folder is string => typeof folder === 'string' && isAbsolute(folder))) {
     throw new Error(`${path}: repoFolders must be a list of absolute folder paths`)
   }
   const allowedLogins = logins.map(login => login.trim()).filter(Boolean)

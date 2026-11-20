@@ -19,6 +19,7 @@ export function useFetched<T>(load: (signal: AbortSignal) => Promise<T>, keys: u
       },
     )
     return () => controller.abort()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- Callers supply the request keys and may recreate the loader each render.
   }, [...keys, nonce])
   useEffect(() => {
     if (refreshMs === null) return

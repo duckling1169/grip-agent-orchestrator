@@ -19,10 +19,10 @@ import type { MachineList } from '@contracts/machines'
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, { cache: 'no-store', ...init })
   if (!response.ok) {
-    const body = await response.json().catch(() => null)
+    const body = (await response.json().catch(() => null)) as { error?: unknown } | null
     throw new Error(typeof body?.error === 'string' ? body.error : `Moxy returned HTTP ${response.status}`)
   }
-  return response.json()
+  return response.json() as Promise<T>
 }
 
 function post<T>(path: string, body: unknown = {}): Promise<T> {

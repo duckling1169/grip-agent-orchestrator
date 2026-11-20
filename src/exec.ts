@@ -17,14 +17,7 @@ function resolveCommand(command: string, args: readonly string[]): [string, stri
 
 export const exec: Exec = (command, args, options = {}) =>
   new Promise((resolve, reject) => {
-    let file: string
-    let argv: string[]
-    try {
-      ;[file, argv] = resolveCommand(command, args)
-    } catch (error) {
-      reject(error)
-      return
-    }
+    const [file, argv] = resolveCommand(command, args)
     const child = spawn(file, argv, { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], ...(options.cwd ? { cwd: options.cwd } : {}) })
     let stdout = ''
     let stderr = ''

@@ -18,6 +18,6 @@ Read the relevant code and tests before editing; consult [DESIGN.md](DESIGN.md) 
 - For bug fixes and behavior changes, write or update a focused test first. Confirm it fails for the intended reason, implement the smallest fix, then refactor with tests green.
 - Test observable behavior and failure cases, not implementation details. Avoid tests for prose edits or trivial changes that add no useful coverage.
 - Automated tests never call real models. Use `src/testing/`, fixtures and temporary git repos. Live checks must be deliberate, bounded and isolated from normal user data.
-- Run focused tests while iterating. Before finishing code changes, run `npm run format:check`, `npm run typecheck`, and `npm test`; run `npm run build` for build/runtime integration changes.
+- Run focused tests while iterating. Before finishing code changes, run `npm run check` for formatting, lint, type checking, unit tests and build. Run Playwright separately with `npm run test:web`.
 - For documentation-only changes, check formatting and links. For UI changes, verify desktop and mobile flows with the fake-backed `npm run web:preview`.
 - Report what changed, checks run and any failures or blockers. Never claim a check passed if it did not run.
