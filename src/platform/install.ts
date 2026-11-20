@@ -27,6 +27,7 @@ export type CommandContext = {
   home: string
   customHome: boolean
   cli: string
+  staticDir?: string
   out?: (line: string) => void
   run?: Exec
   platform?: NodeJS.Platform
@@ -62,7 +63,8 @@ export async function install(context: CommandContext): Promise<void> {
     throw new Error('moxy install supports Windows only. Elsewhere, run moxy serve yourself.')
   await assertNotElevated(run)
   if (!context.cli.endsWith('.js')) throw new Error('Run install from the built CLI: npm run build, then node dist/cli.js install.')
-  if (!existsSync(join(DEFAULT_STATIC_DIR, 'index.html'))) out(`! the web app is not built (${DEFAULT_STATIC_DIR}); run npm run build`)
+  const staticDir = context.staticDir ?? DEFAULT_STATIC_DIR
+  if (!existsSync(join(staticDir, 'index.html'))) out(`! the web app is not built (${staticDir}); run npm run build`)
 
   const claw = await installedClawVersion(run)
   if (isSupportedClaw(claw)) out(`Claw ${claw} is installed`)
