@@ -28,15 +28,15 @@ export class Database {
     const connection = new DatabaseSync(path, { timeout: 0 })
     try {
       holdExclusiveLock(connection)
+      connection.exec('PRAGMA foreign_keys = ON')
+      const database = new Database(connection)
+      database.applySchema(schema)
+      database.changesSeen = database.totalChanges()
+      return database
     } catch (error) {
       connection.close()
       throw (error as { errcode?: number }).errcode === SQLITE_BUSY ? new DatabaseInUseError(path) : error
     }
-    connection.exec('PRAGMA foreign_keys = ON')
-    const database = new Database(connection)
-    database.applySchema(schema)
-    database.changesSeen = database.totalChanges()
-    return database
   }
 
   get revision(): number {
