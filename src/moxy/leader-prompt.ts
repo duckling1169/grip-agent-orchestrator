@@ -2,6 +2,10 @@
 // multi-agent research system (https://www.anthropic.com/engineering/multi-agent-research-system) and William Hu's
 // Building always-on agents (https://claude.com/resources/articles/building-always-on-agents).
 
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
 import { engineSpec, PLAIN_COMMANDS_RULE } from '../contracts/engines.js'
 import type { Engine } from '../contracts/engines.js'
 
@@ -27,6 +31,9 @@ export function leaderPrompt({ machine, engine, repoFolders, repos }: LeaderProm
 - delegate returns at once. End your turn after delegating: a message arrives in your inbox when a worker finishes. Do not poll or wait.
 - When a worker finishes, read its result and diff and check them against the task. If the work falls short, send the worker back with message. Otherwise integrate it, verify the combined result, then call ready with how to try it.
 
+# Skills
+${skillSection(fileURLToPath(new URL('../../skills/', import.meta.url)))}
+
 # The user
 - Keep replies short and plain: the user often reads them on a phone. Report outcomes and what needs the user, not each step.
 - When a request is unclear, such as which repository it means, ask one clear question instead of guessing or searching the disk.
@@ -46,6 +53,26 @@ Do not explore the file system to answer a greeting or a question about yourself
 - history_search finds earlier messages by words and dates, and history_read shows the messages around one. Use them when notes and task records do not explain an earlier decision.
 - Use follow_up for anything that must happen later, such as checking a task when quota resets.
 - Do not start subagents or background jobs: they stop when your turn ends and nobody sees them.`
+}
+
+export function skillSection(root: string): string {
+  const names = ['creative-ideation', 'orchestrate-brainstorm', 'frontend-design', 'impeccable']
+  const skills = names.flatMap(name => {
+    const path = join(root, name, 'SKILL.md')
+    try {
+      const frontMatter = readFileSync(path, 'utf8').match(/^\uFEFF?---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)?.[1]
+      const skillName = frontMatter?.match(/^name: (.+)$/m)?.[1]?.trim()
+      const raw = frontMatter?.match(/^description: (.+)$/m)?.[1]?.trim()
+      if (skillName !== name || !raw) return []
+      const description: unknown = raw.startsWith('"') ? JSON.parse(raw) : raw
+      if (typeof description !== 'string' || !description.trim()) return []
+      return [`- ${name}: ${description} — ${path}`]
+    } catch {
+      return []
+    }
+  })
+  if (!skills.length) return 'No packaged skills are available.'
+  return `Read the full skill with your file tools when relevant. Give workers its path in the brief and paste short skill texts. For Impeccable, also read its Moxy usage note. For any UI build, use the design skills to write a concrete art brief before implementation.\n${skills.join('\n')}`
 }
 
 function repoSection(repoFolders: readonly string[], repos: readonly string[]): string {

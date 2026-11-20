@@ -5,6 +5,11 @@
   "description": "One persistent conversation that coordinates coding agents across repositories and providers, from any device on your tailnet.",
   "license": "MIT",
   "type": "module",
+  "files": [
+    "dist/",
+    "web/dist/",
+    "skills/"
+  ],
   "engines": {
     "node": ">=24.11.0"
   },

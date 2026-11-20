@@ -10,6 +10,8 @@ The leader reviews and verifies worker output before delivery. Integration commi
 
 Conversation, tasks and worker results survive restart. The leader also keeps short per-repository notes across sessions and can search earlier conversation messages. Messages and worker completions enter an inbox so the leader can respond while workers run. Engine, model and effort changes apply at the next turn boundary. Quota failures can offer a switch and retry.
 
+The leader can read packaged [skills](skills/README.md) when relevant and include them in worker briefs. Brainstorming uses independent ideators, blind review and practical validation. UI work starts with a concrete art brief informed by the design skills.
+
 ## Interface
 
 The desktop app shows the conversation, task sidebar and inspector. Tasks are grouped under Working, Reviewing and Done; workers without a task appear under Standalone workers. Mobile uses separate views for conversation, tasks, quota and settings. The inspector shows task details or a worker's output and changes. Users can message or stop workers, and stop a leader turn.

@@ -35,6 +35,8 @@ Chat attachments are uploaded to the local Moxy home under `uploads/<id>/<saniti
 
 Long work never runs inside a leader turn. The leader delegates, then the turn ends. A worker's completion arrives later as a new inbox item. This keeps the conversation responsive without per-task leader sessions.
 
+The leader prompt lists the four packaged skills by name, front-matter description and absolute path under the package root. It reads full instructions on demand and passes their paths or short text to workers. Missing or malformed skill files are skipped. Skills ship in the package and do not depend on engine-specific discovery; Impeccable's Moxy usage note explains the guidance-only integration.
+
 ### Timers
 
 The leader can set a follow-up for a time ("retry when Claude's quota resets at 15:00", "check this worker in an hour"). Timers are rows with a due time. A scheduler turns each due timer into an inbox item, marks it done and wakes the leader loop. The leader can use follow-ups to revisit quota resets.
