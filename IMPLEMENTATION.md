@@ -1,6 +1,6 @@
-# Moxy implementation plan
+# Moxy implementation
 
-[DESIGN.md](DESIGN.md) owns product behavior. This document owns how Moxy is built. Moxy is built from the ground up in a git worktree. The existing code is reference material only: copy a module when it already does the job well, rename it to fit, and delete everything else.
+[DESIGN.md](DESIGN.md) owns product behavior. This document owns how Moxy is built.
 
 ## Principles
 
@@ -16,7 +16,7 @@
 ## Decisions
 
 - **Runtime:** Node 24 LTS; `engines` and CI move together. One package, one daemon.
-- **Storage:** SQLite through `node:sqlite`, one writer, short transactions. Turn text lives in SQLite; diffs come from git. Anything large later kept on disk is written before the row that references it. Config and secrets stay files. Day-one spike: transactions, restart and Windows packaging. If `node:sqlite` fails the spike, use `better-sqlite3`.
+- **Storage:** SQLite through `node:sqlite`, one writer, short transactions. Turn text lives in SQLite; diffs come from git. Anything large later kept on disk is written before the row that references it. Config and secrets stay files.
 - **Claw:** depend on the `>=7.23.4 <8` range, with startup compatibility checks and crash restart. No automatic updates; upgrading is an explicit command.
 - **Leaders:** Claude leaders run through Claw; other leaders run through ACP directly so they receive session-scoped MCP tools. Keep the Codex ACP adapter.
 - **Web:** `node:http`, SSE and the existing React/Vite/Tailwind/shadcn stack. Shared Zod schemas live in a browser-safe `contracts/` folder. Add Hono, TanStack Query or a router only for a demonstrated need.
@@ -31,13 +31,13 @@ Everything the leader reacts to goes into a durable **inbox**: user messages, wo
 
 Each turn takes every pending item, so several quick user messages get one reply. Items carry a source ID (`user:<id>`, `worker:<id>:<turn>`), and a repeated ID is ignored, so the same completion cannot be recorded twice. Items that arrive during a turn wait for the next one.
 
-Chat attachments are uploaded to the local Moxy home under `uploads/<id>/<sanitized name>`. The user message's inbox body stores the attachment metadata, and the leader receives absolute paths, media types and byte sizes. Upload writes follow the message route's identity and origin rules with a binary content type. Downloads and inline images require the same identity checks.
+Chat attachments are uploaded to the local Moxy home under `uploads/<id>/<sanitized name>`. The user message's inbox body stores the attachment metadata, and the leader receives absolute paths, media types and byte sizes. Upload writes follow the message route's identity and origin rules with a binary content type. Downloads and inline images require the same identity checks. Each message allows 10 files of 25 MiB each. Drafts share a 250 MiB budget, expire after 24 hours, and have a 60-second upload deadline.
 
 Long work never runs inside a leader turn. The leader delegates, then the turn ends. A worker's completion arrives later as a new inbox item. This keeps the conversation responsive without per-task leader sessions.
 
 ### Timers
 
-The leader can set a follow-up for a time ("retry when Claude's quota resets at 15:00", "check this worker in an hour"). Timers are rows with a due time. A scheduler turns each due timer into an inbox item and marks it done; a timer never starts a turn by itself. Quota recovery uses the same timers instead of polling.
+The leader can set a follow-up for a time ("retry when Claude's quota resets at 15:00", "check this worker in an hour"). Timers are rows with a due time. A scheduler turns each due timer into an inbox item, marks it done and wakes the leader loop. The leader can use follow-ups to revisit quota resets.
 
 ### Memory
 
@@ -57,11 +57,11 @@ agy uses Claw's `bypassPermissions` mode, which starts agy with `--dangerously-s
 
 Claw returns a turn's output only to the request that sent it, so a turn cannot be reattached after Moxy restarts. On restart, every running turn is marked interrupted and posted to the inbox like any other ended turn, every leftover `moxy-w-` session is stopped, and sessions with no running turn are reported as orphaned. The leader's `moxy-leader` session is stopped the same way. Stopping Moxy marks running turns interrupted before Claw stops.
 
-Worktrees follow [DESIGN.md](DESIGN.md): a sibling `<repo>-worktrees` checkout and a `moxy/` branch for every engine, preserved when changed, with no `.env` copying.
+Worktrees follow [DESIGN.md](DESIGN.md): a sibling `<repo>-worktrees` checkout and a `moxy/` branch for every engine, kept with no `.env` copying.
 
 ### Integration and delivery
 
-`integrate(task, worker)` records an intent row, then waits its turn in a per-repo queue. It commits any changes left in the worker's worktree, checks that the repo's main checkout is on the worker's base branch with no uncommitted tracked changes, and merges the worker branch with `--no-ff`, or does nothing if the branch is already merged. It records the resulting revision. It refuses a dirty checkout, one on another branch or a detached HEAD, and aborts a conflicting merge so the checkout is left as it was; the leader resolves a refusal with a worker or a question. An integration still running at a restart is marked interrupted. `ready(task, revision, how_to_try)` sets the task to `waiting` with a resolved commit (repo tasks only) and, from the web step, sends a push notification. A later integration into the same repo marks earlier `waiting` revisions as superseded.
+`integrate(task, worker)` records an intent row, then waits its turn in a per-repo queue. It commits any changes left in the worker's worktree, checks that the repo's main checkout is on the worker's base branch with no uncommitted tracked changes, and merges the worker branch with `--no-ff`, or does nothing if the branch is already merged. It records the resulting revision. It refuses a dirty checkout, one on another branch or a detached HEAD, and aborts a conflicting merge so the checkout is left as it was; the leader resolves a refusal with a worker or a question. An integration still running at a restart is marked interrupted. `ready(task, revision, how_to_try)` sets the task to `done` and sends a push notification for a new or changed delivery. It requires nonempty instructions, no running task workers or integrations, and, for repo tasks, a commit reachable from the delivery branch. A later integration into the same repo marks earlier deliveries as superseded.
 
 ### Leader handoff
 
@@ -69,10 +69,10 @@ Engine, model or effort changes apply at the next turn boundary. A change, or a 
 
 ### Edges
 
-- **MCP** (loopback 18797): stateless Streamable HTTP, POST only, behind a bearer token kept in `mcp-token`. It serves the leader's tools now and external hosts' tools later, with scoped tokens. External hosts attach their workers to tasks but cannot act on other owners' workers.
-- **Web API and SSE** (loopback 18798 behind Tailscale Serve): snapshot plus change events with a revision number, published after commit. The leader loop step adds the seed: `POST /api/messages` and `GET /api/conversation` behind a local bearer token kept in `web-token`, used by `moxy say`.
+- **MCP** (loopback 18797): stateless Streamable HTTP, POST only, behind a bearer token kept in `mcp-token`. It serves the leader's tools; external-host attachment is not implemented.
+- **Web API and SSE** (loopback 18798 behind Tailscale Serve): snapshot plus change events with a revision number, published after commit. `moxy say` posts to `/api/messages` and reads conversation from `/api/state` using a local bearer token kept in `web-token`.
 - **Claw** (loopback 18796): private.
-- Tailscale identity checks, origin checks, the local CLI bearer and push rules follow the boundaries in [DESIGN.md](DESIGN.md).
+- Tailscale identity checks, Host and Origin checks, the local CLI bearer and push rules follow [DESIGN.md](DESIGN.md). Processes that reach loopback are trusted and can supply identity headers.
 
 ## Leader tools
 
@@ -106,31 +106,6 @@ web/src/
   components/ui/   shadcn primitives, unchanged
 tests/             cross-layer scenarios and Playwright journeys
 ```
-
-## Reference code worth copying
-
-`exec.ts`, the Claw client and process management, git worktree helpers and parsing, the model catalog, quota readers, push, Tailscale identity, install and logon task, power and keep-awake, the ACP leader runner, the fake Claw and fake ACP agent, and the shadcn primitives. Copy only what Moxy uses, rename to Moxy's vocabulary, remove explanatory comments and keep or add attribution. Storage, the turn loop, tasks, web routes and app state are written fresh.
-
-## Build order
-
-Each step ends with its tests green and `format:check`, `typecheck`, `test` and `build` passing.
-
-1. **Skeleton.** In a new worktree, remove the existing source and start Moxy-only: package name, `moxy` CLI, `~/.moxy` home, Node 24, CI, SQLite spike, schema versioning, single-writer lock, daemon lifecycle, Claw process, fakes and temporary-home harness. Ports and home are configurable for tests.
-2. **Workers.** Delegate, message, stop and result through Claw with worktrees and per-turn records. Restart reconciliation tests at intent, started and finished points.
-3. **Leader loop.** Inbox with batching and source-ID deduplication, turn runner for Claude and ACP leaders, leader MCP tools, user-first ordering, and interrupted-turn redelivery.
-4. **Tasks and delivery.** Task rows, integrate with the per-repo lock, ready and reopen. Fake-backed journey: two tasks in one repo, a desktop edit, feedback, restart midway.
-5. **Web.** Built in slices, following the reviewed mockup:
-   1. Server: Tailscale identity and allowed logins, write checks, the local bearer for the CLI, a database revision bumped after each committed write, an SSE snapshot per revision, detail reads for tasks and workers, and actions to message, stop, send now, retry a failed turn, set the Orchestrator's model and effort, and message or stop a worker.
-   2. Web app: React, Vite, Tailwind and shadcn with the mockup's layout, the fake-backed `web:preview`, and Playwright on desktop and mobile.
-   3. Quota and model lists.
-   4. Push for finished tasks.
-6. **Handoff and recovery.** Next-turn engine changes, context rotation, quota-failure switch-and-retry, timers and follow-ups, and user memory.
-7. **Install.** Install and uninstall, logon task, Tailscale Serve on the standard ports, status, stop and restart through a local-only shutdown, keep-awake while work runs, explicit Claw upgrade command, and README.
-
-## Open questions
-
-- Does one leader stay responsive enough with real workloads? If not, give each task its own leader session, fed by the same inbox.
-- Do external hosts need their own tasks, or do they only attach workers to Moxy's tasks?
 
 ## Credits
 

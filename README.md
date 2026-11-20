@@ -1,83 +1,79 @@
 # Moxy
 
-One persistent conversation that coordinates coding agents across repositories and providers, from any device on your tailnet. [DESIGN.md](DESIGN.md) describes the product; [IMPLEMENTATION.md](IMPLEMENTATION.md) describes how it is built and what comes next.
+Moxy is a Windows coding coordinator for a developer who wants to manage work from a phone. One long-running AI conversation plans tasks and delegates them to coding-agent CLIs. Workers code in separate git worktrees; Moxy reviews and merges their work, then sends a notification with instructions for trying it.
 
-## Install
+## How it works
 
-Moxy installs on Windows. It needs Node 24.11 or later and Tailscale signed in. Run it from a normal terminal, not an elevated one:
+1. Send a message from your phone.
+2. Moxy records a task and picks an engine, model and effort.
+3. A worker codes in its own git worktree.
+4. Moxy reviews and merges the work.
+5. You get a notification saying how to try it.
 
-```text
+Moxy drives the coding CLIs you already have signed in, using their own sign-ins. Moxy does not need provider API keys of its own.
+
+![Moxy desktop conversation, tasks and inspector](docs/images/desktop.png)
+
+![Moxy mobile conversation, tasks and inspector](docs/images/mobile.png)
+
+## Requirements
+
+- Windows 10 or 11, Node.js 24.11.0 or later, and Git with `user.name` and `user.email` configured.
+- Tailscale signed in on the PC and phone, with HTTPS enabled for Tailscale Serve.
+- At least one supported coding CLI installed, signed in and on PATH. Claude leads by default. Claude, Codex, Gemini (`agy`), Kimi and DeepSeek can lead; Cursor, Grok and OpenCode are workers only.
+- For direct leader launches, `agy`, `kimi` and `dsh` need a real `.exe` or `.com` on PATH. Workers launched through Claw can also use npm `.cmd` shims.
+
+## Install and first run
+
+Open a normal, non-elevated PowerShell and run:
+
+```powershell
+git clone https://github.com/duckling1169/moxy.git
+cd moxy
 npm ci
 npm run build
-node dist/cli.js install
+npm link
+moxy install
+moxy status
 ```
 
-Install does these steps, and it is safe to run again:
+`moxy install` installs a supported [Claw Orchestrator](https://github.com/Enderfga/claw-orchestrator) if needed, allows the signed-in Tailscale login, configures Serve when the HTTPS root is available, and registers a Windows logon task. If the root is already in use, follow the command printed by install. It starts Moxy unless it is already running.
 
-1. It installs Claw (`@enderfga/claw-orchestrator`, `>=7.23.4 <8`) when no supported release is installed.
-2. It allows the signed-in Tailscale login to use Moxy, through `allowedLogins` in `~/.moxy/config.json`.
-3. It publishes Moxy on your tailnet with `tailscale serve --bg 18798`. If something else already serves this machine's HTTPS root, install leaves it unchanged and prints the command for you to run.
-4. It registers a Windows logon task named Moxy. The task starts Moxy when you log on, with your normal rights and no window, and restarts it if it fails. Moxy logs to `~/.moxy/logs/moxy.log`.
-5. It starts Moxy, unless Moxy already runs. In that case, run `moxy restart` to move it to the task.
+On your phone, open the PC's Tailscale Serve address, such as `https://your-pc.your-tailnet.ts.net/`. Add it to your home screen. On iPhone or iPad, open the home-screen app before enabling notifications in Settings. Enable notifications on each device where you want them. Try a first message such as: "In `C:\Code\my-project`, inspect the README and suggest one small improvement."
 
-Then open `https://<this machine's tailnet name>/` on any of your tailnet devices. While a turn or worker runs, Moxy keeps the machine from sleeping; the display can still turn off.
+To index repositories, add their parent folders to `repoFolders` in `~/.moxy/config.json`, for example `"repoFolders": ["C:\\Code"]`, then run `moxy restart`. Without that setting, give Moxy the repository path. `moxy say <text>` sends a message from the PC. `moxy stop`, `moxy restart`, `moxy upgrade-claw`, and `moxy uninstall` manage the local installation; uninstall keeps data, Claw and Serve configuration.
 
-To tell Moxy where your repositories are, add their parent folders to `repoFolders` in `~/.moxy/config.json`, for example `"repoFolders": ["C:\\Users\\you\\Code"]`, then run `moxy restart`. Moxy lists the git repositories it finds up to three levels down in its Orchestrator's instructions. Without `repoFolders`, Moxy asks you for a repository's path.
+## Quota checks
 
-The Orchestrator works in `~/.moxy/workspace`, not your home folder, so the Claude Code memory you keep for your home folder does not reach it. Moxy's own memory holds your standing instructions and preferences.
+Moxy checks Codex through app-server, Gemini through `agy /usage`, and Claude with a small Haiku probe turn with tools disabled and no saved session. The automatic check runs every five minutes by default, including Claude: up to 288 tiny Haiku turns per day while Moxy runs. Change the interval in Settings or set `quotaRefreshMinutes` in `~/.moxy/config.json` to a whole number from 1 to 1440. Set it to `0` to turn automatic checks off. Manual checks remain available. Codex and Gemini also refresh after a turn, at most once per minute; Claude does not.
 
-| Command             | What it does                                                                       |
-| ------------------- | ---------------------------------------------------------------------------------- |
-| `moxy status`       | Shows whether Moxy runs, its logon task, Tailscale, Claw and what is working       |
-| `moxy stop`         | Stops Moxy when nothing works; `--force` stops it anyway                           |
-| `moxy restart`      | Stops Moxy and starts it again through its logon task, for example after a build   |
-| `moxy upgrade-claw` | Stops Moxy, installs the newest Claw in the supported range, and starts Moxy again |
-| `moxy uninstall`    | Removes the logon task. Moxy's data, Claw and `tailscale serve` stay               |
-| `moxy say <text>`   | Sends Moxy a message and prints its reply                                          |
+## Security
 
-Claw never upgrades itself; `moxy upgrade-claw` is the only way it changes. Run the commands with `node dist/cli.js <command>`, or put `moxy` on your PATH with `npm link`. Only a command on Moxy's own machine can stop Moxy.
+Remote access requires a Tailscale login listed in `allowedLogins`; an explicit empty list allows nobody. Writes check Host and Origin. Anything on the machine that can reach loopback is trusted. Workers run as your Windows user. Codex and agy workers have full access, so a worker can do anything your account can.
 
-## Develop
+## Limits
 
-Needs Node 24.11 or later and Claw installed globally:
+Moxy is for one user and runs on Windows. It keeps worktrees rather than cleaning them up. Claw is a separate project. Notification delivery depends on the device and push service.
 
-```text
-npm install -g "@enderfga/claw-orchestrator@>=7.23.4 <8"
+## Architecture
+
+One daemon stores conversation and task state in SQLite. The leader receives messages and worker results through a durable inbox, delegates through Claw, and integrates work with Git. A loopback web server is exposed to your tailnet through Tailscale Serve. See [DESIGN.md](DESIGN.md) for behavior and boundaries and [IMPLEMENTATION.md](IMPLEMENTATION.md) for implementation details.
+
+## Development
+
+```powershell
 npm ci
-npm run dev -- serve --home <scratch folder>
+npm run check
+npm run web:preview
+npm run test:web
 ```
 
-Checks: `npm run format:check`, `npm run typecheck`, `npm test` and `npm run build`. Contributor rules are in [AGENTS.md](AGENTS.md).
-
-`npm run web:preview` opens a fake-backed app at `http://localhost:18799`; it never calls real models. Run `npm run test:web` for desktop and mobile journeys.
-
-`npm run check:workers [engine…]` is a live check that each installed engine can work in a worktree without an approval prompt. Each engine gets one small turn on its cheapest model. It creates `check.txt`, writes `terminal.txt` with a terminal command, commits both files and runs `node --version`. The check runs in a scratch repo and its own Claw, and removes both afterwards. It spends real quota, so run it by hand after changing engine permissions or upgrading Claw or an engine CLI.
-
-## Models and quota
-
-ACP engines report their models and model-specific effort choices when a session opens. Discovery sends no prompt and caches successful results for 30 minutes. Claude uses its CLI's Opus, Sonnet and Haiku choices; effort choices are shown only when reported by a provider.
-
-Quota uses Codex app-server, Gemini's `agy /usage` and Claude's stream output. A table shows each provider's last check, a recheck action and the remaining 5h and 7d quotas. Usage tooltips show reset and observation times and staleness; unavailable providers have red family names with the error in a tooltip. Each Claude refresh spends one small Haiku turn with tools disabled and no saved session.
-
-Automatic refresh defaults to every five minutes, beginning after the first interval, and includes Claude. Set `quotaRefreshMinutes` to `0` in Settings or `config.json` to disable it; supported intervals are whole minutes from 1 to 1440. Finishing a Codex or Gemini turn refreshes that provider, at most once per minute; finishing a Claude turn never probes Claude. Cached readings survive restart and stay marked stale after a reset or failed refresh.
-
-## Notifications
-
-Enable notifications in Settings on each device that should hear when Moxy finishes a task. Permission is requested only when you choose Enable notifications. Use the HTTPS Tailscale Serve address; on iPhone and iPad, add Moxy to the Home Screen and open it there first.
-
-Subscriptions belong to the signed-in Tailscale login. Settings shows your registered device count, lets you disable this device, and can send a test to all your registered devices. Test results report how many notifications the push services accepted or rejected; they cannot confirm that a device displayed them. Expired subscriptions are removed automatically.
-
-Task-ready notifications contain the task title and a link to its inspector, never code, output, repo paths or testing notes. Repeating an unchanged delivery, restarting Moxy, and stopping or finishing workers do not send notifications. Push services retain an undelivered notification for at most 24 hours. Keys and subscriptions persist in `push.json` in Moxy's data home; only the public key and your device count are exposed through the API.
-
-The fake preview and automated checks use fake push senders and browser subscriptions. Actual delivery to sleeping or closed devices still needs a deliberate live check through the HTTPS tailnet address.
+The preview at `http://localhost:18799` uses fake data and runs no models. Playwright tests desktop and mobile flows. Contributor instructions are in [AGENTS.md](AGENTS.md). To regenerate screenshots, start the preview and run `npx tsx scripts/capture-screenshots.ts`.
 
 ## Credits
 
-- [Claw Orchestrator](https://github.com/Enderfga/claw-orchestrator) by Enderfga runs Moxy's workers.
-- [SQLite](https://sqlite.org), through Node's built-in [`node:sqlite`](https://nodejs.org/api/sqlite.html), stores Moxy's state.
-- [semver](https://github.com/npm/node-semver) by the npm team checks Claw versions.
-- [web-push](https://github.com/web-push-libs/web-push) encrypts notifications and signs requests with Moxy's VAPID keys.
+[Claw Orchestrator](https://github.com/Enderfga/claw-orchestrator) by Enderfga runs workers. Moxy uses [SQLite](https://sqlite.org), [semver](https://github.com/npm/node-semver), [web-push](https://github.com/web-push-libs/web-push), [shadcn/ui](https://ui.shadcn.com), [Lucide](https://lucide.dev), and [Lobe Icons](https://github.com/lobehub/lobe-icons). More design credits are in [IMPLEMENTATION.md](IMPLEMENTATION.md).
 
 ## License
 
-MIT
+[MIT](LICENSE)
