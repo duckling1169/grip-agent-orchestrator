@@ -10,7 +10,7 @@ import { fileLog } from './log.js'
 import type { Log } from './log.js'
 import { DEFAULT_MCP_PORT, startMcpServer } from './mcp/server.js'
 import { LeaderLoop } from './moxy/loop.js'
-import { ConversationStore, workerTurnEnded } from './moxy/store.js'
+import { ConversationStore } from './moxy/store.js'
 import { FollowUps } from './moxy/follow-ups.js'
 import { Memory } from './moxy/memory.js'
 import { handoffContext } from './moxy/context.js'
@@ -130,7 +130,7 @@ export async function startMoxy(options: MoxyOptions = {}): Promise<Moxy> {
     undo.push(() => followUps.close())
     const worktrees = new Worktrees()
     const workers = new Workers({
-      store: new WorkerStore(database),
+      store: new WorkerStore(database, conversation),
       claw: client,
       worktrees,
       protectedFolders: protectedFolders(paths.home),
@@ -139,7 +139,7 @@ export async function startMoxy(options: MoxyOptions = {}): Promise<Moxy> {
       onTurnEnded: (worker, turn) => {
         quota.afterTurn(worker.engine)
         log(`worker ${worker.id} turn ${turn.number} ${turn.status}`)
-        if (conversation.receive(workerTurnEnded(worker, turn))) loop?.wake()
+        loop?.wake()
       },
     })
     undo.push(() => workers.idle())

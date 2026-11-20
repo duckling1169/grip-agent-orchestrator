@@ -3,6 +3,8 @@ import type { Engine } from '../contracts/engines.js'
 import type { Database } from '../db/database.js'
 import { textOrNull } from '../db/rows.js'
 import type { Row } from '../db/rows.js'
+import { workerTurnEnded } from '../moxy/store.js'
+import type { ConversationStore } from '../moxy/store.js'
 
 export type EndedTurnStatus = Exclude<TurnStatus, 'running'>
 
@@ -20,7 +22,10 @@ const WORKER_SELECT = `
 const now = () => new Date().toISOString()
 
 export class WorkerStore {
-  constructor(private readonly database: Database) {}
+  constructor(
+    private readonly database: Database,
+    private readonly conversation?: Pick<ConversationStore, 'receive'>,
+  ) {}
 
   create(worker: NewWorker, input: string): Worker {
     this.database.transaction(() => {
@@ -63,7 +68,7 @@ export class WorkerStore {
   }
 
   endTurn(ref: TurnRef, ending: TurnEnding): Turn {
-    this.database.transaction(() => {
+    return this.database.transaction(() => {
       const ended = this.database
         .prepare(
           `UPDATE worker_turns SET status = ?, output = ?, error = ?, ended_at = ? WHERE worker_id = ? AND number = ? AND status = 'running'`,
@@ -77,8 +82,10 @@ export class WorkerStore {
       if (ending.nativeSessionId) {
         this.database.prepare('UPDATE workers SET native_session_id = ? WHERE id = ?').run(ending.nativeSessionId, ref.workerId)
       }
+      const turn = this.turn(ref)
+      if (ended.changes > 0) this.recordCompletion(ref.workerId, turn)
+      return turn
     })
-    return this.turn(ref)
   }
 
   stopRunningTurn(workerId: string): TurnRef | null {
@@ -132,14 +139,22 @@ export class WorkerStore {
   }
 
   private endRunning(status: EndedTurnStatus, error: string | null, condition: string, ...params: string[]): TurnRef[] {
-    const rows = this.database
-      .prepare(
-        `UPDATE worker_turns SET status = ?, error = ?, ended_at = ?
-         WHERE status = 'running' ${condition}
-         RETURNING worker_id, number`,
-      )
-      .all(status, error, now(), ...params) as Row[]
-    return rows.map(row => ({ workerId: String(row.worker_id), number: Number(row.number) }))
+    return this.database.transaction(() => {
+      const rows = this.database
+        .prepare(
+          `UPDATE worker_turns SET status = ?, error = ?, ended_at = ?
+           WHERE status = 'running' ${condition}
+           RETURNING worker_id, number`,
+        )
+        .all(status, error, now(), ...params) as Row[]
+      const refs = rows.map(row => ({ workerId: String(row.worker_id), number: Number(row.number) }))
+      for (const ref of refs) this.recordCompletion(ref.workerId, this.turn(ref))
+      return refs
+    })
+  }
+
+  private recordCompletion(workerId: string, turn: Turn): void {
+    this.conversation?.receive(workerTurnEnded(this.mustGet(workerId), turn))
   }
 }
 
