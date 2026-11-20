@@ -2,6 +2,16 @@
 
 Moxy is a Windows coding coordinator for a developer who wants to manage work from a phone. One long-running AI conversation plans tasks and delegates them to coding-agent CLIs. Workers code in separate git worktrees; Moxy reviews and merges their work, then sends a notification with instructions for trying it.
 
+## How it works
+
+1. Send a message from your phone.
+2. Moxy records a task and picks an engine, model and effort.
+3. A worker codes in its own git worktree.
+4. Moxy reviews and merges the work.
+5. You get a notification saying how to try it.
+
+Moxy drives the coding CLIs you already have signed in, using their own sign-ins. Moxy does not need provider API keys of its own.
+
 ![Moxy desktop conversation, tasks and inspector](docs/images/desktop.png)
 
 ![Moxy mobile conversation, tasks and inspector](docs/images/mobile.png)
@@ -29,7 +39,7 @@ moxy status
 
 `moxy install` installs a supported [Claw Orchestrator](https://github.com/Enderfga/claw-orchestrator) if needed, allows the signed-in Tailscale login, configures Serve when the HTTPS root is available, and registers a Windows logon task. If the root is already in use, follow the command printed by install. It starts Moxy unless it is already running.
 
-On your phone, open the PC's Tailscale Serve address, such as `https://your-pc.your-tailnet.ts.net/`. Add it to your home screen. On iPhone or iPad, open the home-screen app before enabling notifications in Settings. Enable notifications on each device where you want them. Try a first message such as: ?In `C:\Code\my-project`, inspect the README and suggest one small improvement.?
+On your phone, open the PC's Tailscale Serve address, such as `https://your-pc.your-tailnet.ts.net/`. Add it to your home screen. On iPhone or iPad, open the home-screen app before enabling notifications in Settings. Enable notifications on each device where you want them. Try a first message such as: "In `C:\Code\my-project`, inspect the README and suggest one small improvement."
 
 To index repositories, add their parent folders to `repoFolders` in `~/.moxy/config.json`, for example `"repoFolders": ["C:\\Code"]`, then run `moxy restart`. Without that setting, give Moxy the repository path. `moxy say <text>` sends a message from the PC. `moxy stop`, `moxy restart`, `moxy upgrade-claw`, and `moxy uninstall` manage the local installation; uninstall keeps data, Claw and Serve configuration.
 

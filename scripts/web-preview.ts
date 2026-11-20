@@ -22,6 +22,10 @@ const FAKE_CLAW_CLI = fileURLToPath(new URL('../src/testing/fake-clawo.mjs', imp
 
 class PreviewLeader implements LeaderRunner {
   delayMs = 0
+  seedReplies = [
+    "I've recorded it as a task and started a Claude Opus worker on airport-sim at high effort. I'll review its diff and let you know when it's ready to try.",
+    "Yes. It's merged at 4f2a9c1. Refresh localhost:5173/settings and set Appearance to Dark. The setting is saved in localStorage, and the existing CSS variables handle the colours.",
+  ]
   private cancel: (() => void) | null = null
 
   run(request: LeaderTurnRequest): Promise<LeaderReply> {
@@ -33,7 +37,7 @@ class PreviewLeader implements LeaderRunner {
       }
       const timer = setTimeout(() => {
         if (request.engine === 'claude' && /\bfail\b/i.test(message)) reply('', 'Claude usage limit reached; it resets at 16:00')
-        else reply(previewReply(message))
+        else reply(this.seedReplies.shift() ?? previewReply(message))
       }, this.delayMs)
       this.cancel = () => {
         clearTimeout(timer)
@@ -48,7 +52,7 @@ class PreviewLeader implements LeaderRunner {
 }
 
 function previewReply(message: string): string {
-  const quoted = (message.split('\n')[0] ?? '').slice(0, 80)
+  const quoted = message.split('\n')[0] ?? ''
   return `Got it: “${quoted}”\n\nThis is the local preview, so no model ran. I would:\n\n- record it as a task\n- start a worker on it\n- tell you when it is ready to try`
 }
 
