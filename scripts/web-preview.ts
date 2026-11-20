@@ -89,8 +89,8 @@ const moxy = await startMoxy({
     get: async engine => ({
       engine,
       models: [
-        { id: 'preview-opus', label: 'Claude Opus preview', efforts: ['medium', 'high'], defaultEffort: 'medium', isDefault: true },
-        { id: 'preview-sonnet', label: 'Claude Sonnet preview', efforts: ['low', 'high'], defaultEffort: 'low', isDefault: false },
+        { id: 'preview-opus', label: 'Claude Opus preview', efforts: ['medium', 'high'], isDefault: true },
+        { id: 'preview-sonnet', label: 'Claude Sonnet preview', efforts: ['low', 'high'], isDefault: false },
       ],
       error: null,
     }),
