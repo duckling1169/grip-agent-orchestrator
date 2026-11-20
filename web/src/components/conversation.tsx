@@ -2,6 +2,7 @@ import { Check, CircleAlert, Copy, RotateCw } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 import type { ConversationEntry, LeaderSettings, LeaderTurn, Recovery } from '@contracts/api'
+import { MessageAttachments } from '@/components/attachments'
 import { engineName } from '@/components/engine-icon'
 import { Markdown } from '@/components/markdown'
 import { WorkerIcon } from '@/components/worker-icon'
@@ -106,8 +107,19 @@ function UserMessage({
   onSendNow: () => void
 }) {
   const bubble = (
-    <div className={cn(USER_BUBBLE, failed && 'max-w-none max-md:max-w-none')} data-testid="user-message" title={clockTime(entry.at)}>
-      {entry.text}
+    <div
+      className={cn(USER_BUBBLE, failed && 'min-w-0 max-w-none max-md:max-w-none')}
+      data-testid="user-message"
+      title={clockTime(entry.at)}
+    >
+      {entry.attachments?.length ? (
+        <div className="flex flex-col gap-2">
+          {entry.text && <div>{entry.text}</div>}
+          <MessageAttachments files={entry.attachments} />
+        </div>
+      ) : (
+        entry.text
+      )}
     </div>
   )
   return (

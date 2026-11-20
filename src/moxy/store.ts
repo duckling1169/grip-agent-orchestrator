@@ -1,4 +1,5 @@
 import type { ConversationEntry, LeaderSettings, LeaderTurn, LeaderTurnStatus, Recovery, Turn, Worker } from '../contracts/api.js'
+import type { MessageAttachment } from '../contracts/attachments.js'
 import type { Engine } from '../contracts/engines.js'
 import { LEADER_ENGINES } from '../contracts/engines.js'
 import type { Database } from '../db/database.js'
@@ -28,7 +29,7 @@ export type WorkerTurnEnded = {
 }
 
 export type InboxItem =
-  | { kind: 'user_message'; source: string; body: { text: string } }
+  | { kind: 'user_message'; source: string; body: { text: string; attachments?: MessageAttachment[] } }
   | { kind: 'worker_turn_ended'; source: string; body: WorkerTurnEnded }
   | { kind: 'follow_up'; source: string; body: { id: string; prompt: string; dueAt: string } }
 
@@ -60,8 +61,8 @@ export function workerTurnEnded(worker: Worker, turn: Turn): InboxItem {
   }
 }
 
-export function userMessage(text: string, id: string): InboxItem {
-  return { kind: 'user_message', source: `user:${id}`, body: { text } }
+export function userMessage(text: string, id: string, attachments: MessageAttachment[] = []): InboxItem {
+  return { kind: 'user_message', source: `user:${id}`, body: attachments.length ? { text, attachments } : { text } }
 }
 
 const now = () => new Date().toISOString()
@@ -209,6 +210,7 @@ export class ConversationStore {
           inboxId: item.id,
           source: item.source,
           text: item.kind === 'user_message' ? item.body.text : '',
+          attachments: item.kind === 'user_message' ? item.body.attachments : undefined,
           at: item.receivedAt,
           leaderTurnId: item.leaderTurnId,
         },

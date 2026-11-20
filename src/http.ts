@@ -5,6 +5,15 @@ import type { AddressInfo } from 'node:net'
 
 const MAX_BODY_BYTES = 1024 * 1024
 
+export class HttpError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message)
+  }
+}
+
 export type LoopbackServer = { port: number; close(): Promise<void> }
 
 export function sendJson(res: ServerResponse, status: number, body: unknown): void {

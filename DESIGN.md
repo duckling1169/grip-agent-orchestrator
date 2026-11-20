@@ -23,6 +23,8 @@ This document owns product behavior. [IMPLEMENTATION.md](IMPLEMENTATION.md) owns
 
 ## Truthful details
 
+- The chat composer accepts up to 10 attachments per message, 25 MB per file, including messages with no text. It shows image previews and file names and sizes before sending. Sent images open full size and other files download.
+
 - Show next-turn settings while a worker runs and offer Stop and continue; do not imply mid-turn message injection. Label selectors Next-turn model and wall time Time since started.
 - Record model and effort per turn.
 - Inspector: explicit refresh, last-fetched time and bounded refresh while running.

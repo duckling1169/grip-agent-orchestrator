@@ -4,11 +4,12 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { z } from 'zod'
 
 import type { PostedMessage, Snapshot } from '../contracts/api.js'
+import { MAX_ATTACHMENTS } from '../contracts/attachments.js'
 import { isEngine, LEADER_ENGINES } from '../contracts/engines.js'
 import { MoxySettingsBody } from '../contracts/settings.js'
 import type { Database } from '../db/database.js'
 import { errorText } from '../errors.js'
-import { listenOnLoopback, readJsonBody, sendJson } from '../http.js'
+import { HttpError, listenOnLoopback, readJsonBody, sendJson } from '../http.js'
 import type { LoopbackServer } from '../http.js'
 import type { LeaderLoop } from '../moxy/loop.js'
 import { userMessage } from '../moxy/store.js'
@@ -23,6 +24,7 @@ import type { Tasks } from '../tasks/service.js'
 import type { Workers } from '../workers/service.js'
 import { crossSiteWrite, identify, LOCAL_LOGIN } from './identity.js'
 import { serveStatic } from './static.js'
+import { UPLOAD_ID, UPLOAD_TYPE, Uploads } from './uploads.js'
 
 export const DEFAULT_WEB_PORT = 18798
 const HEARTBEAT_MS = 25_000
@@ -39,6 +41,7 @@ export type WebServerOptions = {
   port: number
   host: string
   staticDir: string
+  uploadsDir: string
   quota: Quota
   models: Pick<ModelCatalog, 'get'>
   settings: Settings
@@ -47,16 +50,16 @@ export type WebServerOptions = {
   shutdown: () => void
 }
 
-class HttpError extends Error {
-  constructor(
-    readonly status: number,
-    message: string,
-  ) {
-    super(message)
-  }
-}
-
-const MessageBody = z.object({ text: z.string().trim().min(1, 'text is required'), id: z.string().min(1).optional() })
+const MessageBody = z
+  .object({
+    text: z.string().trim().default(''),
+    id: z.string().min(1).optional(),
+    attachments: z
+      .array(z.string().regex(UPLOAD_ID, 'Invalid attachment ID'))
+      .max(MAX_ATTACHMENTS, `Attach up to ${MAX_ATTACHMENTS} files`)
+      .default([]),
+  })
+  .refine(message => message.text.length > 0 || message.attachments.length > 0, { path: ['text'], message: 'text is required' })
 const SettingsBody = z.object({ engine: z.enum(LEADER_ENGINES), model: z.string().min(1).nullable(), effort: z.string().min(1).nullable() })
 const RetryBody = z.object({ turnId: z.number().int(), settings: SettingsBody.optional() })
 const WorkerMessageBody = z.object({ text: z.string().trim().min(1, 'text is required') })
@@ -78,6 +81,7 @@ async function body<T>(req: IncomingMessage, schema: z.ZodType<T>): Promise<T> {
 export async function startWebServer(options: WebServerOptions): Promise<LoopbackServer> {
   const { conversation, loop, tasks, workers, database, quota, models, settings, push } = options
   const streams = new Map<ServerResponse, string>()
+  const uploads = new Uploads(options.uploadsDir)
   let revision = database.revision
 
   const snapshot = (login: string): Snapshot => {
@@ -120,8 +124,15 @@ export async function startWebServer(options: WebServerOptions): Promise<Loopbac
   }
 
   const postMessage = async (req: IncomingMessage): Promise<PostedMessage> => {
-    const { text, id } = await body(req, MessageBody)
-    const item = userMessage(text, id ?? randomUUID())
+    const { text, id, attachments } = await body(req, MessageBody)
+    const files = await Promise.all(
+      attachments.map(async id => {
+        const file = await uploads.get(id)
+        if (!file) throw new HttpError(400, `Attachment ${id} was not found. Upload it again.`)
+        return file
+      }),
+    )
+    const item = userMessage(text, id ?? randomUUID(), files)
     const received = conversation.receive(item)
     if (received) loop.wake()
     return { source: item.source, received }
@@ -173,6 +184,13 @@ export async function startWebServer(options: WebServerOptions): Promise<Loopbac
       return quota.refresh([engine])
     }
     if (method === 'POST' && path === '/api/messages') return postMessage(req)
+    if (method === 'POST' && path === '/api/uploads') return uploads.save(req)
+    const upload = /^\/api\/uploads\/([\da-f-]+)$/.exec(path)?.[1]
+    if (method === 'GET' && upload) {
+      const attachment = await uploads.get(upload)
+      if (!attachment) throw new HttpError(404, 'Attachment not found')
+      return uploads.serve(res, attachment)
+    }
     if (method === 'POST' && path === '/api/leader/stop') return { stopped: await loop.stop() }
     if (method === 'POST' && path === '/api/leader/send-now') return { stopped: await loop.sendNow() }
     if (method === 'POST' && path === '/api/leader/retry') {
@@ -202,7 +220,8 @@ export async function startWebServer(options: WebServerOptions): Promise<Loopbac
     if (req.method === 'GET' && path === '/health') return sendJson(res, 200, { ok: true, app: 'moxy' })
     const who = identify(req.headers, options.allowedLogins, options.token)
     if (!who.ok) return sendJson(res, who.status, { error: who.error })
-    const refused = crossSiteWrite(req.method ?? 'GET', req.headers)
+    const isUpload = req.method === 'POST' && path === '/api/uploads'
+    const refused = crossSiteWrite(req.method ?? 'GET', req.headers, isUpload ? UPLOAD_TYPE : undefined)
     if (refused) return sendJson(res, 403, { error: refused })
     if (!path.startsWith('/api/')) {
       if (req.method === 'GET' || req.method === 'HEAD') return serveStatic(req, res, options.staticDir)
@@ -213,6 +232,7 @@ export async function startWebServer(options: WebServerOptions): Promise<Loopbac
       if (!res.headersSent) sendJson(res, 200, result ?? null)
     } catch (error) {
       if (res.headersSent) return void res.destroy()
+      if (isUpload) req.resume()
       sendJson(res, error instanceof HttpError ? error.status : 400, { error: errorText(error) })
     }
   })

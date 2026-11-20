@@ -30,6 +30,7 @@ function post<T>(path: string, body: unknown = {}): Promise<T> {
 }
 
 const workerPath = (id: string) => `/api/workers/${encodeURIComponent(id)}`
+export const uploadPath = (id: string) => `/api/uploads/${encodeURIComponent(id)}`
 
 export const api = {
   state: () => request<Snapshot>('/api/state'),
@@ -41,7 +42,17 @@ export const api = {
   models: (engine: Engine, signal?: AbortSignal) => request<EngineModels>(`/api/models/${engine}`, { signal }),
   refreshQuota: (engine: Engine) => post<EngineQuota[]>(`/api/quota/${engine}/refresh`),
   settings: (settings: MoxySettings) => post<MoxySettings>('/api/settings', settings),
-  send: (text: string, id: string) => post<PostedMessage>('/api/messages', { text, id }),
+  upload: (file: File) =>
+    request<{ id: string }>('/api/uploads', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/octet-stream',
+        'X-File-Name': encodeURIComponent(file.name),
+        'X-File-Type': file.type,
+      },
+      body: file,
+    }),
+  send: (text: string, id: string, attachments: string[]) => post<PostedMessage>('/api/messages', { text, id, attachments }),
   stop: () => post<{ stopped: boolean }>('/api/leader/stop'),
   sendNow: () => post<{ stopped: boolean }>('/api/leader/send-now'),
   retry: (turnId: number, settings?: LeaderSettings) => post<LeaderTurn>('/api/leader/retry', { turnId, settings }),

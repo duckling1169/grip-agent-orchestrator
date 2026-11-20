@@ -1,6 +1,7 @@
 import type { ConversationEntry, Task } from '../contracts/api.js'
 import { MEMORY_LIMITS } from './memory.js'
 import type { UserMemory } from './memory.js'
+import { renderUserMessage } from './prompt.js'
 
 type HandoffInput = { tasks: readonly Task[]; conversation: readonly ConversationEntry[]; memory: UserMemory }
 
@@ -51,7 +52,7 @@ function conversationContext(conversation: readonly ConversationEntry[], current
   let remaining = 7900
   for (const entry of [...recent].reverse()) {
     const prefix = entry.type === 'user' ? 'User: ' : `Moxy (${entry.turn.engine}, ${clipped(entry.turn.model ?? 'default', 120)}): `
-    const content = entry.type === 'user' ? entry.text : (entry.turn.output ?? `Turn failed: ${entry.turn.error}`)
+    const content = entry.type === 'user' ? renderUserMessage(entry) : (entry.turn.output ?? `Turn failed: ${entry.turn.error}`)
     const message = `${prefix}${clipped(content, Math.max(0, Math.min(2000 - prefix.length, remaining - prefix.length)))}`
     if (remaining < 100) break
     messages.unshift(message)

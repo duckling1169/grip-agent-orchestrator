@@ -18,10 +18,10 @@ export function identify(headers: IncomingHttpHeaders, allowedLogins: readonly s
   return { ok: true, login }
 }
 
-export function crossSiteWrite(method: string, headers: IncomingHttpHeaders): string | null {
+export function crossSiteWrite(method: string, headers: IncomingHttpHeaders, contentType = 'application/json'): string | null {
   if (method === 'GET' || method === 'HEAD') return null
   const type = headers['content-type']?.split(';')[0]?.trim().toLowerCase()
-  if (type !== 'application/json') return 'Writes must send Content-Type: application/json'
+  if (type !== contentType) return `Writes must send Content-Type: ${contentType}`
   const origin = headers.origin
   if (origin === undefined) return null
   let host: string

@@ -10,6 +10,7 @@ export type MoxyPaths = ReturnType<typeof moxyPaths>
 export const moxyPaths = (home = moxyHome()) => ({
   home,
   database: join(home, 'moxy.db'),
+  uploads: join(home, 'uploads'),
   config: join(home, 'config.json'),
   quota: join(home, 'quota.json'),
   push: join(home, 'push.json'),

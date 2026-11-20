@@ -3,6 +3,54 @@ import type { Page } from '@playwright/test'
 
 const isMobile = (page: Page) => (page.viewportSize()?.width ?? 0) < 768
 
+test('files can be picked, removed, and sent as an attachment-only message', async ({ page }) => {
+  await openIdle(page)
+  const composer = page.getByTestId('message-box')
+  await expect(composer.getByPlaceholder("What's up?")).toBeVisible()
+  const add = composer.getByRole('button', { name: 'Attach files' })
+  const pick = async (file: { name: string; mimeType: string; buffer: Buffer }) => {
+    const chooser = page.waitForEvent('filechooser')
+    await add.click()
+    await (await chooser).setFiles(file)
+  }
+  await pick({ name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('test') })
+  await expect(composer.getByText('notes.txt')).toBeVisible()
+  await expect(composer.getByText('4 B')).toBeVisible()
+  await composer.getByRole('button', { name: 'Remove notes.txt' }).click()
+  await expect(composer.getByText('notes.txt')).toHaveCount(0)
+  const dropped = await page.evaluateHandle(() => {
+    const transfer = new DataTransfer()
+    transfer.items.add(new File(['drop'], 'dropped.txt', { type: 'text/plain' }))
+    return transfer
+  })
+  await composer.dispatchEvent('drop', { dataTransfer: dropped })
+  await expect(composer.getByText('dropped.txt')).toBeVisible()
+  await composer.getByRole('button', { name: 'Remove dropped.txt' }).click()
+  const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jB9sAAAAASUVORK5CYII='
+  await composer.getByRole('textbox').evaluate((textarea, png) => {
+    const transfer = new DataTransfer()
+    transfer.items.add(new File([Uint8Array.from(atob(png), char => char.charCodeAt(0))], 'pasted.png', { type: 'image/png' }))
+    textarea.dispatchEvent(new ClipboardEvent('paste', { clipboardData: transfer, bubbles: true, cancelable: true }))
+  }, png)
+  await expect(composer.getByRole('img', { name: 'pasted.png' })).toBeVisible()
+  await composer.getByRole('button', { name: 'Remove pasted.png' }).click()
+  const name = `attachment-${Date.now()}.png`
+  await pick({
+    name,
+    mimeType: 'image/png',
+    buffer: Buffer.from(png, 'base64'),
+  })
+  await expect(composer.getByRole('img', { name })).toBeVisible()
+  await composer.getByRole('button', { name: 'Send', exact: true }).click()
+  const thumbnail = page.getByTestId('user-message').getByRole('img', { name })
+  await expect(thumbnail).toBeVisible()
+  await expect.poll(() => thumbnail.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBe(1)
+  const full = page.waitForEvent('popup')
+  await thumbnail.click()
+  await expect(await full).toHaveURL(/\/api\/uploads\//)
+  await expect(activeTurn(page)).toHaveCount(0, { timeout: 15000 })
+})
+
 test('engine changes apply to the next turn and can switch and retry a quota failure', async ({ page }) => {
   await openIdle(page)
   await page.getByRole('button', { name: /^Orchestrator:/ }).click()

@@ -213,6 +213,7 @@ export async function startMoxy(options: MoxyOptions = {}): Promise<Moxy> {
       port: options.webPort ?? DEFAULT_WEB_PORT,
       host: hostname(),
       staticDir: options.staticDir ?? DEFAULT_STATIC_DIR,
+      uploadsDir: paths.uploads,
       quota,
       models,
       settings,
